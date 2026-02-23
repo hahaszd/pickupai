@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PickupAI — 24/7 AI Receptionist for Australian Tradies</title>
+  <meta name="description" content="Never miss a job again. PickupAI answers your calls 24/7, collects lead details, and texts them straight to you. Built for Australian plumbers, electricians, and roofers." />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --brand: #2563eb; --brand-dark: #1d4ed8; --brand-light: #eff6ff;
+      --yellow: #f59e0b; --green: #16a34a;
+      --gray-50: #f8fafc; --gray-100: #f1f5f9; --gray-200: #e2e8f0;
+      --gray-400: #94a3b8; --gray-500: #64748b; --gray-600: #475569;
+      --gray-700: #334155; --gray-900: #0f172a;
+      --radius: 12px;
+    }
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--gray-900); background: #fff; }
+    a { color: var(--brand); text-decoration: none; }
+
+    /* ── Nav ── */
+    nav {
+      position: sticky; top: 0; z-index: 100; background: rgba(255,255,255,.95);
+      backdrop-filter: blur(10px); border-bottom: 1px solid var(--gray-200);
+      display: flex; align-items: center; padding: 0 2rem; height: 64px; gap: 2rem;
+    }
+    .nav-logo { font-weight: 800; font-size: 1.2rem; color: var(--brand); }
+    .nav-logo span { color: var(--gray-900); }
+    .nav-spacer { flex: 1; }
+    .nav-cta { background: var(--brand); color: #fff !important; padding: .45rem 1.1rem;
+               border-radius: 8px; font-weight: 600; font-size: .9rem; }
+    .nav-cta:hover { background: var(--brand-dark); }
+
+    /* ── Hero ── */
+    .hero {
+      background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 60%, #3b82f6 100%);
+      color: #fff; text-align: center; padding: 5rem 1.5rem 4rem;
+    }
+    .hero-tag {
+      display: inline-block; background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.3);
+      padding: .35rem 1rem; border-radius: 999px; font-size: .8rem; font-weight: 600;
+      letter-spacing: .6px; text-transform: uppercase; margin-bottom: 1.5rem;
+    }
+    .hero h1 { font-size: clamp(2rem, 5vw, 3.5rem); font-weight: 800; line-height: 1.15; margin-bottom: 1.25rem; }
+    .hero h1 em { font-style: normal; color: #fde68a; }
+    .hero p { font-size: clamp(1rem, 2.5vw, 1.2rem); opacity: .88; max-width: 560px; margin: 0 auto 2.5rem; line-height: 1.6; }
+    .hero-cta-group { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+    .btn-hero-primary {
+      background: #fff; color: var(--brand); padding: .85rem 2rem; border-radius: 10px;
+      font-weight: 700; font-size: 1rem; transition: transform .15s, box-shadow .15s;
+      box-shadow: 0 4px 14px rgba(0,0,0,.15);
+    }
+    .btn-hero-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0,0,0,.2); }
+    .btn-hero-secondary {
+      background: transparent; color: #fff; padding: .85rem 2rem; border-radius: 10px;
+      font-weight: 600; font-size: 1rem; border: 2px solid rgba(255,255,255,.5);
+    }
+    .btn-hero-secondary:hover { border-color: #fff; }
+
+    /* ── Social proof strip ── */
+    .strip {
+      background: var(--gray-50); border-top: 1px solid var(--gray-200);
+      border-bottom: 1px solid var(--gray-200);
+      padding: 1rem 2rem; text-align: center; font-size: .85rem; color: var(--gray-500);
+    }
+
+    /* ── Sections ── */
+    section { padding: 5rem 1.5rem; }
+    .section-center { text-align: center; max-width: 640px; margin: 0 auto 3rem; }
+    .section-tag {
+      display: inline-block; background: var(--brand-light); color: var(--brand);
+      padding: .3rem .9rem; border-radius: 999px; font-size: .75rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .6px; margin-bottom: 1rem;
+    }
+    h2 { font-size: clamp(1.6rem, 3.5vw, 2.2rem); font-weight: 800; line-height: 1.2; margin-bottom: 1rem; }
+    .lead { font-size: 1.05rem; color: var(--gray-600); line-height: 1.65; }
+    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.5rem; max-width: 1000px; margin: 0 auto; }
+    .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; max-width: 800px; margin: 0 auto; }
+
+    /* Feature cards */
+    .feature-card {
+      background: #fff; border: 1px solid var(--gray-200); border-radius: var(--radius);
+      padding: 1.75rem; transition: box-shadow .2s, transform .2s;
+    }
+    .feature-card:hover { box-shadow: 0 8px 24px rgba(37,99,235,.1); transform: translateY(-2px); }
+    .feature-icon { font-size: 2rem; margin-bottom: 1rem; }
+    .feature-card h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: .5rem; }
+    .feature-card p { font-size: .9rem; color: var(--gray-600); line-height: 1.6; }
+
+    /* How it works */
+    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; max-width: 900px; margin: 0 auto; }
+    .step { text-align: center; padding: 1.5rem 1rem; }
+    .step-num {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 48px; height: 48px; border-radius: 50%; background: var(--brand);
+      color: #fff; font-weight: 800; font-size: 1.1rem; margin-bottom: 1rem;
+    }
+    .step h3 { font-size: 1rem; font-weight: 700; margin-bottom: .4rem; }
+    .step p { font-size: .875rem; color: var(--gray-600); line-height: 1.5; }
+
+    /* Pricing */
+    .pricing-card {
+      background: #fff; border: 2px solid var(--brand); border-radius: var(--radius);
+      padding: 2.5rem 2rem; text-align: center; max-width: 400px; margin: 0 auto;
+      box-shadow: 0 8px 32px rgba(37,99,235,.12);
+    }
+    .pricing-label { font-size: .8rem; font-weight: 700; text-transform: uppercase;
+                     letter-spacing: .6px; color: var(--brand); margin-bottom: .75rem; }
+    .price { font-size: 3.5rem; font-weight: 800; color: var(--gray-900); line-height: 1; }
+    .price sup { font-size: 1.5rem; vertical-align: super; }
+    .price span { font-size: 1rem; color: var(--gray-500); font-weight: 400; }
+    .price-sub { font-size: .9rem; color: var(--gray-500); margin-top: .25rem; margin-bottom: 1.5rem; }
+    .feature-list { list-style: none; text-align: left; margin: 1.5rem 0; }
+    .feature-list li { padding: .5rem 0; font-size: .9rem; color: var(--gray-700); display: flex; gap: .65rem; align-items: flex-start; border-bottom: 1px solid var(--gray-100); }
+    .feature-list li:last-child { border-bottom: none; }
+    .feature-list li::before { content: "✓"; color: var(--green); font-weight: 700; flex-shrink: 0; }
+    .btn-pricing { display: block; background: var(--brand); color: #fff;
+                   padding: .9rem; border-radius: 8px; font-weight: 700; font-size: 1rem;
+                   margin-top: 1.5rem; transition: background .15s; }
+    .btn-pricing:hover { background: var(--brand-dark); }
+
+    /* Testimonials */
+    .testimonial {
+      background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: var(--radius);
+      padding: 1.75rem; font-style: italic;
+    }
+    .testimonial blockquote { font-size: .95rem; line-height: 1.65; color: var(--gray-700); margin-bottom: 1rem; }
+    .testimonial cite { font-style: normal; font-size: .85rem; font-weight: 700; color: var(--gray-900); }
+    .testimonial .trade { font-size: .8rem; color: var(--gray-500); font-weight: 400; }
+
+    /* Email capture */
+    .capture { background: linear-gradient(135deg, #1e3a8a, #2563eb); color: #fff; text-align: center; padding: 5rem 1.5rem; }
+    .capture h2 { color: #fff; }
+    .capture p { opacity: .85; max-width: 480px; margin: .75rem auto 2rem; }
+    .capture-form { display: flex; gap: .75rem; max-width: 480px; margin: 0 auto; flex-wrap: wrap; justify-content: center; }
+    .capture-form input {
+      flex: 1; min-width: 200px; padding: .75rem 1rem; border-radius: 8px;
+      border: 2px solid rgba(255,255,255,.3); background: rgba(255,255,255,.15);
+      color: #fff; font-size: 1rem; outline: none;
+    }
+    .capture-form input::placeholder { color: rgba(255,255,255,.6); }
+    .capture-form input:focus { border-color: rgba(255,255,255,.7); }
+    .capture-form button {
+      padding: .75rem 1.5rem; background: #fff; color: var(--brand); font-weight: 700;
+      font-size: 1rem; border: none; border-radius: 8px; cursor: pointer;
+    }
+    .capture-form button:hover { background: #e0e7ff; }
+
+    /* Footer */
+    footer { background: var(--gray-900); color: var(--gray-400); text-align: center; padding: 2rem; font-size: .85rem; }
+    footer a { color: var(--gray-400); }
+
+    @media (max-width: 640px) {
+      .hero { padding: 3.5rem 1rem 3rem; }
+      section { padding: 3.5rem 1rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav>
+  <div class="nav-logo">Pickup<span>AI</span></div>
+  <div class="nav-spacer"></div>
+  <a href="#pricing">Pricing</a>
+  <a href="#contact" class="nav-cta">Get started</a>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-tag">🇦🇺 Built for Australian Tradies</div>
+  <h1>You miss calls.<br><em>We don't.</em></h1>
+  <p>PickupAI answers your phone 24/7, collects every lead, and texts you the details — so you never lose a job while you're under a sink.</p>
+  <div class="hero-cta-group">
+    <a href="#contact" class="btn-hero-primary">Start free trial →</a>
+    <a href="#how-it-works" class="btn-hero-secondary">See how it works</a>
+  </div>
+</section>
+
+<!-- Strip -->
+<div class="strip">
+  Missed calls cost Australian tradies an average of <strong>$800–$2,000/month</strong> in lost jobs. &nbsp;·&nbsp;
+  Setup takes less than <strong>10 minutes</strong>.
+</div>
+
+<!-- Features -->
+<section id="features" style="background: var(--gray-50);">
+  <div class="section-center">
+    <div class="section-tag">Features</div>
+    <h2>Everything your receptionist does — without the salary</h2>
+    <p class="lead">A real AI voice that answers calls, understands the job, and sends you a text summary instantly.</p>
+  </div>
+  <div class="grid-3">
+    <div class="feature-card">
+      <div class="feature-icon">📞</div>
+      <h3>Answers every call</h3>
+      <p>24 hours a day, 7 days a week. Never ring out, never go to voicemail. Every caller gets a real conversation.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📋</div>
+      <h3>Collects lead details</h3>
+      <p>Name, address, job type, urgency, preferred time — collected naturally in conversation, not a phone tree.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📱</div>
+      <h3>Texts you instantly</h3>
+      <p>The moment the call ends, you get an SMS with everything you need to call them back and book the job.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🚨</div>
+      <h3>Flags emergencies</h3>
+      <p>Burst pipes, gas leaks, flooding — the AI detects urgency and marks them as high priority so you act fast.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🗓️</div>
+      <h3>Handles follow-ups</h3>
+      <p>Returning customers, booking inquiries, complaints — the AI handles them all professionally and logs everything.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📊</div>
+      <h3>Lead dashboard</h3>
+      <p>See all your leads sorted by urgency, listen to recordings, and mark jobs as handled. On any device.</p>
+    </div>
+  </div>
+</section>
+
+<!-- How it works -->
+<section id="how-it-works">
+  <div class="section-center">
+    <div class="section-tag">How it works</div>
+    <h2>Up and running in 10 minutes</h2>
+    <p class="lead">We do the setup. You just start getting texts.</p>
+  </div>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <h3>You sign up</h3>
+      <p>We get your business details and a dedicated phone number set up for your trade.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <h3>Forward your calls</h3>
+      <p>Set call forwarding on your mobile (takes 2 min) — or we give you a new number to advertise.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <h3>AI answers</h3>
+      <p>When you can't pick up, your AI receptionist answers, chats naturally, and collects job details.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <h3>You get a text</h3>
+      <p>Instantly. Customer name, address, issue, urgency. Call back when you're ready and win the job.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Pricing -->
+<section id="pricing" style="background: var(--gray-50);">
+  <div class="section-center">
+    <div class="section-tag">Pricing</div>
+    <h2>Simple, flat pricing</h2>
+    <p class="lead">No per-minute charges. No hidden fees. One flat rate per month.</p>
+  </div>
+  <div class="pricing-card">
+    <div class="pricing-label">⭐ Most popular</div>
+    <div class="price"><sup>$</sup>97<span>/month</span></div>
+    <div class="price-sub">Per business · Cancel anytime</div>
+    <ul class="feature-list">
+      <li>Unlimited inbound calls answered</li>
+      <li>AI trained on your trade (plumbing, electrical, roofing etc.)</li>
+      <li>Instant SMS lead alerts to your phone</li>
+      <li>Online dashboard with call recordings</li>
+      <li>Emergency call detection &amp; priority flagging</li>
+      <li>Returns calls handled intelligently</li>
+      <li>14-day free trial — no credit card needed</li>
+    </ul>
+    <a href="#contact" class="btn-pricing">Start free 14-day trial →</a>
+  </div>
+</section>
+
+<!-- Testimonials (placeholder — replace with real quotes) -->
+<section id="testimonials">
+  <div class="section-center">
+    <div class="section-tag">What tradies say</div>
+    <h2>From the ones who've tried it</h2>
+  </div>
+  <div class="grid-2">
+    <div class="testimonial">
+      <blockquote>"I was losing at least 3–4 jobs a week to missed calls. Set this up on a Friday and by Monday I had 11 leads waiting. Absolutely mad."</blockquote>
+      <cite>Steve M. <span class="trade">— Plumber, Sydney</span></cite>
+    </div>
+    <div class="testimonial">
+      <blockquote>"The AI sounds so natural my customers think it's a real person. It handles everything and sends me a text straight away. Dead easy."</blockquote>
+      <cite>Dave K. <span class="trade">— Electrician, Melbourne</span></cite>
+    </div>
+  </div>
+</section>
+
+<!-- Email capture / CTA -->
+<section class="capture" id="contact">
+  <h2>Ready to stop missing jobs?</h2>
+  <p>Start your free 14-day trial. No credit card. Takes 10 minutes to set up.</p>
+  <form class="capture-form" action="https://formspree.io/f/YOUR_FORM_ID" method="POST" onsubmit="handleSubmit(event)">
+    <input type="text" name="name" placeholder="Your name" required />
+    <input type="email" name="email" placeholder="Your email" required />
+    <input type="tel" name="phone" placeholder="Your mobile" />
+    <input type="hidden" name="trade" value="" id="trade-hidden" />
+    <button type="submit">Get started free →</button>
+  </form>
+  <p style="margin-top:1rem;font-size:.8rem;opacity:.7;">Or book a quick demo call: <a href="https://calendly.com/YOUR_LINK" style="color:#fde68a;">Schedule a call →</a></p>
+</section>
+
+<!-- Footer -->
+<footer>
+  <p>© 2026 PickupAI · Built in Australia 🇦🇺 · <a href="mailto:hello@pickupai.com.au">hello@pickupai.com.au</a></p>
+</footer>
+
+<script>
+  // Smooth scroll for anchor links
+  document.querySelectorAll('a[href^="#"]').forEach(a => {
+    a.addEventListener('click', e => {
+      const target = document.querySelector(a.getAttribute('href'));
+      if (target) { e.preventDefault(); target.scrollIntoView({ behavior: 'smooth' }); }
+    });
+  });
+
+  function handleSubmit(e) {
+    // Replace with your actual form handler (Formspree, Mailchimp, etc.)
+    // For now, just show a thank you message
+    if (!document.querySelector('.capture-form')?.getAttribute('action')?.includes('YOUR_FORM_ID')) return;
+    e.preventDefault();
+    alert('Thanks! We\'ll be in touch within 24 hours to get you set up.');
+  }
+</script>
+</body>
+</html>

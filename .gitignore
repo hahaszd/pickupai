@@ -1,0 +1,25 @@
+# Secrets — NEVER commit these
+.env
+deploy-config.json
+secrets/
+
+# Runtime data
+data/
+
+# Build output
+dist/
+
+# Dependencies
+node_modules/
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
