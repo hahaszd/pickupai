@@ -17,9 +17,21 @@ import { buildServiceAreaSection } from "../src/realtime/session.js";
 import type { LeadRow } from "../src/db/repo.js";
 import { execSync } from "node:child_process";
 
-const BASE = "http://localhost:3000";
-const ADMIN_TOKEN = "local-admin-token-2026";
+// Set TARGET=local to run against localhost:3000 (signature validation off)
+// Default: runs against production (signature validation on)
+const TARGET = process.env.TARGET ?? "prod";
+const BASE = TARGET === "local"
+  ? "http://localhost:3000"
+  : "https://pickupai.ai-builders.space";
+const ADMIN_TOKEN = TARGET === "local"
+  ? "local-admin-token-2026"
+  : "f9cef66726d425b2b9253fe48c60b7451686e4c8c515eeab2c9d148d69729441";
+const SEED_EMAIL = TARGET === "local" ? "owner@example.com" : "owner@pickupai.app";
+const SEED_PASSWORD = TARGET === "local" ? "changeme123" : "changeme-set-a-real-password";
+const PROD_MODE = TARGET === "prod";  // signature validation ON in prod — Twilio tests behave differently
 const TEST_CALL_SID = "CA_TEST_LIFECYCLE_001";
+
+console.log(`\n🎯 Target: ${BASE} (${PROD_MODE ? "production — Twilio sig validation ON" : "local — Twilio sig validation OFF"})`);
 
 // ─── Test runner ─────────────────────────────────────────────────────────────
 
@@ -119,8 +131,8 @@ let sessionCookie = "";
 
 async function loginAndGetCookie(): Promise<string> {
   const res = await postForm("/dashboard/login", {
-    email: "owner@example.com",
-    password: "changeme123"
+    email: SEED_EMAIL,
+    password: SEED_PASSWORD
   });
   const raw = res.headers.get("set-cookie") ?? "";
   const match = raw.match(/dash_session=([^;]+)/);
@@ -176,7 +188,7 @@ await check("T01", "GET /health → {ok: true, mode: realtime, multiTenant: true
 });
 
 await check("T02", "GET / → HTML contains 'PickupAI'", async () => {
-  const res = await fetch(`${BASE}/`, { headers: { "ngrok-skip-browser-warning": "1" } });
+  const res = await fetch(`${BASE}/`);
   const html = await res.text();
   assert(res.status === 200, `expected 200, got ${res.status}`);
   assert(html.includes("PickupAI"), `landing page HTML does not contain 'PickupAI'`);
@@ -279,7 +291,7 @@ await check("T11", "POST /dashboard/login with wrong credentials → no cookie",
 });
 
 await check("T12", "POST /dashboard/login with correct credentials → session cookie + redirect", async () => {
-  const res = await postForm("/dashboard/login", { email: "owner@example.com", password: "changeme123" });
+  const res = await postForm("/dashboard/login", { email: SEED_EMAIL, password: SEED_PASSWORD });
   assert(res.status === 302, `expected 302 redirect, got ${res.status}`);
   const location = res.headers.get("location") ?? "";
   assert(location.includes("/dashboard/leads"), `expected redirect to /dashboard/leads, got '${location}'`);
@@ -325,55 +337,93 @@ await check("T15", "GET /dashboard/logout → 302 + session cookie cleared", asy
 
 console.log("\n── Group 4: Twilio Webhooks ─────────────────────────────────");
 
-await check("T16", "POST /twilio/voice/incoming (registered number) → TwiML with <Connect><Stream>", async () => {
+// In production, TWILIO_VALIDATE_SIGNATURE=true — unsigned requests correctly return 403.
+// In local mode, validation is off — we verify actual TwiML content.
+
+await check("T16", PROD_MODE
+  ? "POST /twilio/voice/incoming (unsigned) → 403 (signature validation active)"
+  : "POST /twilio/voice/incoming (registered number) → TwiML with <Connect><Stream>",
+async () => {
   const { status, body } = await postTwiml("/twilio/voice/incoming", {
     CallSid: TEST_CALL_SID,
     From: "+61412345678",
     To: "+61468000835",
     CallStatus: "ringing"
   });
-  assert(status === 200, `expected 200, got ${status}`);
-  assert(body.includes("<Connect>"), `TwiML missing <Connect>: ${body.slice(0, 300)}`);
-  assert(body.includes("<Stream"), `TwiML missing <Stream>: ${body.slice(0, 300)}`);
-  assert(body.includes("wss://"), `<Stream> URL should use wss://, got: ${body.slice(0, 300)}`);
+  if (PROD_MODE) {
+    assert(status === 401 || status === 403, `expected 401/403 (signature validation), got ${status}`);
+  } else {
+    assert(status === 200, `expected 200, got ${status}`);
+    assert(body.includes("<Connect>"), `TwiML missing <Connect>: ${body.slice(0, 300)}`);
+    assert(body.includes("<Stream"), `TwiML missing <Stream>: ${body.slice(0, 300)}`);
+    assert(body.includes("wss://"), `<Stream> URL should use wss://, got: ${body.slice(0, 300)}`);
+  }
 });
 
-await check("T17", "POST /twilio/voice/incoming (unknown number) → fallback TwiML still valid", async () => {
+await check("T17", PROD_MODE
+  ? "POST /twilio/voice/incoming unknown number (unsigned) → 403"
+  : "POST /twilio/voice/incoming (unknown number) → fallback TwiML still valid",
+async () => {
   const { status, body } = await postTwiml("/twilio/voice/incoming", {
     CallSid: "CA_UNKNOWN_NUMBER_TEST",
     From: "+61411111111",
     To: "+61499999999",
     CallStatus: "ringing"
   });
-  assert(status === 200, `expected 200, got ${status}`);
-  assert(body.includes("<Connect>") || body.includes("<Dial>"),
-    `expected valid TwiML with <Connect> or <Dial>, got: ${body.slice(0, 300)}`);
+  if (PROD_MODE) {
+    assert(status === 401 || status === 403, `expected 401/403 (signature validation), got ${status}`);
+  } else {
+    assert(status === 200, `expected 200, got ${status}`);
+    assert(body.includes("<Connect>") || body.includes("<Dial>"),
+      `expected valid TwiML with <Connect> or <Dial>, got: ${body.slice(0, 300)}`);
+  }
 });
 
-await check("T18", "POST /twilio/voice/status (in-progress) → 200", async () => {
+await check("T18", PROD_MODE
+  ? "POST /twilio/voice/status (unsigned) → 403"
+  : "POST /twilio/voice/status (in-progress) → 200",
+async () => {
   const { status } = await postTwiml("/twilio/voice/status", {
     CallSid: TEST_CALL_SID,
     CallStatus: "in-progress"
   });
-  assert(status === 200, `expected 200, got ${status}`);
+  if (PROD_MODE) {
+    assert(status === 401 || status === 403, `expected 401/403 (signature validation), got ${status}`);
+  } else {
+    assert(status === 200, `expected 200, got ${status}`);
+  }
 });
 
-await check("T19", "POST /twilio/voice/status (completed) → 200 + call row updated", async () => {
+await check("T19", PROD_MODE
+  ? "POST /twilio/voice/status completed (unsigned) → 403"
+  : "POST /twilio/voice/status (completed) → 200 + call row updated",
+async () => {
   const { status } = await postTwiml("/twilio/voice/status", {
     CallSid: TEST_CALL_SID,
     CallStatus: "completed"
   });
-  assert(status === 200, `expected 200, got ${status}`);
+  if (PROD_MODE) {
+    assert(status === 401 || status === 403, `expected 401/403 (signature validation), got ${status}`);
+  } else {
+    assert(status === 200, `expected 200, got ${status}`);
+  }
 });
 
-await check("T20", "POST /twilio/voice/recording → 200 + recording_url stored", async () => {
+await check("T20", PROD_MODE
+  ? "POST /twilio/voice/recording (unsigned) → 403"
+  : "POST /twilio/voice/recording → 200 + recording_url stored",
+async () => {
   const { status } = await postTwiml("/twilio/voice/recording", {
     CallSid: TEST_CALL_SID,
     RecordingSid: "RE_TEST_123",
     RecordingUrl: "https://api.twilio.com/recordings/RE_TEST_123",
     RecordingStatus: "completed"
   });
-  assert(status === 200, `expected 200, got ${status}`);
+  if (PROD_MODE) {
+    assert(status === 401 || status === 403, `expected 401/403 (signature validation), got ${status}`);
+  } else {
+    assert(status === 200, `expected 200, got ${status}`);
+  }
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -382,12 +432,16 @@ await check("T20", "POST /twilio/voice/recording → 200 + recording_url stored"
 
 console.log("\n── Group 5: Lead Management ─────────────────────────────────");
 
-await check("T21", "GET /debug/calls/:callSid → returns call row after T19", async () => {
+await check("T21", "GET /debug/calls/:callSid → returns JSON object (200) or 404 (no prior call in prod)", async () => {
   const { status, body } = await getJson(`/debug/calls/${TEST_CALL_SID}`, adminHeaders());
-  assert(status === 200, `expected 200, got ${status}`);
-  // The debug endpoint returns { lead } not { call }, check the DB has the call by checking lead or null
-  // (lead may be null if no AI interaction, but status should be 200)
-  assert(typeof body === "object", `expected JSON object, got ${typeof body}`);
+  // In prod, T19 was blocked by sig validation so the call was never written to DB → expect 404
+  // In local mode (T19 ran), expect 200 with a call object
+  if (PROD_MODE) {
+    assert(status === 404 || status === 200, `expected 404 or 200, got ${status}`);
+  } else {
+    assert(status === 200, `expected 200, got ${status}`);
+    assert(typeof body === "object", `expected JSON object, got ${typeof body}`);
+  }
 });
 
 await check("T22", "GET /dashboard/leads/export.csv → Content-Type: text/csv with header row", async () => {
