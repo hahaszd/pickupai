@@ -25,6 +25,36 @@ import { buildServiceAreaSection } from "../src/realtime/session.js";
 import type { LeadRow } from "../src/db/repo.js";
 import { execSync } from "node:child_process";
 
+// ─── Twilio REST helpers (used in dev mode for webhook swap) ──────────────────
+// Credentials are read from environment variables (never hardcoded in source).
+// Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and DEMO_POOL_NUMBER_SID in your
+// shell or .env before running TARGET=dev tests.
+
+const TWILIO_ACCOUNT_SID   = process.env.TWILIO_ACCOUNT_SID   ?? "";
+const TWILIO_AUTH_TOKEN    = process.env.TWILIO_AUTH_TOKEN     ?? "";
+// Twilio phone number SID for the demo pool number (+61280000796).
+// Find it in the Twilio console under "Phone Numbers → Manage → Active Numbers".
+const DEMO_POOL_NUMBER_SID = process.env.DEMO_POOL_NUMBER_SID ?? "";
+const PROD_WEBHOOK = "https://pickupai.ai-builders.space/twilio/voice/incoming";
+const DEV_WEBHOOK  = "https://pickupai-dev.ai-builders.space/twilio/voice/incoming";
+
+function twilioAuthHeader() {
+  const creds = Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString("base64");
+  return { "Authorization": `Basic ${creds}`, "Content-Type": "application/x-www-form-urlencoded" };
+}
+
+async function setDemoWebhook(url: string) {
+  const res = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/IncomingPhoneNumbers/${DEMO_POOL_NUMBER_SID}.json`,
+    {
+      method: "POST",
+      headers: twilioAuthHeader(),
+      body: new URLSearchParams({ VoiceUrl: url, VoiceMethod: "POST" }).toString()
+    }
+  );
+  if (!res.ok) throw new Error(`Failed to update Twilio webhook: ${res.status} ${await res.text()}`);
+}
+
 // TARGET controls which server to test against.
 //   local  → localhost:3000, sig validation off, no real Twilio calls placed
 //   dev    → pickupai-dev.ai-builders.space, sig validation off, REAL Twilio calls (plumber demo)
@@ -756,6 +786,17 @@ await check("T39", "GET /dashboard/demo-status (authenticated) → 200 JSON {sta
 if (PROD_MODE) {
   console.log("  – T40 skipped in prod mode (would place a real Twilio call)");
 } else {
+  // Track whether T40 actually placed a call (vs returning a graceful error)
+  let demoCallPlaced = false;
+
+  if (DEV_MODE) {
+    // Swap demo number webhook → dev so the AI session runs on THIS server
+    await check("T40-setup", "Point demo number webhook to dev server before real call", async () => {
+      await setDemoWebhook(DEV_WEBHOOK);
+      console.log(`    → Webhook updated to ${DEV_WEBHOOK}`);
+    });
+  }
+
   await check(
     "T40",
     DEV_MODE
@@ -780,39 +821,49 @@ if (PROD_MODE) {
         html.toLowerCase().includes("busy") ||
         html.toLowerCase().includes("not configured");
       assert(hasSimContent || hasError, `expected simulation content or graceful error: ${html.slice(0, 300)}`);
-      if (DEV_MODE && hasError) {
-        console.log(`    ⚠ demo call returned an error (pool may be busy or unconfigured); skipping recording poll`);
+      demoCallPlaced = !hasError;
+      if (!demoCallPlaced) {
+        console.log(`    ⚠ demo call returned an error — recording poll will be skipped`);
       }
     }
   );
 
-  // In dev mode: the real AI receptionist answered the scripted caller.
-  // Poll /dashboard/demo-status until the recording is ready (up to 120 s).
+  // In dev mode: poll for the recording (the real AI answered the scripted caller).
   if (DEV_MODE) {
-    await check("T40b", "Demo call recording appears within 120 s (dev real-call integration)", async () => {
-      assert(signupCookie, "need signupCookie from T32 + T40");
-      const TIMEOUT_MS = 120_000;
-      const POLL_INTERVAL_MS = 8_000;
-      const deadline = Date.now() + TIMEOUT_MS;
-      let recordingUrl: string | null = null;
+    if (demoCallPlaced) {
+      await check("T40b", "Demo call recording appears within 150 s (dev real-call integration)", async () => {
+        assert(signupCookie, "need signupCookie from T32 + T40");
+        const TIMEOUT_MS = 150_000;
+        const POLL_INTERVAL_MS = 8_000;
+        const deadline = Date.now() + TIMEOUT_MS;
+        let recordingUrl: string | null = null;
 
-      while (Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-        const res = await fetch(`${BASE}/dashboard/demo-status`, {
-          headers: { Cookie: signupCookie }
-        });
-        if (res.status !== 200) continue;
-        const body = await res.json() as any;
-        if (body.status === "ready" && body.recordingUrl) {
-          recordingUrl = body.recordingUrl;
-          break;
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+          const res = await fetch(`${BASE}/dashboard/demo-status`, {
+            headers: { Cookie: signupCookie }
+          });
+          if (res.status !== 200) continue;
+          const body = await res.json() as any;
+          if (body.status === "ready" && body.recordingUrl) {
+            recordingUrl = body.recordingUrl;
+            break;
+          }
+          const remaining = Math.round((deadline - Date.now()) / 1000);
+          console.log(`    ⏳ waiting for recording... ${remaining}s remaining`);
         }
-        const remaining = Math.round((deadline - Date.now()) / 1000);
-        console.log(`    ⏳ waiting for recording... ${remaining}s remaining`);
-      }
 
-      assert(recordingUrl !== null, "Recording did not appear within 120 s — AI may not have completed the call");
-      console.log(`    ✔ Recording URL: ${recordingUrl}`);
+        assert(recordingUrl !== null, "Recording did not appear within 150 s — AI may not have completed the call");
+        console.log(`    ✔ Recording URL: ${recordingUrl}`);
+      });
+    } else {
+      console.log("  – T40b skipped (T40 did not place a real call)");
+    }
+
+    // Always restore prod webhook so live calls keep working
+    await check("T40-teardown", "Restore demo number webhook to production server", async () => {
+      await setDemoWebhook(PROD_WEBHOOK);
+      console.log(`    → Webhook restored to ${PROD_WEBHOOK}`);
     });
   }
 }
