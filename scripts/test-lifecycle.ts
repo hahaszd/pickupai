@@ -2,14 +2,22 @@
  * System lifecycle test suite.
  * Run with:  npx tsx scripts/test-lifecycle.ts
  *
- * Covers all 30 test cases across 7 groups:
- *   Group 1 - Infrastructure
- *   Group 2 - Admin API
- *   Group 3 - Dashboard auth
- *   Group 4 - Twilio webhooks
- *   Group 5 - Lead management
- *   Group 6 - SMS formatting (unit tests, no HTTP)
- *   Group 7 - Service area feature
+ * TARGET env var controls which server is tested:
+ *   TARGET=local  → http://localhost:3000 (sig validation off, no real calls)
+ *   TARGET=dev    → https://pickupai-dev.ai-builders.space (sig validation off, real Twilio calls)
+ *   TARGET=prod   → https://pickupai.ai-builders.space (sig validation ON, safe subset only)
+ *
+ * Covers all 44 test cases across 10 groups:
+ *   Group 1  - Infrastructure
+ *   Group 2  - Admin API
+ *   Group 3  - Dashboard auth
+ *   Group 4  - Twilio webhooks
+ *   Group 5  - Lead management
+ *   Group 6  - SMS formatting (unit tests, no HTTP)
+ *   Group 7  - Service area feature
+ *   Group 8  - Self-serve signup
+ *   Group 9  - Welcome page & demo flow (T40 runs real Twilio call in dev mode)
+ *   Group 10 - Landing page CTA & setup guide
  */
 
 import { formatOwnerSms, NO_SMS_INTENTS } from "../src/twilio/sms.js";
@@ -17,21 +25,51 @@ import { buildServiceAreaSection } from "../src/realtime/session.js";
 import type { LeadRow } from "../src/db/repo.js";
 import { execSync } from "node:child_process";
 
-// Set TARGET=local to run against localhost:3000 (signature validation off)
-// Default: runs against production (signature validation on)
+// TARGET controls which server to test against.
+//   local  → localhost:3000, sig validation off, no real Twilio calls placed
+//   dev    → pickupai-dev.ai-builders.space, sig validation off, REAL Twilio calls (plumber demo)
+//   prod   → pickupai.ai-builders.space, sig validation ON, safe subset only
 const TARGET = process.env.TARGET ?? "prod";
-const BASE = TARGET === "local"
-  ? "http://localhost:3000"
-  : "https://pickupai.ai-builders.space";
+
+const BASE =
+  TARGET === "local" ? "http://localhost:3000" :
+  TARGET === "dev"   ? "https://pickupai-dev.ai-builders.space" :
+                       "https://pickupai.ai-builders.space";
+
+// Admin token — same value deployed to both dev and prod
 const ADMIN_TOKEN = TARGET === "local"
   ? "local-admin-token-2026"
   : "f9cef66726d425b2b9253fe48c60b7451686e4c8c515eeab2c9d148d69729441";
-const SEED_EMAIL = TARGET === "local" ? "owner@example.com" : "owner@pickupai.app";
-const SEED_PASSWORD = TARGET === "local" ? "changeme123" : "changeme-set-a-real-password";
-const PROD_MODE = TARGET === "prod";  // signature validation ON in prod — Twilio tests behave differently
+
+const SEED_EMAIL =
+  TARGET === "local" ? "owner@example.com" :
+  TARGET === "dev"   ? "dev@pickupai.app" :
+                       "owner@pickupai.app";
+
+const SEED_PASSWORD =
+  TARGET === "local" ? "changeme123" :
+  TARGET === "dev"   ? "dev-changeme-2026" :
+                       "changeme-set-a-real-password";
+
+// Seed tenant's Twilio number (TWILIO_DEFAULT_VOICE_NUMBER in the deployed env)
+const SEED_TWILIO_NUMBER = "+61468000835";
+
+// Prod has signature validation ON — Twilio webhook tests only verify 403.
+// Local + dev have it OFF — full TwiML responses are tested.
+const PROD_MODE = TARGET === "prod";
+
+// Dev mode: real Twilio calls are placed (simulate-demo-call actually runs).
+// Recording poll waits up to 120 s for the AI to finish the call.
+const DEV_MODE = TARGET === "dev";
+
 const TEST_CALL_SID = "CA_TEST_LIFECYCLE_001";
 
-console.log(`\n🎯 Target: ${BASE} (${PROD_MODE ? "production — Twilio sig validation ON" : "local — Twilio sig validation OFF"})`);
+const modeLabel =
+  PROD_MODE ? "production — sig validation ON, safe subset only" :
+  DEV_MODE  ? "dev — sig validation OFF, real Twilio calls" :
+              "local — sig validation OFF, no real calls";
+
+console.log(`\n🎯 Target: ${BASE} (${modeLabel})`);
 
 // ─── Test runner ─────────────────────────────────────────────────────────────
 
@@ -128,6 +166,9 @@ async function deleteReq(path: string, headers: Record<string, string> = {}) {
 // ─── Session cookie helpers ───────────────────────────────────────────────────
 
 let sessionCookie = "";
+let signupCookie = "";
+let signupTenantId = "";
+const SIGNUP_TEST_EMAIL = `test-signup-${Date.now()}@lifecycle.test`;
 
 async function loginAndGetCookie(): Promise<string> {
   const res = await postForm("/dashboard/login", {
@@ -211,13 +252,13 @@ console.log("\n── Group 2: Admin API ─────────────
 let testTenantId = "";
 const TEST_TWILIO_NUM = "+61400000099";
 
-await check("T04", "GET /admin/tenants → includes seeded default tenant", async () => {
+await check("T04", `GET /admin/tenants → includes seeded default tenant (${SEED_TWILIO_NUMBER})`, async () => {
   const { status, body } = await getJson("/admin/tenants", adminHeaders());
   assert(status === 200, `expected 200, got ${status}`);
   assert(Array.isArray(body.tenants), `expected tenants array`);
   assert(body.tenants.length >= 1, `expected at least 1 tenant, got ${body.tenants.length}`);
-  const defaultTenant = body.tenants.find((t: any) => t.twilio_number === "+61468000835");
-  assert(!!defaultTenant, `seeded tenant with +61468000835 not found`);
+  const defaultTenant = body.tenants.find((t: any) => t.twilio_number === SEED_TWILIO_NUMBER);
+  assert(!!defaultTenant, `seeded tenant with ${SEED_TWILIO_NUMBER} not found (DB may have been wiped on Koyeb restart — expected on first run)`);
 });
 
 await check("T05", "POST /admin/tenants → creates test tenant (201)", async () => {
@@ -259,12 +300,24 @@ await check("T08", "DELETE /admin/tenants/:id → removes tenant", async () => {
   assert(getStatus === 404, `expected 404 after delete, got ${getStatus}`);
 });
 
-await check("T09", "POST /admin/tenants with duplicate twilio_number → 409", async () => {
+await check("T09", `POST /admin/tenants with duplicate twilio_number → 409`, async () => {
+  // First ensure a tenant with the seed number exists (T04 may have found it absent)
+  const { body: listBody } = await getJson("/admin/tenants", adminHeaders());
+  const seedExists = listBody.tenants?.some((t: any) => t.twilio_number === SEED_TWILIO_NUMBER);
+  if (!seedExists) {
+    // Create one so we can test the duplicate constraint
+    await postJson("/admin/tenants", {
+      name: "Dup Seed Tenant",
+      trade_type: "plumber",
+      twilio_number: SEED_TWILIO_NUMBER,
+      owner_phone: "+61420000001"
+    }, adminHeaders());
+  }
   const { status } = await postJson("/admin/tenants", {
-    name: "Dup Tenant",
+    name: "Dup Tenant 2",
     trade_type: "plumber",
-    twilio_number: "+61468000835",
-    owner_phone: "+61420000001"
+    twilio_number: SEED_TWILIO_NUMBER,
+    owner_phone: "+61420000002"
   }, adminHeaders());
   assert(status === 409, `expected 409 for duplicate number, got ${status}`);
 });
@@ -565,6 +618,260 @@ await check("T30", "buildServiceAreaSection with null/empty → returns empty st
   assert(buildServiceAreaSection("   ") === "", "whitespace-only should return ''");
   assert(buildServiceAreaSection(undefined) === "", "undefined should return ''");
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GROUP 8 — Self-serve signup
+// ═══════════════════════════════════════════════════════════════════════════════
+
+console.log("\n── Group 8: Self-Serve Signup ───────────────────────────────");
+
+await check("T31", "GET /dashboard/signup → 200 HTML with signup form", async () => {
+  const res = await fetch(`${BASE}/dashboard/signup`);
+  const html = await res.text();
+  assert(res.status === 200, `expected 200, got ${res.status}`);
+  assert(html.toLowerCase().includes("sign up") || html.toLowerCase().includes("signup"),
+    `signup page does not contain 'Sign up'`);
+});
+
+await check("T32", "POST /dashboard/signup valid new user → 302 to /dashboard/welcome + cookie set", async () => {
+  const res = await postForm("/dashboard/signup", {
+    name: "Lifecycle Test Plumber",
+    trade_type: "plumber",
+    ai_name: "Aria",
+    owner_phone: "+61400000001",
+    email: SIGNUP_TEST_EMAIL,
+    password: "test-pass-lifecycle-2026"
+  });
+  assert(res.status === 302, `expected 302, got ${res.status}`);
+  const location = res.headers.get("location") ?? "";
+  assert(location.includes("/dashboard/welcome"), `expected redirect to /dashboard/welcome, got '${location}'`);
+  const cookie = res.headers.get("set-cookie") ?? "";
+  assert(cookie.includes("dash_session"), `expected dash_session cookie to be set`);
+  signupCookie = cookie.match(/dash_session=[^;]+/)?.[0] ?? "";
+  assert(signupCookie.length > 0, "could not extract signupCookie");
+
+  // Resolve tenantId by scanning admin list for the unique test email
+  const { body: listBody } = await getJson("/admin/tenants", adminHeaders());
+  const match = listBody.tenants?.find((t: any) =>
+    t.owner_email?.toLowerCase() === SIGNUP_TEST_EMAIL.toLowerCase()
+  );
+  assert(!!match, `could not find signup tenant in admin list for email ${SIGNUP_TEST_EMAIL}`);
+  signupTenantId = match.tenant_id;
+});
+
+await check("T33", "POST /dashboard/signup duplicate email → 200 with 'already exists' error", async () => {
+  const res = await postForm("/dashboard/signup", {
+    name: "Dupe User",
+    trade_type: "plumber",
+    owner_phone: "+61400000002",
+    email: SEED_EMAIL,
+    password: "test-pass-2026"
+  });
+  assert(res.status === 200, `expected 200 (re-render), got ${res.status}`);
+  assert(res.body.toLowerCase().includes("already exists") || res.body.toLowerCase().includes("already"),
+    `expected 'already exists' error in response`);
+});
+
+await check("T34", "POST /dashboard/signup 7-char password → 200 with 'at least 8' error", async () => {
+  const res = await postForm("/dashboard/signup", {
+    name: "Short Pass User",
+    trade_type: "electrician",
+    owner_phone: "+61400000003",
+    email: `short-${Date.now()}@lifecycle.test`,
+    password: "1234567"
+  });
+  assert(res.status === 200, `expected 200, got ${res.status}`);
+  assert(res.body.toLowerCase().includes("8") || res.body.toLowerCase().includes("least"),
+    `expected password-length error in response`);
+});
+
+await check("T35", "POST /dashboard/signup missing owner_phone → 200 with error", async () => {
+  const res = await postForm("/dashboard/signup", {
+    name: "No Phone User",
+    trade_type: "plumber",
+    email: `nophone-${Date.now()}@lifecycle.test`,
+    password: "test-pass-2026"
+    // owner_phone intentionally omitted
+  });
+  assert(res.status === 200, `expected 200 (re-render with error), got ${res.status}`);
+  assert(res.body.toLowerCase().includes("required") || res.body.toLowerCase().includes("field"),
+    `expected validation error in response`);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GROUP 9 — Welcome page & demo flow
+// ═══════════════════════════════════════════════════════════════════════════════
+
+console.log("\n── Group 9: Welcome Page & Demo Flow ───────────────────────");
+
+await check("T36", "GET /dashboard/welcome (authenticated) → 200 HTML with demo options", async () => {
+  assert(signupCookie, "need signupCookie from T32");
+  const res = await fetch(`${BASE}/dashboard/welcome`, {
+    headers: { Cookie: signupCookie },
+    redirect: "manual"
+  });
+  assert(res.status === 200, `expected 200, got ${res.status}`);
+  const html = await res.text();
+  assert(
+    html.toLowerCase().includes("demo") || html.toLowerCase().includes("simulate") || html.toLowerCase().includes("call"),
+    `welcome page should contain demo-related content`
+  );
+});
+
+await check("T37", "GET /dashboard/welcome (no cookie) → 302 to /dashboard/login", async () => {
+  const res = await fetch(`${BASE}/dashboard/welcome`, { redirect: "manual" });
+  assert(res.status === 302, `expected 302, got ${res.status}`);
+  const location = res.headers.get("location") ?? "";
+  assert(location.includes("/dashboard/login"), `expected redirect to /dashboard/login, got '${location}'`);
+});
+
+await check("T38", "POST /dashboard/request-demo (authenticated) → 200 HTML with demo number or config error", async () => {
+  assert(signupCookie, "need signupCookie from T32");
+  const res = await fetch(`${BASE}/dashboard/request-demo`, {
+    method: "POST",
+    headers: { Cookie: signupCookie, "Content-Type": "application/x-www-form-urlencoded" },
+    redirect: "manual"
+  });
+  assert(res.status === 200, `expected 200, got ${res.status}`);
+  const html = await res.text();
+  // Either a demo number is assigned, or a graceful "not configured / all busy" message is shown
+  const hasNumber = /\+61\d+/.test(html) || html.includes("demo");
+  const hasError = html.toLowerCase().includes("not configured") || html.toLowerCase().includes("busy") || html.toLowerCase().includes("error");
+  assert(hasNumber || hasError, `expected demo number or graceful error in response: ${html.slice(0, 300)}`);
+});
+
+await check("T39", "GET /dashboard/demo-status (authenticated) → 200 JSON {status: pending|ready}", async () => {
+  assert(signupCookie, "need signupCookie from T32");
+  const res = await fetch(`${BASE}/dashboard/demo-status`, {
+    headers: { Cookie: signupCookie }
+  });
+  assert(res.status === 200, `expected 200, got ${res.status}`);
+  const body = await res.json() as any;
+  assert(
+    body.status === "pending" || body.status === "ready",
+    `expected status 'pending' or 'ready', got '${body.status}'`
+  );
+});
+
+if (PROD_MODE) {
+  console.log("  – T40 skipped in prod mode (would place a real Twilio call)");
+} else {
+  await check(
+    "T40",
+    DEV_MODE
+      ? "POST /dashboard/simulate-demo-call (dev) → 200 HTML + real Twilio call placed"
+      : "POST /dashboard/simulate-demo-call (local) → 200 HTML",
+    async () => {
+      assert(signupCookie, "need signupCookie from T32");
+      const res = await fetch(`${BASE}/dashboard/simulate-demo-call`, {
+        method: "POST",
+        headers: { Cookie: signupCookie, "Content-Type": "application/x-www-form-urlencoded" },
+        redirect: "manual"
+      });
+      assert(res.status === 200, `expected 200, got ${res.status}`);
+      const html = await res.text();
+      const hasSimContent =
+        html.toLowerCase().includes("simulat") ||
+        html.toLowerCase().includes("calling") ||
+        html.toLowerCase().includes("demo");
+      const hasError =
+        html.toLowerCase().includes("error") ||
+        html.toLowerCase().includes("could not") ||
+        html.toLowerCase().includes("busy") ||
+        html.toLowerCase().includes("not configured");
+      assert(hasSimContent || hasError, `expected simulation content or graceful error: ${html.slice(0, 300)}`);
+      if (DEV_MODE && hasError) {
+        console.log(`    ⚠ demo call returned an error (pool may be busy or unconfigured); skipping recording poll`);
+      }
+    }
+  );
+
+  // In dev mode: the real AI receptionist answered the scripted caller.
+  // Poll /dashboard/demo-status until the recording is ready (up to 120 s).
+  if (DEV_MODE) {
+    await check("T40b", "Demo call recording appears within 120 s (dev real-call integration)", async () => {
+      assert(signupCookie, "need signupCookie from T32 + T40");
+      const TIMEOUT_MS = 120_000;
+      const POLL_INTERVAL_MS = 8_000;
+      const deadline = Date.now() + TIMEOUT_MS;
+      let recordingUrl: string | null = null;
+
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        const res = await fetch(`${BASE}/dashboard/demo-status`, {
+          headers: { Cookie: signupCookie }
+        });
+        if (res.status !== 200) continue;
+        const body = await res.json() as any;
+        if (body.status === "ready" && body.recordingUrl) {
+          recordingUrl = body.recordingUrl;
+          break;
+        }
+        const remaining = Math.round((deadline - Date.now()) / 1000);
+        console.log(`    ⏳ waiting for recording... ${remaining}s remaining`);
+      }
+
+      assert(recordingUrl !== null, "Recording did not appear within 120 s — AI may not have completed the call");
+      console.log(`    ✔ Recording URL: ${recordingUrl}`);
+    });
+  }
+}
+
+await check("T41", "POST /twilio/demo/caller-script?trade_type=plumber → 200 TwiML with Polly.Matthew", async () => {
+  const { status, body } = await postTwiml("/twilio/demo/caller-script?trade_type=plumber", {});
+  assert(status === 200, `expected 200, got ${status}`);
+  assert(body.includes("<Say"), `TwiML missing <Say: ${body.slice(0, 300)}`);
+  assert(body.includes("Polly.Matthew"), `TwiML should use Polly.Matthew voice: ${body.slice(0, 300)}`);
+  assert(body.toLowerCase().includes("burst pipe") || body.toLowerCase().includes("plumb"),
+    `TwiML should contain plumber-specific script: ${body.slice(0, 300)}`);
+});
+
+await check("T42", "POST /twilio/demo/caller-script (no trade_type) → 200 TwiML with default script", async () => {
+  const { status, body } = await postTwiml("/twilio/demo/caller-script", {});
+  assert(status === 200, `expected 200, got ${status}`);
+  assert(body.includes("<Say"), `TwiML missing <Say: ${body.slice(0, 300)}`);
+  assert(body.includes("Polly.Matthew"), `TwiML should use Polly.Matthew voice: ${body.slice(0, 300)}`);
+  assert(body.toLowerCase().includes("help") || body.toLowerCase().includes("job"),
+    `TwiML should contain default fallback script: ${body.slice(0, 300)}`);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GROUP 10 — Landing page CTA & setup guide
+// ═══════════════════════════════════════════════════════════════════════════════
+
+console.log("\n── Group 10: Landing Page CTA & Setup Guide ─────────────────");
+
+await check("T43", "GET / → HTML contains href to /dashboard/signup", async () => {
+  const res = await fetch(`${BASE}/`);
+  const html = await res.text();
+  assert(res.status === 200, `expected 200, got ${res.status}`);
+  assert(html.includes("/dashboard/signup"), `landing page HTML does not contain link to /dashboard/signup`);
+});
+
+await check("T44", "GET /dashboard/setup-guide (authenticated) → 200 HTML with forwarding instructions", async () => {
+  assert(signupCookie, "need signupCookie from T32");
+  const res = await fetch(`${BASE}/dashboard/setup-guide`, {
+    headers: { Cookie: signupCookie },
+    redirect: "manual"
+  });
+  assert(res.status === 200, `expected 200, got ${res.status}`);
+  const html = await res.text();
+  assert(
+    html.toLowerCase().includes("forward") || html.toLowerCase().includes("divert") || html.toLowerCase().includes("setup"),
+    `setup guide should contain forwarding instructions`
+  );
+});
+
+// ─── Cleanup: remove signup test tenant ──────────────────────────────────────
+
+if (signupTenantId) {
+  try {
+    await deleteReq(`/admin/tenants/${signupTenantId}`, adminHeaders());
+    console.log(`\n  ♻ Cleaned up signup test tenant (${signupTenantId})`);
+  } catch {
+    console.log(`\n  ⚠ Could not clean up signup test tenant (${signupTenantId})`);
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SUMMARY
