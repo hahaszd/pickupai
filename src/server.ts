@@ -26,8 +26,11 @@ import {
   getDemoTenantByNumber,
   listLeadsForTenant,
   listNotificationsForCall,
+  listSystemConfig,
   listTenants,
   markNotification,
+  setSystemConfig,
+  getSystemConfig,
   tenantLogin,
   tenantLogout,
   updateLeadStatus,
@@ -35,7 +38,7 @@ import {
   upsertCall,
   upsertLead
 } from "./db/repo.js";
-import type { TenantRow } from "./db/repo.js";
+import type { TenantRow, SystemConfigRow } from "./db/repo.js";
 import { twilioValidateMiddleware } from "./twilio/verify.js";
 import { buildAbsoluteUrl, getCallSid, shouldWarmTransferNow } from "./twilio/flow.js";
 import { newVoiceResponse, connectStreamTwiml, sayFriendly } from "./twilio/twiml.js";
@@ -176,7 +179,7 @@ async function main() {
     const id = createNotification(db, callId, "sms");
     try {
       const body = formatOwnerSms({ lead, callId, callerIntent });
-      await sendOwnerSms(body, ownerPhone);
+      await sendOwnerSms(db, body, ownerPhone);
       markNotification(db, id, { status: "sent" });
     } catch (err: any) {
       markNotification(db, id, { status: "error", error: err?.message ?? String(err) });
@@ -401,6 +404,29 @@ async function main() {
     res.json({ ok: true });
   });
 
+  // ── System config (runtime-editable, no restart needed) ──────────────────
+  //
+  // Supported keys:
+  //   sms_numbers          – comma-separated mobile numbers for outgoing SMS
+  //                          (overrides TWILIO_SMS_NUMBERS env var)
+  //   default_voice_number – number used as "from" for demo simulation calls
+  //                          (overrides TWILIO_DEFAULT_VOICE_NUMBER env var)
+
+  app.get("/admin/config", adminGuard, (_req, res) => {
+    const rows = listSystemConfig(db);
+    res.json({ config: rows });
+  });
+
+  app.put("/admin/config/:key", adminGuard, (req, res) => {
+    const { key } = req.params;
+    const { value } = req.body ?? {};
+    if (typeof value !== "string" || !value.trim()) {
+      return res.status(400).json({ error: "value is required and must be a non-empty string" });
+    }
+    setSystemConfig(db, key, value.trim());
+    res.json({ ok: true, key, value: value.trim() });
+  });
+
   // ═══════════════════════════════════════════════════════════════════════════
   // OWNER DASHBOARD
   // ═══════════════════════════════════════════════════════════════════════════
@@ -544,7 +570,7 @@ async function main() {
       const callerScriptUrl = `${env.PUBLIC_BASE_URL}/twilio/demo/caller-script?trade_type=${encodeURIComponent(tenant.trade_type)}`;
       await twilioClient.calls.create({
         to: claimed,
-        from: env.TWILIO_DEFAULT_VOICE_NUMBER,
+        from: getSystemConfig(db, "default_voice_number") ?? env.TWILIO_DEFAULT_VOICE_NUMBER,
         url: callerScriptUrl,
         statusCallback: `${env.PUBLIC_BASE_URL}/twilio/voice/status`,
         statusCallbackMethod: "POST",

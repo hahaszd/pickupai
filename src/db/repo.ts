@@ -502,3 +502,34 @@ export function getActiveDemoSession(db: Db, tenantId: string): DemoSessionRow |
     [tenantId, now]
   ) ?? null;
 }
+
+// ─── System config ────────────────────────────────────────────────────────────
+
+export type SystemConfigRow = {
+  key: string;
+  value: string;
+  updated_at: string;
+};
+
+/** Read a single config value, returning undefined if the key does not exist. */
+export function getSystemConfig(db: Db, key: string): string | undefined {
+  return db.get<{ value: string }>(
+    "SELECT value FROM system_config WHERE key = ?",
+    [key]
+  )?.value;
+}
+
+/** Upsert a config value. */
+export function setSystemConfig(db: Db, key: string, value: string): void {
+  db.run(
+    `INSERT INTO system_config (key, value, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    [key, value, new Date().toISOString()]
+  );
+}
+
+/** List all config entries. */
+export function listSystemConfig(db: Db): SystemConfigRow[] {
+  return db.all<SystemConfigRow>("SELECT * FROM system_config ORDER BY key", []);
+}

@@ -59,6 +59,12 @@ CREATE TABLE IF NOT EXISTS notifications (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_call_channel
   ON notifications(call_id, channel);
+
+CREATE TABLE IF NOT EXISTS system_config (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 `;
 
 /**
@@ -75,5 +81,10 @@ export const migrationStatements = [
     tenant_id     TEXT NOT NULL REFERENCES tenants(tenant_id) ON DELETE CASCADE,
     assigned_at   TEXT NOT NULL,
     expires_at    TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS system_config (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL
   )`
 ];

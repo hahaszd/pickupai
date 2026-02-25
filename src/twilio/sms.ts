@@ -1,11 +1,21 @@
 import { env } from "../env.js";
+import type { Db } from "../db/db.js";
 import type { LeadRow } from "../db/repo.js";
+import { getSystemConfig } from "../db/repo.js";
 import { twilioClient } from "./client.js";
 
 let smsNumberIndex = 0;
 
-function nextSmsNumber(): string {
-  const pool = env.TWILIO_SMS_NUMBERS;
+/**
+ * Pick the next SMS sender number using round-robin.
+ * Reads from the `sms_numbers` key in system_config first;
+ * falls back to the TWILIO_SMS_NUMBERS env var if not set in DB.
+ */
+function nextSmsNumber(db: Db): string {
+  const dbValue = getSystemConfig(db, "sms_numbers");
+  const pool = dbValue
+    ? dbValue.split(",").map((n) => n.trim()).filter(Boolean)
+    : env.TWILIO_SMS_NUMBERS;
   const number = pool[smsNumberIndex % pool.length];
   smsNumberIndex = (smsNumberIndex + 1) % pool.length;
   return number;
@@ -65,11 +75,11 @@ export function formatOwnerSms(opts: {
   return lines.join("\n");
 }
 
-export async function sendOwnerSms(body: string, ownerPhone?: string) {
+export async function sendOwnerSms(db: Db, body: string, ownerPhone?: string) {
   const to = ownerPhone ?? env.OWNER_PHONE_NUMBER;
   return twilioClient.messages.create({
     to,
-    from: nextSmsNumber(),
+    from: nextSmsNumber(db),
     body
   });
 }
