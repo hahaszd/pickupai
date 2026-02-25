@@ -233,6 +233,11 @@ async function main() {
 
   app.get("/health", (_req, res) => res.json({ ok: true, mode: "realtime", multiTenant: true }));
 
+  // ── Option A simulation routing (in-memory, no DB slot used) ─────────────
+  // Maps demo pool number → { tenantId, expiresAt }
+  // Set when a simulation call is placed; cleared when the call completes.
+  const simulationRoutingMap = new Map<string, { tenantId: string; expiresAt: number }>();
+
   // ═══════════════════════════════════════════════════════════════════════════
   // TWILIO WEBHOOKS
   // ═══════════════════════════════════════════════════════════════════════════
@@ -242,12 +247,19 @@ async function main() {
     const from = req.body?.From ?? null;
     const to = req.body?.To ?? null;
 
-    // Demo sessions take priority: a number in the demo pool may also exist as the
-    // seed tenant's twilio_number, so we check active demo sessions FIRST.
-    const demoTenant = typeof to === "string" ? getDemoTenantByNumber(db, to) : null;
-    const tenantByNumber = demoTenant ? null : (typeof to === "string" ? getTenantByNumber(db, to) : null);
-    const tenant: TenantRow = demoTenant ?? tenantByNumber ?? buildFallbackTenant();
-    const isDemo = !!demoTenant;
+    // Priority order for tenant resolution:
+    // 1. simulationRoutingMap (Option A — in-memory, no DB slot)
+    // 2. demo_sessions DB table (Option B — user called the demo number themselves)
+    // 3. tenants.twilio_number lookup
+    // 4. fallback tenant
+    const simEntry = typeof to === "string" ? simulationRoutingMap.get(to) : undefined;
+    const simValid = simEntry && simEntry.expiresAt > Date.now();
+    const simTenantRow = simValid ? getTenantById(db, simEntry!.tenantId) : null;
+
+    const demoTenant = (!simTenantRow && typeof to === "string") ? getDemoTenantByNumber(db, to) : null;
+    const tenantByNumber = (!simTenantRow && !demoTenant && typeof to === "string") ? getTenantByNumber(db, to) : null;
+    const tenant: TenantRow = simTenantRow ?? demoTenant ?? tenantByNumber ?? buildFallbackTenant();
+    const isDemo = !!(simTenantRow || demoTenant);
 
     if (tenant.tenant_id === "default" && typeof to === "string") {
       log.warn({ to }, "No tenant found for number — using fallback tenant");
@@ -326,6 +338,9 @@ async function main() {
         notifyOwnerSmsIfNeeded(callSid, state.callerIntent, ownerPhone).catch((err) =>
           log.warn({ err }, "owner sms on status failed")
         );
+        // Clear Option A simulation routing entry for the TO number (if any)
+        const toNumber = typeof req.body?.To === "string" ? req.body.To : null;
+        if (toNumber) simulationRoutingMap.delete(toNumber);
         clearCallState(callSid);
       }
     }
@@ -575,21 +590,28 @@ async function main() {
       return res.send(welcomePage(tenant, { error: "Demo numbers are not configured yet. Please contact support." }));
     }
 
-    const claimed = claimDemoNumber(db, tenant.tenant_id, poolNumbers);
-    if (!claimed) {
-      return res.send(welcomePage(tenant, { error: "All demo slots are busy right now — please try again in a few minutes." }));
-    }
+    // Option A: pick the first pool number without claiming a DB slot.
+    // We register the tenant in the in-memory simulationRoutingMap so the
+    // incoming webhook can route the call correctly.
+    const demoTarget = poolNumbers[0];
+    const demoCallerFrom =
+      getSystemConfig(db, "demo_caller_number") ??
+      env.TWILIO_SMS_NUMBERS[0];
+
+    // Register routing (15-min TTL — more than enough for any call to complete)
+    simulationRoutingMap.set(demoTarget, {
+      tenantId: tenant.tenant_id,
+      expiresAt: Date.now() + 15 * 60 * 1000
+    });
 
     try {
       const { twilioClient } = await import("./twilio/client.js");
-      const callerScriptUrl = `${env.PUBLIC_BASE_URL}/twilio/demo/caller-script?trade_type=${encodeURIComponent(tenant.trade_type)}`;
-      // Use the SMS mobile number as the simulated-caller FROM so it differs
-      // from the demo pool number (which is the TO). A number cannot call itself.
-      const demoCallerFrom =
-        getSystemConfig(db, "demo_caller_number") ??
-        env.TWILIO_SMS_NUMBERS[0];
+      const callerScriptUrl =
+        `${env.PUBLIC_BASE_URL}/twilio/demo/caller-script` +
+        `?trade_type=${encodeURIComponent(tenant.trade_type)}` +
+        `&business_name=${encodeURIComponent(tenant.name)}`;
       await twilioClient.calls.create({
-        to: claimed,
+        to: demoTarget,
         from: demoCallerFrom,
         url: callerScriptUrl,
         statusCallback: `${env.PUBLIC_BASE_URL}/twilio/voice/status`,
@@ -597,15 +619,12 @@ async function main() {
       });
     } catch (err) {
       log.error({ err }, "Failed to place simulated demo call");
+      simulationRoutingMap.delete(demoTarget); // rollback map entry on failure
       return res.send(welcomePage(tenant, { error: "Could not place the demo call. Please try again or call the number yourself." }));
     }
 
-    const session = getActiveDemoSession(db, tenant.tenant_id);
-    res.send(welcomePage(tenant, {
-      demoNumber: claimed,
-      demoExpiresAt: session?.expires_at ?? null,
-      simulationStarted: true,
-    }));
+    // Respond without demoNumber/demoExpiresAt — Option A doesn't occupy a slot
+    res.send(welcomePage(tenant, { simulationStarted: true }));
   });
 
   app.get("/dashboard/demo-status", dashAuth, (req, res) => {
@@ -640,14 +659,19 @@ async function main() {
 
   app.post("/twilio/demo/caller-script", (req, res) => {
     const tradeType = typeof req.query.trade_type === "string" ? req.query.trade_type : "";
+    const businessName = typeof req.query.business_name === "string" ? req.query.business_name : "";
     const script = DEMO_CALLER_SCRIPTS[tradeType] ?? DEFAULT_DEMO_SCRIPT;
+    // Personalise greeting if the AI answers with the business name
+    const closing = businessName
+      ? `Thanks, I'll wait to hear back from ${businessName}. Bye.`
+      : "That sounds great, thanks.";
     const vr = newVoiceResponse();
     vr.pause({ length: 4 });
     vr.say({ voice: "Polly.Matthew" }, script);
     vr.pause({ length: 25 });
     vr.say({ voice: "Polly.Matthew" }, "James Wilson.");
     vr.pause({ length: 12 });
-    vr.say({ voice: "Polly.Matthew" }, "That sounds great, thanks.");
+    vr.say({ voice: "Polly.Matthew" }, closing);
     vr.pause({ length: 10 });
     vr.hangup();
     res.type("text/xml").send(vr.toString());

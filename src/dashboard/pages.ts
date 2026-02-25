@@ -316,15 +316,14 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
     ? demoNumber.replace(/(\+61)(\d{3})(\d{3})(\d{3})/, "$1 $2 $3 $4")
     : null;
 
-  const expiryNote = demoExpiresAt
-    ? `<p style="font-size:.8rem;color:var(--gray-600);margin-top:.5rem;">Reserved for you until ${new Date(demoExpiresAt).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" })} (1 hour).</p>`
-    : "";
-
-  // Card A: Hands-free (AI simulates a caller)
+  // Card A: Hands-free (AI simulates a caller — no slot claimed)
   const cardA = simulationStarted
     ? `<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:1.25rem;">
         <p style="font-weight:600;color:#16a34a;margin-bottom:.5rem;">✓ Demo call in progress!</p>
-        <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:.75rem;">Our AI is calling your demo number now. A recording will appear below in about 60 seconds.</p>
+        <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:.75rem;">
+          Our AI is placing a simulated customer call to your receptionist now.
+          A recording will appear below in about 60 seconds.
+        </p>
         <div id="recording-area" style="margin-top:.5rem;">
           ${recordingUrl
             ? `<audio controls style="width:100%;margin-top:.5rem;"><source src="${escape(recordingUrl)}" type="audio/mpeg" /></audio>
@@ -348,28 +347,41 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
         </script>` : ""}
       </div>`
     : `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius);padding:1.25rem;">
-        <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:1rem;">
-          We'll place a simulated customer call to your AI receptionist. You'll hear the recording here and receive the lead via SMS — zero effort on your part.
+        <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:.6rem;">
+          We place a simulated customer call to your AI receptionist — personalised with your trade and business name.
+          You'll hear the full recording here and receive the lead SMS on your mobile.
         </p>
+        <p style="font-size:.8rem;color:var(--gray-400);margin-bottom:1rem;">No number reservation needed. Takes about 60 seconds.</p>
         <form method="POST" action="/dashboard/simulate-demo-call">
           <button type="submit" class="btn btn-primary" style="width:100%;">Generate Demo Call →</button>
         </form>
       </div>`;
 
-  // Card B: Call it yourself
+  // Card B: Call it yourself (claims a demo slot for 1 hour)
+  const expiryTime = demoExpiresAt
+    ? new Date(demoExpiresAt).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" })
+    : null;
+
   const cardB = demoNumber
     ? `<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:1.25rem;">
-        <p style="font-weight:600;color:#16a34a;margin-bottom:.5rem;">Your demo number is ready!</p>
-        <div style="background:#fff;border:1.5px solid var(--gray-200);border-radius:8px;padding:.75rem 1rem;font-family:monospace;font-size:1.15rem;letter-spacing:.05em;text-align:center;margin-bottom:.5rem;">
+        <p style="font-weight:600;color:#16a34a;margin-bottom:.5rem;">✓ Your demo number is ready!</p>
+        <div style="background:#fff;border:1.5px solid var(--gray-200);border-radius:8px;padding:.75rem 1rem;font-family:monospace;font-size:1.15rem;letter-spacing:.05em;text-align:center;margin-bottom:.75rem;">
           ${escape(demoNumberFormatted ?? demoNumber)}
         </div>
-        <p style="font-size:.9rem;color:var(--gray-600);">Call this number from your mobile <strong>right now</strong>. Your AI receptionist will answer as if it were a real customer call. After the call, you'll receive a lead SMS on <strong>${escape(tenant.owner_phone)}</strong>.</p>
-        ${expiryNote}
+        <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:.6rem;">
+          Call this number from your mobile <strong>right now</strong>. Your AI receptionist will answer just like a real customer call.
+          You'll receive a lead SMS on <strong>${escape(tenant.owner_phone)}</strong> after the call.
+        </p>
+        <div style="background:#fef9c3;border:1px solid #fde047;border-radius:6px;padding:.5rem .75rem;font-size:.8rem;color:#854d0e;">
+          ⏱ This slot is reserved for <strong>1 hour</strong>${expiryTime ? ` — expires at <strong>${expiryTime}</strong>` : ""}.
+          After that you'll need to request a new demo number.
+        </div>
       </div>`
     : `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius);padding:1.25rem;">
-        <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:1rem;">
-          We'll reserve a demo number for you. Call it from your own mobile to experience your AI receptionist exactly as your customers will.
+        <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:.6rem;">
+          We'll reserve a demo number for you for <strong>1 hour</strong>. Call it from your own mobile to hear your AI receptionist exactly as your customers will.
         </p>
+        <p style="font-size:.8rem;color:var(--gray-400);margin-bottom:1rem;">The slot auto-expires after 1 hour.</p>
         <form method="POST" action="/dashboard/request-demo">
           <button type="submit" class="btn btn-primary" style="width:100%;background:var(--gray-800);">Get Demo Number →</button>
         </form>
