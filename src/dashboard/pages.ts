@@ -26,8 +26,9 @@ function shell(title: string, body: string, tenant?: TenantRow) {
       background: var(--brand); color: #fff; display: flex; align-items: center;
       padding: 0 1.5rem; height: 56px; gap: 1.5rem;
     }
-    nav .logo { font-weight: 700; font-size: 1.1rem; letter-spacing: -.3px; }
+    nav .logo { font-weight: 700; font-size: 1.1rem; letter-spacing: -.3px; color: #fff; text-decoration: none; }
     nav .logo span { opacity: .7; font-weight: 400; font-size: .85rem; margin-left: .5rem; }
+    nav .logo:hover { opacity: .9; text-decoration: none; }
     nav a { color: rgba(255,255,255,.85); font-size: .9rem; }
     nav a:hover { color: #fff; text-decoration: none; }
     nav .spacer { flex: 1; }
@@ -95,7 +96,7 @@ function shell(title: string, body: string, tenant?: TenantRow) {
 </head>
 <body>
 <nav>
-  <div class="logo">AI Receptionist <span>${escape(tenantName)}</span></div>
+  <a href="/" class="logo">PickupAI <span>${escape(tenantName)}</span></a>
   ${tenant ? `<a href="/dashboard/leads">Leads</a><div class="spacer"></div><a href="/dashboard/logout" class="hide-sm">Log out</a>` : `<div class="spacer"></div>`}
 </nav>
 <div class="container">
