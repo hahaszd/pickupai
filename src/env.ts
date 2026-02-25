@@ -50,7 +50,11 @@ const envSchema = z.object({
   SQLITE_PATH: z.string().default("./data/app.sqlite"),
 
   SEED_EMAIL: z.string().optional(),
-  SEED_PASSWORD: z.string().optional()
+  SEED_PASSWORD: z.string().optional(),
+
+  // Comma-separated AU Twilio numbers pre-configured as demo pool, e.g. "+61412000111,+61412000222"
+  // Each must have its Voice webhook pointing to POST /twilio/voice/incoming.
+  DEMO_POOL_NUMBERS: z.string().optional().default("")
 });
 
 export type Env = z.infer<typeof envSchema>;

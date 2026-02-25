@@ -11,9 +11,11 @@ import { env } from "./env.js";
 import { openDb } from "./db/db.js";
 import {
   appendTranscript,
+  claimDemoNumber,
   createNotification,
   createTenant,
   deleteTenant,
+  getActiveDemoSession,
   getLatestLeadForCall,
   getLeadHistoryByPhone,
   getLeadWithCall,
@@ -21,6 +23,7 @@ import {
   getTenantById,
   getTenantByNumber,
   getTenantBySessionToken,
+  getDemoTenantByNumber,
   listLeadsForTenant,
   listNotificationsForCall,
   listTenants,
@@ -41,7 +44,7 @@ import { startCallRecording } from "./twilio/recording.js";
 import { formatOwnerSms, NO_SMS_INTENTS, sendOwnerSms } from "./twilio/sms.js";
 import { createCrmExporters, exportLeadToCrm } from "./crm/index.js";
 import { RealtimeSession } from "./realtime/session.js";
-import { loginPage, signupPage, setupGuidePage, leadsPage, leadDetailPage } from "./dashboard/pages.js";
+import { loginPage, signupPage, setupGuidePage, welcomePage, leadsPage, leadDetailPage } from "./dashboard/pages.js";
 
 const log = pino({ level: "info" });
 
@@ -234,9 +237,11 @@ async function main() {
     const from = req.body?.From ?? null;
     const to = req.body?.To ?? null;
 
-    // Look up tenant by the dialled (To) number; fall back to env-configured defaults.
-    const tenant: TenantRow =
-      (typeof to === "string" ? getTenantByNumber(db, to) : null) ?? buildFallbackTenant();
+    // Look up tenant by the dialled (To) number; fall back to demo pool, then fallback.
+    const tenantByNumber = typeof to === "string" ? getTenantByNumber(db, to) : null;
+    const demoTenant = tenantByNumber ? null : (typeof to === "string" ? getDemoTenantByNumber(db, to) : null);
+    const tenant: TenantRow = tenantByNumber ?? demoTenant ?? buildFallbackTenant();
+    const isDemo = !!demoTenant;
 
     if (tenant.tenant_id === "default" && typeof to === "string") {
       log.warn({ to }, "No tenant found for number — using fallback tenant");
@@ -252,9 +257,10 @@ async function main() {
         log.info({ callSid, from, historyCount: history.length }, "returning customer detected");
       }
     }
-    // Store tenant_id in call state for later use
+    // Store tenant context in call state for media-stream handler
     (state as any).tenantId = tenant.tenant_id;
     (state as any).tenantOwnerPhone = tenant.owner_phone;
+    (state as any).isDemo = isDemo;
     setCallState(callSid, state);
 
     upsertCall(db, {
@@ -474,12 +480,131 @@ async function main() {
       setSessionCookie(res, loggedIn.session_token);
     }
 
-    res.redirect("/dashboard/setup-guide");
+    res.redirect("/dashboard/welcome");
   });
 
   app.get("/dashboard/setup-guide", dashAuth, (req, res) => {
     const tenant: TenantRow = (req as any).dashTenant;
     res.send(setupGuidePage(tenant));
+  });
+
+  // ── Welcome / demo routes ─────────────────────────────────────────────────
+
+  app.get("/dashboard/welcome", dashAuth, (req, res) => {
+    const tenant: TenantRow = (req as any).dashTenant;
+    const poolNumbers = env.DEMO_POOL_NUMBERS
+      ? env.DEMO_POOL_NUMBERS.split(",").map((n) => n.trim()).filter(Boolean)
+      : [];
+    const session = poolNumbers.length ? getActiveDemoSession(db, tenant.tenant_id) : null;
+    res.send(welcomePage(tenant, {
+      demoNumber: session?.demo_number ?? null,
+      demoExpiresAt: session?.expires_at ?? null,
+    }));
+  });
+
+  app.post("/dashboard/request-demo", dashAuth, express.urlencoded({ extended: false }), (req, res) => {
+    const tenant: TenantRow = (req as any).dashTenant;
+    const poolNumbers = env.DEMO_POOL_NUMBERS
+      ? env.DEMO_POOL_NUMBERS.split(",").map((n) => n.trim()).filter(Boolean)
+      : [];
+
+    if (poolNumbers.length === 0) {
+      return res.send(welcomePage(tenant, { error: "Demo numbers are not configured yet. Please contact support." }));
+    }
+
+    const claimed = claimDemoNumber(db, tenant.tenant_id, poolNumbers);
+    if (!claimed) {
+      return res.send(welcomePage(tenant, { error: "All demo slots are busy right now — please try again in a few minutes." }));
+    }
+
+    const session = getActiveDemoSession(db, tenant.tenant_id);
+    res.send(welcomePage(tenant, {
+      demoNumber: claimed,
+      demoExpiresAt: session?.expires_at ?? null,
+    }));
+  });
+
+  app.post("/dashboard/simulate-demo-call", dashAuth, express.urlencoded({ extended: false }), async (req, res) => {
+    const tenant: TenantRow = (req as any).dashTenant;
+    const poolNumbers = env.DEMO_POOL_NUMBERS
+      ? env.DEMO_POOL_NUMBERS.split(",").map((n) => n.trim()).filter(Boolean)
+      : [];
+
+    if (poolNumbers.length === 0) {
+      return res.send(welcomePage(tenant, { error: "Demo numbers are not configured yet. Please contact support." }));
+    }
+
+    const claimed = claimDemoNumber(db, tenant.tenant_id, poolNumbers);
+    if (!claimed) {
+      return res.send(welcomePage(tenant, { error: "All demo slots are busy right now — please try again in a few minutes." }));
+    }
+
+    try {
+      const { twilioClient } = await import("./twilio/client.js");
+      const callerScriptUrl = `${env.PUBLIC_BASE_URL}/twilio/demo/caller-script?trade_type=${encodeURIComponent(tenant.trade_type)}`;
+      await twilioClient.calls.create({
+        to: claimed,
+        from: env.TWILIO_VOICE_NUMBER,
+        url: callerScriptUrl,
+        statusCallback: `${env.PUBLIC_BASE_URL}/twilio/voice/status`,
+        statusCallbackMethod: "POST",
+      });
+    } catch (err) {
+      log.error({ err }, "Failed to place simulated demo call");
+      return res.send(welcomePage(tenant, { error: "Could not place the demo call. Please try again or call the number yourself." }));
+    }
+
+    const session = getActiveDemoSession(db, tenant.tenant_id);
+    res.send(welcomePage(tenant, {
+      demoNumber: claimed,
+      demoExpiresAt: session?.expires_at ?? null,
+      simulationStarted: true,
+    }));
+  });
+
+  app.get("/dashboard/demo-status", dashAuth, (req, res) => {
+    const tenant: TenantRow = (req as any).dashTenant;
+    // Find most recent call for this tenant with a recording
+    const recentCalls = db.all<{ call_id: string; recording_url: string | null }>(
+      `SELECT call_id, recording_url FROM calls
+       WHERE tenant_id = ? AND recording_url IS NOT NULL
+       ORDER BY started_at DESC LIMIT 1`,
+      [tenant.tenant_id]
+    );
+    const latest = recentCalls?.[0] ?? null;
+    if (latest?.recording_url) {
+      res.json({ status: "ready", recordingUrl: latest.recording_url });
+    } else {
+      res.json({ status: "pending", recordingUrl: null });
+    }
+  });
+
+  // Scripted "caller" TwiML for simulated demo calls — Twilio requests this URL.
+  const DEMO_CALLER_SCRIPTS: Record<string, string> = {
+    plumber: "Hi there, I've got a burst pipe under my kitchen sink, water's going everywhere. Can someone come out today? My address is 52 Smith Street Parramatta.",
+    electrician: "Hi, I've got a complete power outage in my home. All the breakers look fine but nothing's working. I'm at 14 Oak Avenue Chatswood.",
+    roofer: "G'day, I've got a pretty bad roof leak — it rained last night and water was coming through my ceiling. I'm at 7 Maple Drive Blacktown.",
+    painter: "Hi, I'm looking to get my entire interior repainted — four bedrooms plus living area. Can someone come for a quote? I'm in Penrith.",
+    carpenter: "Hi, I need some custom kitchen cabinets built and installed. I'm renovating my kitchen at 33 Beach Road Cronulla.",
+    tiler: "Hi, I need my bathroom retiled — it's about 8 square metres. Some tiles have cracked and I want to redo the whole lot. I'm in Liverpool.",
+    handyman: "Hi, I've got a few odd jobs around the house — a leaky tap, a broken fence panel, and a door that won't close properly. I'm at 21 Park Street Penrith.",
+  };
+  const DEFAULT_DEMO_SCRIPT =
+    "Hi, I need some help with a job at my property. Can you take my details and have someone call me back?";
+
+  app.post("/twilio/demo/caller-script", (req, res) => {
+    const tradeType = typeof req.query.trade_type === "string" ? req.query.trade_type : "";
+    const script = DEMO_CALLER_SCRIPTS[tradeType] ?? DEFAULT_DEMO_SCRIPT;
+    const vr = newVoiceResponse();
+    vr.pause({ length: 4 });
+    vr.say({ voice: "Polly.Matthew" }, script);
+    vr.pause({ length: 25 });
+    vr.say({ voice: "Polly.Matthew" }, "James Wilson.");
+    vr.pause({ length: 12 });
+    vr.say({ voice: "Polly.Matthew" }, "That sounds great, thanks.");
+    vr.pause({ length: 10 });
+    vr.hangup();
+    res.type("text/xml").send(vr.toString());
   });
 
   app.get("/dashboard", dashAuth, (_req, res) => res.redirect("/dashboard/leads"));
@@ -582,6 +707,7 @@ async function main() {
           const fromNumber = state.lead.phone ?? null;
           const tenantId = (state as any).tenantId ?? null;
           const ownerPhone: string | undefined = (state as any).tenantOwnerPhone ?? undefined;
+          const isDemo: boolean = (state as any).isDemo === true;
 
           // Resolve the tenant for this call
           const tenant: TenantRow =
@@ -593,6 +719,7 @@ async function main() {
             fromNumber,
             callerHistory: state.callerHistory,
             tenant,
+            isDemo,
             callbacks: {
               onLeadUpdate: (patch) => {
                 const s = getOrInitCallState(callSid!);

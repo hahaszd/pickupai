@@ -247,15 +247,15 @@ export function setupGuidePage(tenant: TenantRow) {
           When you can't answer, your calls will automatically forward to your AI receptionist.
         </p>
         ${forwardingStep}
-        <details style="margin-top:.75rem;">
+        ${isProvisioned ? `<details style="margin-top:.75rem;">
           <summary style="cursor:pointer;font-size:.85rem;color:var(--brand);font-weight:600;">Telstra / Optus / Vodafone instructions &amp; alternatives</summary>
           <div style="margin-top:.75rem;font-size:.85rem;color:var(--gray-600);line-height:1.7;">
-            <p><strong>Option A:</strong> Dial the code above from your phone.</p>
+            <p><strong>Option A:</strong> Dial the code above from your phone — you'll hear a confirmation tone.</p>
             <p style="margin-top:.5rem;"><strong>Option B:</strong> Via your carrier app — look for <em>Call Forwarding → No Answer</em> or <em>Divert when unanswered</em>.</p>
             <p style="margin-top:.5rem;"><strong>Option C:</strong> Call your carrier and ask them to set <em>conditional call forwarding (no answer) with a 20-second delay</em> to your PickupAI number.</p>
             <p style="margin-top:.75rem;"><strong>To cancel forwarding at any time:</strong> Dial <code>##61#</code> and press Call.</p>
           </div>
-        </details>
+        </details>` : ""}
       </div>
     </div>
   </div>
@@ -291,6 +291,147 @@ export function setupGuidePage(tenant: TenantRow) {
 
 </div>`;
   return shell("Setup Guide", body, tenant);
+}
+
+// ─── Welcome page (post-signup) ───────────────────────────────────────────────
+
+export type WelcomePageOpts = {
+  /** Currently claimed demo number for this tenant, if any */
+  demoNumber?: string | null;
+  /** Expiry timestamp ISO string for the demo session */
+  demoExpiresAt?: string | null;
+  /** Error message to display */
+  error?: string;
+  /** Whether a simulated demo call was just triggered */
+  simulationStarted?: boolean;
+  /** Recording URL from a completed simulated demo call */
+  recordingUrl?: string | null;
+};
+
+export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
+  const { demoNumber, demoExpiresAt, error, simulationStarted, recordingUrl } = opts;
+
+  const demoNumberFormatted = demoNumber
+    ? demoNumber.replace(/(\+61)(\d{3})(\d{3})(\d{3})/, "$1 $2 $3 $4")
+    : null;
+
+  const expiryNote = demoExpiresAt
+    ? `<p style="font-size:.8rem;color:var(--gray-600);margin-top:.5rem;">Reserved for you until ${new Date(demoExpiresAt).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" })} (1 hour).</p>`
+    : "";
+
+  // Card A: Hands-free (AI simulates a caller)
+  const cardA = simulationStarted
+    ? `<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:1.25rem;">
+        <p style="font-weight:600;color:#16a34a;margin-bottom:.5rem;">✓ Demo call in progress!</p>
+        <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:.75rem;">Our AI is calling your demo number now. A recording will appear below in about 60 seconds.</p>
+        <div id="recording-area" style="margin-top:.5rem;">
+          ${recordingUrl
+            ? `<audio controls style="width:100%;margin-top:.5rem;"><source src="${escape(recordingUrl)}" type="audio/mpeg" /></audio>
+               <p style="font-size:.8rem;color:var(--gray-600);margin-top:.4rem;">Lead SMS was also sent to <strong>${escape(tenant.owner_phone)}</strong>.</p>`
+            : `<p style="font-size:.85rem;color:var(--gray-600);" id="poll-msg">Waiting for recording… <span id="dots">.</span></p>`}
+        </div>
+        ${!recordingUrl ? `<script>
+          let dots = 1;
+          setInterval(function() {
+            dots = dots % 3 + 1;
+            document.getElementById('dots').textContent = '.'.repeat(dots);
+          }, 600);
+          setTimeout(function poll() {
+            fetch('/dashboard/demo-status').then(r => r.json()).then(function(d) {
+              if (d.status === 'ready' && d.recordingUrl) {
+                var area = document.getElementById('recording-area');
+                area.innerHTML = '<audio controls style="width:100%;margin-top:.5rem;"><source src="' + d.recordingUrl + '" type="audio/mpeg" /><\\/audio><p style="font-size:.8rem;color:var(--gray-600);margin-top:.4rem;">Lead SMS was also sent to <strong>${escape(tenant.owner_phone)}<\\/strong>.</p>';
+              } else { setTimeout(poll, 5000); }
+            }).catch(function() { setTimeout(poll, 8000); });
+          }, 10000);
+        </script>` : ""}
+      </div>`
+    : `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius);padding:1.25rem;">
+        <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:1rem;">
+          We'll place a simulated customer call to your AI receptionist. You'll hear the recording here and receive the lead via SMS — zero effort on your part.
+        </p>
+        <form method="POST" action="/dashboard/simulate-demo-call">
+          <button type="submit" class="btn btn-primary" style="width:100%;">Generate Demo Call →</button>
+        </form>
+      </div>`;
+
+  // Card B: Call it yourself
+  const cardB = demoNumber
+    ? `<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:1.25rem;">
+        <p style="font-weight:600;color:#16a34a;margin-bottom:.5rem;">Your demo number is ready!</p>
+        <div style="background:#fff;border:1.5px solid var(--gray-200);border-radius:8px;padding:.75rem 1rem;font-family:monospace;font-size:1.15rem;letter-spacing:.05em;text-align:center;margin-bottom:.5rem;">
+          ${escape(demoNumberFormatted ?? demoNumber)}
+        </div>
+        <p style="font-size:.9rem;color:var(--gray-600);">Call this number from your mobile <strong>right now</strong>. Your AI receptionist will answer as if it were a real customer call. After the call, you'll receive a lead SMS on <strong>${escape(tenant.owner_phone)}</strong>.</p>
+        ${expiryNote}
+      </div>`
+    : `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius);padding:1.25rem;">
+        <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:1rem;">
+          We'll reserve a demo number for you. Call it from your own mobile to experience your AI receptionist exactly as your customers will.
+        </p>
+        <form method="POST" action="/dashboard/request-demo">
+          <button type="submit" class="btn btn-primary" style="width:100%;background:var(--gray-800);">Get Demo Number →</button>
+        </form>
+      </div>`;
+
+  const body = `
+<div style="max-width:680px;margin:2rem auto;">
+
+  <div style="background:var(--brand);color:#fff;border-radius:var(--radius);padding:1.5rem 1.75rem;margin-bottom:1.75rem;display:flex;align-items:center;gap:1rem;">
+    <span style="font-size:2rem;">🎉</span>
+    <div>
+      <div style="font-weight:700;font-size:1.15rem;">Welcome, ${escape(tenant.name)}!</div>
+      <div style="opacity:.85;font-size:.9rem;margin-top:.2rem;">Your AI receptionist is ready. Try it out below — no call forwarding needed yet.</div>
+    </div>
+  </div>
+
+  ${error ? `<div class="alert alert-error" style="margin-bottom:1rem;">${escape(error)}</div>` : ""}
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
+
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;">
+        <span style="font-size:1.3rem;">🤖</span>
+        <h2 style="margin:0;font-size:1rem;">Option A — Hands-Free Demo</h2>
+      </div>
+      <p style="font-size:.8rem;color:var(--brand);font-weight:600;margin-bottom:.6rem;text-transform:uppercase;letter-spacing:.4px;">AI simulates a customer call</p>
+      ${cardA}
+    </div>
+
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;">
+        <span style="font-size:1.3rem;">📱</span>
+        <h2 style="margin:0;font-size:1rem;">Option B — Call It Yourself</h2>
+      </div>
+      <p style="font-size:.8rem;color:var(--brand);font-weight:600;margin-bottom:.6rem;text-transform:uppercase;letter-spacing:.4px;">Dial from your own mobile</p>
+      ${cardB}
+    </div>
+
+  </div>
+
+  <div class="card" style="border:1.5px solid var(--brand);">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem;">
+      <div>
+        <h2 style="margin:0 0 .25rem;">Ready to activate on your real number?</h2>
+        <p style="font-size:.9rem;color:var(--gray-600);margin:0;">Set up call forwarding on your business mobile — takes 2 minutes.</p>
+      </div>
+      <a href="/dashboard/setup-guide" class="btn btn-primary" style="white-space:nowrap;">Set Up Call Forwarding →</a>
+    </div>
+  </div>
+
+  <div style="text-align:center;margin-top:1.25rem;">
+    <a href="/dashboard/leads" style="font-size:.85rem;color:var(--gray-600);">Skip to Dashboard →</a>
+  </div>
+
+</div>
+
+<style>
+  @media (max-width:600px) {
+    .demo-grid { grid-template-columns: 1fr !important; }
+  }
+</style>`;
+
+  return shell("Welcome", body, tenant);
 }
 
 // ─── Leads list page ──────────────────────────────────────────────────────────

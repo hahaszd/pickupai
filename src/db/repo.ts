@@ -434,3 +434,71 @@ export function getLeadHistoryByName(db: Db, name: string, tenantId?: string, li
 export function newLeadId() {
   return randomUUID();
 }
+
+// ─── Demo sessions ────────────────────────────────────────────────────────────
+
+export type DemoSessionRow = {
+  demo_number: string;
+  tenant_id: string;
+  assigned_at: string;
+  expires_at: string;
+};
+
+/** Remove expired demo sessions and return tenant via a demo pool number. */
+export function getDemoTenantByNumber(db: Db, number: string): TenantRow | null {
+  const now = new Date().toISOString();
+  db.run("DELETE FROM demo_sessions WHERE expires_at < ?", [now]);
+  const row = db.get<{ tenant_id: string }>(
+    "SELECT tenant_id FROM demo_sessions WHERE demo_number = ? AND expires_at >= ?",
+    [number, now]
+  );
+  if (!row) return null;
+  return db.get<TenantRow>("SELECT * FROM tenants WHERE tenant_id = ?", [row.tenant_id]) ?? null;
+}
+
+/**
+ * Attempt to claim an available demo number from the pool for the given tenant.
+ * Cleans up expired sessions first. Returns the claimed number or null if all busy.
+ */
+export function claimDemoNumber(
+  db: Db,
+  tenantId: string,
+  poolNumbers: string[]
+): string | null {
+  const now = new Date().toISOString();
+  // Clean expired sessions
+  db.run("DELETE FROM demo_sessions WHERE expires_at < ?", [now]);
+
+  // If this tenant already has an active demo session, return that number
+  const existing = db.get<DemoSessionRow>(
+    "SELECT * FROM demo_sessions WHERE tenant_id = ?",
+    [tenantId]
+  );
+  if (existing) return existing.demo_number;
+
+  // Find a pool number not currently in use
+  const inUse = db.all<{ demo_number: string }>(
+    "SELECT demo_number FROM demo_sessions",
+    []
+  ).map((r) => r.demo_number);
+
+  const available = poolNumbers.find((n) => !inUse.includes(n));
+  if (!available) return null;
+
+  const assignedAt = now;
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+  db.run(
+    "INSERT INTO demo_sessions (demo_number, tenant_id, assigned_at, expires_at) VALUES (?, ?, ?, ?)",
+    [available, tenantId, assignedAt, expiresAt]
+  );
+  return available;
+}
+
+/** Get the active demo session for a tenant (or null if none / expired). */
+export function getActiveDemoSession(db: Db, tenantId: string): DemoSessionRow | null {
+  const now = new Date().toISOString();
+  return db.get<DemoSessionRow>(
+    "SELECT * FROM demo_sessions WHERE tenant_id = ? AND expires_at >= ?",
+    [tenantId, now]
+  ) ?? null;
+}

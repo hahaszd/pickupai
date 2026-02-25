@@ -262,10 +262,24 @@ const businessPlaceholder = "This business";
 
 // ─── System prompt ────────────────────────────────────────────────────────────
 
+function buildDemoSection(tenant: TenantRow): string {
+  const tradeKeys = tenant.trade_type.split(",").map((s) => s.trim()).filter(Boolean);
+  const tradeLabel = tradeKeys[0] ?? "tradie";
+  return `
+# Demo Mode
+This is a DEMONSTRATION call placed by an automated system to show the business owner (${tenant.name}) how their AI receptionist works.
+The "caller" is a pre-recorded script playing the role of a customer with a ${tradeLabel} job enquiry.
+Respond as you would to any real customer — greet them warmly, collect their details, and end the call naturally.
+At the end, say something like: "Great, I've taken your details — the team at ${tenant.name} will be in touch soon."
+Keep the call to around 90 seconds.
+`;
+}
+
 function buildSystemPrompt(
   tenant: TenantRow,
   callerHistory: LeadRow[],
-  fromNumber: string | null
+  fromNumber: string | null,
+  isDemo = false
 ): string {
   const aiName = tenant.ai_name || "Olivia";
   const businessName = tenant.name;
@@ -299,7 +313,9 @@ Greet them warmly as a returning customer. You may reference their history to be
 `
       : "";
 
-  return `# Role & Objective
+  const demoSection = isDemo ? buildDemoSection(tenant) : "";
+
+  return `${demoSection}# Role & Objective
 You are ${aiName}, the friendly receptionist for ${businessName}, an Australian ${tradeLabel} business. You answer calls 24/7.
 Your goal: collect enough information about the caller's job so the business owner can follow up.
 Success means the caller feels helped, not interrogated.
@@ -401,13 +417,14 @@ export class RealtimeSession {
     fromNumber: string | null;
     callerHistory: LeadRow[];
     tenant: TenantRow;
+    isDemo?: boolean;
     callbacks: SessionCallbacks;
   }) {
     this.twilioWs = opts.twilioWs;
     this.callSid = opts.callSid;
     this.callbacks = opts.callbacks;
 
-    const instructions = buildSystemPrompt(opts.tenant, opts.callerHistory, opts.fromNumber);
+    const instructions = buildSystemPrompt(opts.tenant, opts.callerHistory, opts.fromNumber, opts.isDemo ?? false);
 
     this.openAiWs = new WebSocket(OPENAI_REALTIME_URL, {
       headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` }
