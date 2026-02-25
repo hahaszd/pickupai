@@ -503,6 +503,19 @@ export function getActiveDemoSession(db: Db, tenantId: string): DemoSessionRow |
   ) ?? null;
 }
 
+/** List all demo sessions (including expired ones). */
+export function listDemoSessions(db: Db): DemoSessionRow[] {
+  return db.all<DemoSessionRow>("SELECT * FROM demo_sessions ORDER BY assigned_at DESC", []);
+}
+
+/** Delete all demo sessions (useful for admin cleanup of stuck sessions). */
+export function clearDemoSessions(db: Db): number {
+  db.run("DELETE FROM demo_sessions", []);
+  // Return count of rows deleted is not directly available in this wrapper,
+  // so we just return 0 as a placeholder.
+  return 0;
+}
+
 // ─── System config ────────────────────────────────────────────────────────────
 
 export type SystemConfigRow = {

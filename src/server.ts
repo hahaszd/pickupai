@@ -28,6 +28,8 @@ import {
   listNotificationsForCall,
   listSystemConfig,
   listTenants,
+  listDemoSessions,
+  clearDemoSessions,
   markNotification,
   setSystemConfig,
   getSystemConfig,
@@ -427,6 +429,18 @@ async function main() {
     res.json({ ok: true, key, value: value.trim() });
   });
 
+  // ── Demo sessions (admin management) ─────────────────────────────────────
+
+  app.get("/admin/demo-sessions", adminGuard, (_req, res) => {
+    const sessions = listDemoSessions(db);
+    res.json({ sessions, count: sessions.length });
+  });
+
+  app.delete("/admin/demo-sessions", adminGuard, (_req, res) => {
+    clearDemoSessions(db);
+    res.json({ ok: true, message: "All demo sessions cleared" });
+  });
+
   // ═══════════════════════════════════════════════════════════════════════════
   // OWNER DASHBOARD
   // ═══════════════════════════════════════════════════════════════════════════
@@ -568,9 +582,14 @@ async function main() {
     try {
       const { twilioClient } = await import("./twilio/client.js");
       const callerScriptUrl = `${env.PUBLIC_BASE_URL}/twilio/demo/caller-script?trade_type=${encodeURIComponent(tenant.trade_type)}`;
+      // Use the SMS mobile number as the simulated-caller FROM so it differs
+      // from the demo pool number (which is the TO). A number cannot call itself.
+      const demoCallerFrom =
+        getSystemConfig(db, "demo_caller_number") ??
+        env.TWILIO_SMS_NUMBERS[0];
       await twilioClient.calls.create({
         to: claimed,
-        from: getSystemConfig(db, "default_voice_number") ?? env.TWILIO_DEFAULT_VOICE_NUMBER,
+        from: demoCallerFrom,
         url: callerScriptUrl,
         statusCallback: `${env.PUBLIC_BASE_URL}/twilio/voice/status`,
         statusCallbackMethod: "POST",
