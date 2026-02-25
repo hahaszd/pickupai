@@ -312,9 +312,16 @@ export type WelcomePageOpts = {
 export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
   const { demoNumber, demoExpiresAt, error, simulationStarted, recordingUrl } = opts;
 
-  const demoNumberFormatted = demoNumber
-    ? demoNumber.replace(/(\+61)(\d{3})(\d{3})(\d{3})/, "$1 $2 $3 $4")
-    : null;
+  // Format +61XXXXXXXXX → Australian local style (02 XXXX XXXX / 04XX XXX XXX)
+  const formatAuPhone = (e164: string): string => {
+    if (!e164.startsWith("+61")) return e164;
+    const local = "0" + e164.slice(3);       // +61280000796 → 0280000796
+    if (/^04\d{8}$/.test(local)) {           // mobile: 04XX XXX XXX
+      return local.replace(/^(04\d{2})(\d{3})(\d{3})$/, "$1 $2 $3");
+    }
+    return local.replace(/^(0\d)(\d{4})(\d{4})$/, "$1 $2 $3"); // landline: 02 8000 0796
+  };
+  const demoNumberFormatted = demoNumber ? formatAuPhone(demoNumber) : null;
 
   // Card A: Hands-free (AI simulates a caller — no slot claimed)
   const cardA = simulationStarted

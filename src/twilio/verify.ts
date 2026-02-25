@@ -15,14 +15,13 @@ export function twilioValidateMiddleware(opts: {
     if (!signature) return res.status(401).send("Missing Twilio signature");
 
     const url = new URL(req.originalUrl, opts.publicBaseUrl).toString();
+    // Twilio voice/SMS webhooks are form-encoded POST requests.
+    // validateRequest (sorted-params HMAC-SHA1) is the correct method for these.
+    // validateRequestWithBody is only for JSON or other non-form-encoded payloads.
     const params = (req.body ?? {}) as Record<string, string>;
-    const rawBody = req.rawBody;
+    const ok = twilio.validateRequest(opts.authToken, signature, url, params);
 
-    const ok = rawBody
-      ? twilio.validateRequestWithBody(opts.authToken, signature, url, rawBody)
-      : twilio.validateRequest(opts.authToken, signature, url, params);
-
-    if (!ok) return res.status(401).send("Invalid Twilio signature");
+    if (!ok) return res.status(403).send("Invalid Twilio signature");
     return next();
   };
 }

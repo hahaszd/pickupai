@@ -148,6 +148,28 @@ async function main() {
   const db = await openDb(env.SQLITE_PATH);
   seedDefaultTenant(db);
 
+  // Auto-configure Twilio webhook URLs to point to this server instance.
+  // Whichever environment (dev/prod) starts last takes ownership of the numbers.
+  if (env.TWILIO_AUTO_CONFIGURE_WEBHOOKS) {
+    try {
+      const { twilioClient } = await import("./twilio/client.js");
+      const voiceUrl = `${env.PUBLIC_BASE_URL}/twilio/voice/incoming`;
+      const statusCallback = `${env.PUBLIC_BASE_URL}/twilio/voice/status`;
+      const numbers = await twilioClient.incomingPhoneNumbers.list({ limit: 50 });
+      for (const num of numbers) {
+        await twilioClient.incomingPhoneNumbers(num.sid).update({
+          voiceUrl,
+          voiceMethod: "POST",
+          statusCallback,
+          statusCallbackMethod: "POST"
+        });
+        log.info({ number: num.phoneNumber, voiceUrl }, "Twilio webhook updated");
+      }
+    } catch (err) {
+      log.error({ err }, "Failed to auto-configure Twilio webhooks — continuing anyway");
+    }
+  }
+
   const app = express();
   const crmExporters = createCrmExporters();
 

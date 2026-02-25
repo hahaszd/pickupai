@@ -64,7 +64,15 @@ const envSchema = z.object({
 
   // Comma-separated AU Twilio numbers pre-configured as demo pool, e.g. "+61412000111,+61412000222"
   // Each must have its Voice webhook pointing to POST /twilio/voice/incoming.
-  DEMO_POOL_NUMBERS: z.string().optional().default("")
+  DEMO_POOL_NUMBERS: z.string().optional().default(""),
+
+  // When true, on startup the server updates every owned Twilio number's voice
+  // webhook to point to this instance (PUBLIC_BASE_URL). Use this to make dev
+  // and prod each own their own webhooks — whichever starts last "wins".
+  TWILIO_AUTO_CONFIGURE_WEBHOOKS: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true")
 });
 
 export type Env = z.infer<typeof envSchema>;
