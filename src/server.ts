@@ -92,7 +92,7 @@ function leadsToCSV(leads: any[]): string {
 function seedDefaultTenant(db: any) {
   const existing = listTenants(db);
   if (existing.length > 0) return;
-  if (!env.TWILIO_VOICE_NUMBER) return;
+  if (!env.TWILIO_DEFAULT_VOICE_NUMBER) return;
 
   log.info("No tenants found — seeding default tenant from env vars");
   try {
@@ -100,13 +100,13 @@ function seedDefaultTenant(db: any) {
       name: "My Tradie Business",
       trade_type: "tradie",
       ai_name: "Olivia",
-      twilio_number: env.TWILIO_VOICE_NUMBER,
+      twilio_number: env.TWILIO_DEFAULT_VOICE_NUMBER,
       owner_phone: env.OWNER_PHONE_NUMBER || "",
       owner_email: env.SEED_EMAIL ?? "owner@example.com",
       password: env.SEED_PASSWORD ?? "changeme123"
     });
     log.info(
-      { number: env.TWILIO_VOICE_NUMBER, email: env.SEED_EMAIL ?? "owner@example.com" },
+      { number: env.TWILIO_DEFAULT_VOICE_NUMBER, email: env.SEED_EMAIL ?? "owner@example.com" },
       "Default tenant created. Check SEED_EMAIL / SEED_PASSWORD env vars for login credentials."
     );
   } catch (err) {
@@ -122,7 +122,7 @@ function buildFallbackTenant(): TenantRow {
     name: "My Tradie Business",
     trade_type: "tradie",
     ai_name: "Olivia",
-    twilio_number: env.TWILIO_VOICE_NUMBER ?? "",
+    twilio_number: env.TWILIO_DEFAULT_VOICE_NUMBER ?? "",
     owner_phone: env.OWNER_PHONE_NUMBER ?? "",
     owner_email: null,
     password_hash: null,
@@ -544,7 +544,7 @@ async function main() {
       const callerScriptUrl = `${env.PUBLIC_BASE_URL}/twilio/demo/caller-script?trade_type=${encodeURIComponent(tenant.trade_type)}`;
       await twilioClient.calls.create({
         to: claimed,
-        from: env.TWILIO_VOICE_NUMBER,
+        from: env.TWILIO_DEFAULT_VOICE_NUMBER,
         url: callerScriptUrl,
         statusCallback: `${env.PUBLIC_BASE_URL}/twilio/voice/status`,
         statusCallbackMethod: "POST",

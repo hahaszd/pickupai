@@ -43,8 +43,8 @@ In your service → **Variables**, add:
 |---|---|
 | `TWILIO_ACCOUNT_SID` | Your Twilio Account SID |
 | `TWILIO_AUTH_TOKEN` | Your Twilio Auth Token |
-| `TWILIO_VOICE_NUMBER` | Your Twilio number (e.g. `+61468000835`) |
-| `TWILIO_SMS_NUMBER` | Same as VOICE_NUMBER or a dedicated SMS number |
+| `TWILIO_DEFAULT_VOICE_NUMBER` | Your local geographic number for the default tenant and demo calls (e.g. `+61268000835`) |
+| `TWILIO_SMS_NUMBERS` | One or more mobile numbers for SMS notifications, comma-separated (e.g. `+61412000111` or `+61412000111,+61412000222`) |
 | `OPENAI_API_KEY` | Your OpenAI key |
 | `OPENAI_VOICE` | `marin` (or `sage`, `alloy`, etc.) |
 | `ADMIN_TOKEN` | A strong random secret (generate with `openssl rand -hex 32`) |

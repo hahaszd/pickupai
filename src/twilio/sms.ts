@@ -2,6 +2,15 @@ import { env } from "../env.js";
 import type { LeadRow } from "../db/repo.js";
 import { twilioClient } from "./client.js";
 
+let smsNumberIndex = 0;
+
+function nextSmsNumber(): string {
+  const pool = env.TWILIO_SMS_NUMBERS;
+  const number = pool[smsNumberIndex % pool.length];
+  smsNumberIndex = (smsNumberIndex + 1) % pool.length;
+  return number;
+}
+
 function compact(s: string | null | undefined) {
   return (s ?? "").trim();
 }
@@ -60,7 +69,7 @@ export async function sendOwnerSms(body: string, ownerPhone?: string) {
   const to = ownerPhone ?? env.OWNER_PHONE_NUMBER;
   return twilioClient.messages.create({
     to,
-    from: env.TWILIO_SMS_NUMBER,
+    from: nextSmsNumber(),
     body
   });
 }

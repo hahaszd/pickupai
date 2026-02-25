@@ -9,8 +9,18 @@ const envSchema = z.object({
 
   TWILIO_ACCOUNT_SID: z.string().min(1),
   TWILIO_AUTH_TOKEN: z.string().min(1),
-  TWILIO_VOICE_NUMBER: z.string().min(1),
-  TWILIO_SMS_NUMBER: z.string().min(1),
+  // Used only to seed the first/default tenant on startup and as the "from"
+  // number when placing simulated demo calls. Actual per-tenant voice numbers
+  // are stored in tenants.twilio_number in the database.
+  TWILIO_DEFAULT_VOICE_NUMBER: z.string().min(1),
+
+  // Comma-separated list of mobile numbers used to send SMS notifications to
+  // tradie owners (e.g. "+61412000111,+61412000222"). Messages are sent
+  // round-robin across all numbers in the pool.
+  TWILIO_SMS_NUMBERS: z
+    .string()
+    .min(1)
+    .transform((v) => v.split(",").map((n) => n.trim()).filter(Boolean)),
 
   OWNER_PHONE_NUMBER: z.string().optional().default(""),
   ENABLE_WARM_TRANSFER: z
