@@ -145,7 +145,7 @@ function buildFallbackTenant(): TenantRow {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const db = await openDb(env.SQLITE_PATH);
+  const db = await openDb(env.SQLITE_PATH, env.DATABASE_URL);
   seedDefaultTenant(db);
 
   // Auto-configure Twilio webhook URLs to point to this server instance.

@@ -59,6 +59,11 @@ const envSchema = z.object({
 
   SQLITE_PATH: z.string().default("./data/app.sqlite"),
 
+  // When set, SQLite is backed up to (and restored from) this PostgreSQL URL as
+  // a binary blob — providing persistence across container restarts on Koyeb.
+  // Get a free URL from https://neon.tech (no credit card required).
+  DATABASE_URL: z.string().optional(),
+
   SEED_EMAIL: z.string().optional(),
   SEED_PASSWORD: z.string().optional(),
 
