@@ -106,7 +106,7 @@ The server:
 ```xml
 <Response>
   <Connect>
-    <Stream url="wss://your-server.com/media-stream?callSid=CA..."/>
+    <Stream url="wss://pickupai.ai-builders.space/media-stream?callSid=CA..."/>
   </Connect>
 </Response>
 ```
@@ -220,7 +220,7 @@ Address: 12 Main St, Parramatta NSW 2150
 Issue: Burst pipe under kitchen sink – URGENT
 Preferred time: ASAP
 
-Log in to review: https://your-server.com/dashboard
+Log in to review: https://pickupai.ai-builders.space/dashboard
 ```
 
 Emergency calls are flagged clearly so the tradie knows to call back immediately.
@@ -238,7 +238,7 @@ The tradie receives the SMS immediately after each call. This gives them:
 
 ### 3.2 Dashboard Login
 
-**URL:** `https://your-server.com/dashboard/login`
+**URL:** `https://pickupai.ai-builders.space/dashboard/login`
 
 The tradie logs in with their email and password. A secure HTTP-only session cookie keeps them logged in.
 
@@ -335,7 +335,7 @@ notifications
 | **Database** | SQLite via `sql.js` (WASM, zero native dependencies) |
 | **SMS** | Twilio Programmable Messaging |
 | **Dashboard** | Server-side rendered HTML (built into Express) |
-| **Deployment** | Docker / Railway.app |
+| **Deployment** | Docker / AI Builder Space (Koyeb) — live at `https://pickupai.ai-builders.space` |
 | **Dev tunnelling** | ngrok |
 
 ---
@@ -360,7 +360,7 @@ This is comparable to a real human receptionist and a significant improvement ov
 The server can be run:
 
 - **Locally** (development): `npm run dev` + ngrok tunnel for Twilio webhooks
-- **Production**: Docker container on Railway.app (see `DEPLOY.md`)
+- **Production**: Docker container deployed on AI Builder Space (Koyeb) — currently live at `https://pickupai.ai-builders.space`
 
 Environment variables required:
 
@@ -370,7 +370,7 @@ TWILIO_AUTH_TOKEN=...
 OPENAI_API_KEY=...
 OPENAI_VOICE=marin
 ADMIN_TOKEN=...
-PUBLIC_BASE_URL=https://your-production-domain.com
+PUBLIC_BASE_URL=https://pickupai.ai-builders.space
 PORT=3000
 ```
 

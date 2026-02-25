@@ -41,7 +41,7 @@ import { startCallRecording } from "./twilio/recording.js";
 import { formatOwnerSms, NO_SMS_INTENTS, sendOwnerSms } from "./twilio/sms.js";
 import { createCrmExporters, exportLeadToCrm } from "./crm/index.js";
 import { RealtimeSession } from "./realtime/session.js";
-import { loginPage, leadsPage, leadDetailPage } from "./dashboard/pages.js";
+import { loginPage, signupPage, setupGuidePage, leadsPage, leadDetailPage } from "./dashboard/pages.js";
 
 const log = pino({ level: "info" });
 
@@ -427,6 +427,59 @@ async function main() {
     }
     clearSessionCookie(res);
     res.redirect("/dashboard/login");
+  });
+
+  app.get("/dashboard/signup", (req, res) => {
+    const cookies = parseCookies(req);
+    if (cookies.dash_session && getTenantBySessionToken(db, cookies.dash_session)) {
+      return res.redirect("/dashboard/leads");
+    }
+    res.send(signupPage());
+  });
+
+  app.post("/dashboard/signup", express.urlencoded({ extended: false }), (req, res) => {
+    const { name, trade_type, ai_name, owner_phone, email, password } = req.body ?? {};
+    const prefill = { name, trade_type, ai_name, owner_phone, email };
+
+    if (!name || !trade_type || !owner_phone || !email || !password) {
+      return res.send(signupPage("All required fields must be filled in.", prefill));
+    }
+    if (typeof password === "string" && password.length < 8) {
+      return res.send(signupPage("Password must be at least 8 characters.", prefill));
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.send(signupPage("Please enter a valid email address.", prefill));
+    }
+
+    // Check if email already in use
+    const existing = listTenants(db).find(t => t.owner_email?.toLowerCase() === (email as string).toLowerCase());
+    if (existing) {
+      return res.send(signupPage("An account with that email already exists. Please sign in.", prefill));
+    }
+
+    const pendingNumber = `+PENDING_${Math.floor(100000 + Math.random() * 900000)}`;
+    const tenant = createTenant(db, {
+      name: name as string,
+      trade_type: trade_type as string,
+      ai_name: ai_name || "Olivia",
+      twilio_number: pendingNumber,
+      owner_phone: owner_phone as string,
+      owner_email: email as string,
+      password: password as string,
+    });
+
+    const loggedIn = tenantLogin(db, email as string, password as string);
+    if (loggedIn?.session_token) {
+      setSessionCookie(res, loggedIn.session_token);
+    }
+
+    res.redirect("/dashboard/setup-guide");
+  });
+
+  app.get("/dashboard/setup-guide", dashAuth, (req, res) => {
+    const tenant: TenantRow = (req as any).dashTenant;
+    res.send(setupGuidePage(tenant));
   });
 
   app.get("/dashboard", dashAuth, (_req, res) => res.redirect("/dashboard/leads"));

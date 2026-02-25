@@ -96,9 +96,7 @@ function shell(title: string, body: string, tenant?: TenantRow) {
 <body>
 <nav>
   <div class="logo">AI Receptionist <span>${escape(tenantName)}</span></div>
-  <a href="/dashboard/leads">Leads</a>
-  <div class="spacer"></div>
-  <a href="/dashboard/logout" class="hide-sm">Log out</a>
+  ${tenant ? `<a href="/dashboard/leads">Leads</a><div class="spacer"></div><a href="/dashboard/logout" class="hide-sm">Log out</a>` : `<div class="spacer"></div>`}
 </nav>
 <div class="container">
   ${body}
@@ -148,9 +146,151 @@ export function loginPage(error?: string) {
       </div>
       <button type="submit" class="btn btn-primary" style="width:100%;margin-top:.5rem;">Sign in</button>
     </form>
+    <p style="text-align:center;margin-top:1.25rem;font-size:.85rem;color:var(--gray-600);">
+      No account? <a href="/dashboard/signup">Start your free 14-day trial →</a>
+    </p>
   </div>
 </div>`;
   return shell("Sign in", body);
+}
+
+// ─── Sign up page ─────────────────────────────────────────────────────────────
+
+export function signupPage(error?: string, prefill: Record<string, string> = {}) {
+  const trades = ["plumber","electrician","roofer","painter","carpenter","tiler","handyman"];
+  const tradeOptions = trades.map(t =>
+    `<option value="${t}"${prefill.trade_type === t ? " selected" : ""}>${t.charAt(0).toUpperCase() + t.slice(1)}</option>`
+  ).join("");
+
+  const body = `
+<div style="max-width:480px;margin:3rem auto;">
+  <div class="card">
+    <div style="text-align:center;margin-bottom:1.75rem;">
+      <h2 style="font-size:1.3rem;margin-bottom:.35rem;">Start your free 14-day trial</h2>
+      <p style="font-size:.85rem;color:var(--gray-600);">No credit card required. Set up in 10 minutes.</p>
+    </div>
+    ${error ? `<div class="alert alert-error">${escape(error)}</div>` : ""}
+    <form method="POST" action="/dashboard/signup">
+      <div class="form-group">
+        <label for="name">Business name</label>
+        <input type="text" id="name" name="name" required placeholder="e.g. Mike's Plumbing" value="${escape(prefill.name ?? "")}" />
+      </div>
+      <div class="form-group">
+        <label for="trade_type">Trade type</label>
+        <select id="trade_type" name="trade_type" required>
+          <option value="" disabled${!prefill.trade_type ? " selected" : ""}>Select your trade…</option>
+          ${tradeOptions}
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="ai_name">AI receptionist name <span style="font-weight:400;color:var(--gray-600);">(optional)</span></label>
+        <input type="text" id="ai_name" name="ai_name" placeholder="Olivia" value="${escape(prefill.ai_name ?? "")}" />
+      </div>
+      <div class="form-group">
+        <label for="owner_phone">Your mobile number <span style="font-size:.8rem;font-weight:400;color:var(--gray-600);">— for SMS lead alerts</span></label>
+        <input type="tel" id="owner_phone" name="owner_phone" required placeholder="+61 4XX XXX XXX" value="${escape(prefill.owner_phone ?? "")}" />
+      </div>
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" required placeholder="you@example.com" value="${escape(prefill.email ?? "")}" />
+      </div>
+      <div class="form-group">
+        <label for="password">Password <span style="font-size:.8rem;font-weight:400;color:var(--gray-600);">(min 8 characters)</span></label>
+        <input type="password" id="password" name="password" required minlength="8" />
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%;margin-top:.5rem;padding:.65rem;">
+        Create account &amp; start trial →
+      </button>
+    </form>
+    <p style="text-align:center;margin-top:1.25rem;font-size:.85rem;color:var(--gray-600);">
+      Already have an account? <a href="/dashboard/login">Sign in</a>
+    </p>
+  </div>
+</div>`;
+  return shell("Start free trial", body);
+}
+
+// ─── Setup guide page (shown after signup) ────────────────────────────────────
+
+export function setupGuidePage(tenant: TenantRow) {
+  const isProvisioned = !tenant.twilio_number.startsWith("+PENDING");
+  const pickupNumber = isProvisioned ? tenant.twilio_number : null;
+
+  const forwardingStep = pickupNumber
+    ? `<p style="margin-bottom:.75rem;">Your PickupAI number is: <strong style="font-size:1.1rem;color:var(--brand);">${escape(pickupNumber)}</strong></p>
+       <p style="margin-bottom:.75rem;">Open your phone's dialler and enter:</p>
+       <div style="background:var(--gray-50);border:1.5px solid var(--gray-200);border-radius:8px;padding:1rem 1.25rem;font-family:monospace;font-size:1.05rem;letter-spacing:.05em;margin-bottom:.75rem;">
+         **61*${escape(pickupNumber.replace(/\+/g, ""))}*11*20#
+       </div>
+       <p style="font-size:.85rem;color:var(--gray-600);">Then press <strong>Call / Dial</strong>. You'll hear a confirmation tone.</p>`
+    : `<div class="alert" style="background:#fef9c3;color:#92400e;border:1px solid #fde68a;">
+         <strong>Your number is being provisioned.</strong> We'll text you within 24 hours with your dedicated PickupAI number and setup instructions.
+       </div>`;
+
+  const body = `
+<div style="max-width:640px;margin:2rem auto;">
+
+  <div style="background:var(--brand);color:#fff;border-radius:var(--radius);padding:1.5rem 1.75rem;margin-bottom:1.5rem;display:flex;align-items:center;gap:1rem;">
+    <span style="font-size:2rem;">✓</span>
+    <div>
+      <div style="font-weight:700;font-size:1.1rem;">Account created! Welcome, ${escape(tenant.name)}.</div>
+      <div style="opacity:.85;font-size:.9rem;margin-top:.2rem;">Follow the 3 steps below to activate your AI receptionist.</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:1rem;">
+    <div style="display:flex;gap:1rem;align-items:flex-start;">
+      <div style="min-width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;">1</div>
+      <div style="flex:1;">
+        <h2 style="margin-bottom:.5rem;">Set up call forwarding on your mobile</h2>
+        <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:1rem;">
+          When you can't answer, your calls will automatically forward to your AI receptionist.
+        </p>
+        ${forwardingStep}
+        <details style="margin-top:.75rem;">
+          <summary style="cursor:pointer;font-size:.85rem;color:var(--brand);font-weight:600;">Telstra / Optus / Vodafone instructions &amp; alternatives</summary>
+          <div style="margin-top:.75rem;font-size:.85rem;color:var(--gray-600);line-height:1.7;">
+            <p><strong>Option A:</strong> Dial the code above from your phone.</p>
+            <p style="margin-top:.5rem;"><strong>Option B:</strong> Via your carrier app — look for <em>Call Forwarding → No Answer</em> or <em>Divert when unanswered</em>.</p>
+            <p style="margin-top:.5rem;"><strong>Option C:</strong> Call your carrier and ask them to set <em>conditional call forwarding (no answer) with a 20-second delay</em> to your PickupAI number.</p>
+            <p style="margin-top:.75rem;"><strong>To cancel forwarding at any time:</strong> Dial <code>##61#</code> and press Call.</p>
+          </div>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:1rem;">
+    <div style="display:flex;gap:1rem;align-items:flex-start;">
+      <div style="min-width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;">2</div>
+      <div style="flex:1;">
+        <h2 style="margin-bottom:.5rem;">Test it</h2>
+        <p style="font-size:.9rem;color:var(--gray-600);">Ask a friend to call your business number and don't answer. After ~20 seconds your AI receptionist will pick up. You should receive an SMS on <strong>${escape(tenant.owner_phone || "your mobile")}</strong> within a minute.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:1.5rem;">
+    <div style="display:flex;gap:1rem;align-items:flex-start;">
+      <div style="min-width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;">3</div>
+      <div style="flex:1;">
+        <h2 style="margin-bottom:.5rem;">View your leads</h2>
+        <p style="font-size:.9rem;color:var(--gray-600);">Every call generates a lead in your dashboard. You can see caller details, listen to recordings, and mark jobs as handled.</p>
+      </div>
+    </div>
+  </div>
+
+  <div style="text-align:center;">
+    <a href="/dashboard/leads" class="btn btn-primary" style="padding:.75rem 2rem;font-size:1rem;">
+      Go to Dashboard →
+    </a>
+    <p style="margin-top:.75rem;font-size:.8rem;color:var(--gray-600);">
+      Need help? Email <a href="mailto:hello@pickupai.com.au">hello@pickupai.com.au</a>
+    </p>
+  </div>
+
+</div>`;
+  return shell("Setup Guide", body, tenant);
 }
 
 // ─── Leads list page ──────────────────────────────────────────────────────────
