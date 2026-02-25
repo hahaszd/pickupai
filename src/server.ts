@@ -660,9 +660,33 @@ async function main() {
     );
     const latest = recentCalls?.[0] ?? null;
     if (latest?.recording_url) {
-      res.json({ status: "ready", recordingUrl: latest.recording_url });
+      // Return a proxy URL so the browser can play it without Twilio credentials
+      const proxyUrl = `/dashboard/recording-proxy?url=${encodeURIComponent(latest.recording_url)}`;
+      res.json({ status: "ready", recordingUrl: proxyUrl });
     } else {
       res.json({ status: "pending", recordingUrl: null });
+    }
+  });
+
+  // Proxy Twilio recording audio — Twilio requires HTTP Basic Auth which browsers can't supply.
+  app.get("/dashboard/recording-proxy", dashAuth, async (req, res) => {
+    const rawUrl = typeof req.query.url === "string" ? req.query.url : "";
+    if (!rawUrl.startsWith("https://api.twilio.com/")) {
+      return res.status(400).send("Invalid recording URL");
+    }
+    try {
+      const creds = Buffer.from(`${env.TWILIO_ACCOUNT_SID}:${env.TWILIO_AUTH_TOKEN}`).toString("base64");
+      const upstream = await fetch(rawUrl, { headers: { Authorization: `Basic ${creds}` } });
+      if (!upstream.ok) {
+        return res.status(upstream.status).send("Recording not available");
+      }
+      res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "audio/mpeg");
+      res.setHeader("Cache-Control", "private, max-age=3600");
+      const buf = await upstream.arrayBuffer();
+      res.send(Buffer.from(buf));
+    } catch (err) {
+      log.warn({ err }, "recording-proxy fetch failed");
+      res.status(502).send("Could not fetch recording");
     }
   });
 

@@ -324,33 +324,51 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
   const demoNumberFormatted = demoNumber ? formatAuPhone(demoNumber) : null;
 
   // Card A: Hands-free (AI simulates a caller — no slot claimed)
+  const proxyRecordingUrl = recordingUrl
+    ? `/dashboard/recording-proxy?url=${encodeURIComponent(recordingUrl)}`
+    : null;
+
   const cardA = simulationStarted
     ? `<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:1.25rem;">
         <p style="font-weight:600;color:#16a34a;margin-bottom:.5rem;">✓ Demo call in progress!</p>
         <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:.75rem;">
           Our AI is placing a simulated customer call to your receptionist now.
-          A recording will appear below in about 60 seconds.
+          The recording will appear below once the call finishes (usually 30–90 seconds).
         </p>
         <div id="recording-area" style="margin-top:.5rem;">
-          ${recordingUrl
-            ? `<audio controls style="width:100%;margin-top:.5rem;"><source src="${escape(recordingUrl)}" type="audio/mpeg" /></audio>
-               <p style="font-size:.8rem;color:var(--gray-600);margin-top:.4rem;">Lead SMS was also sent to <strong>${escape(tenant.owner_phone)}</strong>.</p>`
-            : `<p style="font-size:.85rem;color:var(--gray-600);" id="poll-msg">Waiting for recording… <span id="dots">.</span></p>`}
+          ${proxyRecordingUrl
+            ? `<audio controls autoplay style="width:100%;margin-top:.5rem;"><source src="${escape(proxyRecordingUrl)}" type="audio/mpeg" /></audio>
+               <p style="font-size:.8rem;color:var(--gray-600);margin-top:.4rem;">✓ Lead SMS also sent to <strong>${escape(tenant.owner_phone)}</strong>.</p>`
+            : `<div style="display:flex;align-items:center;gap:.6rem;font-size:.85rem;color:var(--gray-600);" id="poll-msg">
+                 <span id="spinner" style="display:inline-block;width:14px;height:14px;border:2px solid #86efac;border-top-color:#16a34a;border-radius:50%;animation:spin .8s linear infinite;"></span>
+                 Waiting for recording…
+               </div>
+               <style>@keyframes spin{to{transform:rotate(360deg)}}</style>`}
         </div>
-        ${!recordingUrl ? `<script>
-          let dots = 1;
-          setInterval(function() {
-            dots = dots % 3 + 1;
-            document.getElementById('dots').textContent = '.'.repeat(dots);
-          }, 600);
-          setTimeout(function poll() {
-            fetch('/dashboard/demo-status').then(r => r.json()).then(function(d) {
-              if (d.status === 'ready' && d.recordingUrl) {
-                var area = document.getElementById('recording-area');
-                area.innerHTML = '<audio controls style="width:100%;margin-top:.5rem;"><source src="' + d.recordingUrl + '" type="audio/mpeg" /><\\/audio><p style="font-size:.8rem;color:var(--gray-600);margin-top:.4rem;">Lead SMS was also sent to <strong>${escape(tenant.owner_phone)}<\\/strong>.</p>';
-              } else { setTimeout(poll, 5000); }
-            }).catch(function() { setTimeout(poll, 8000); });
-          }, 10000);
+        ${!proxyRecordingUrl ? `<script>
+          (function() {
+            var attempts = 0;
+            var maxAttempts = 40; // ~3 minutes total
+            function poll() {
+              if (attempts++ >= maxAttempts) {
+                document.getElementById('poll-msg').textContent = 'Recording is taking longer than expected — please refresh the page in a minute.';
+                return;
+              }
+              fetch('/dashboard/demo-status').then(function(r) { return r.json(); }).then(function(d) {
+                if (d.status === 'ready' && d.recordingUrl) {
+                  var area = document.getElementById('recording-area');
+                  area.innerHTML =
+                    '<audio controls autoplay style="width:100%;margin-top:.5rem;">' +
+                    '<source src="' + d.recordingUrl + '" type="audio/mpeg" /></audio>' +
+                    '<p style="font-size:.8rem;color:var(--gray-600);margin-top:.4rem;">' +
+                    '✓ Lead SMS also sent to <strong>${escape(tenant.owner_phone)}<\\/strong>.</p>';
+                } else {
+                  setTimeout(poll, 4000);
+                }
+              }).catch(function() { setTimeout(poll, 6000); });
+            }
+            setTimeout(poll, 8000);
+          })();
         </script>` : ""}
       </div>`
     : `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius);padding:1.25rem;">
