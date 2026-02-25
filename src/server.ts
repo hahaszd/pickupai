@@ -242,10 +242,11 @@ async function main() {
     const from = req.body?.From ?? null;
     const to = req.body?.To ?? null;
 
-    // Look up tenant by the dialled (To) number; fall back to demo pool, then fallback.
-    const tenantByNumber = typeof to === "string" ? getTenantByNumber(db, to) : null;
-    const demoTenant = tenantByNumber ? null : (typeof to === "string" ? getDemoTenantByNumber(db, to) : null);
-    const tenant: TenantRow = tenantByNumber ?? demoTenant ?? buildFallbackTenant();
+    // Demo sessions take priority: a number in the demo pool may also exist as the
+    // seed tenant's twilio_number, so we check active demo sessions FIRST.
+    const demoTenant = typeof to === "string" ? getDemoTenantByNumber(db, to) : null;
+    const tenantByNumber = demoTenant ? null : (typeof to === "string" ? getTenantByNumber(db, to) : null);
+    const tenant: TenantRow = demoTenant ?? tenantByNumber ?? buildFallbackTenant();
     const isDemo = !!demoTenant;
 
     if (tenant.tenant_id === "default" && typeof to === "string") {

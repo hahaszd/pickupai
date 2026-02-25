@@ -82,7 +82,9 @@ const SEED_PASSWORD =
                        "changeme-set-a-real-password";
 
 // Seed tenant's Twilio number (TWILIO_DEFAULT_VOICE_NUMBER in the deployed env)
-const SEED_TWILIO_NUMBER = "+61468000835";
+// +61280000796 is the landline used for both inbound voice AND demo pool.
+// Demo sessions take routing priority over the seed tenant (see server.ts).
+const SEED_TWILIO_NUMBER = "+61280000796";
 
 // Prod has signature validation ON — Twilio webhook tests only verify 403.
 // Local + dev have it OFF — full TwiML responses are tested.
