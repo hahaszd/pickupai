@@ -409,6 +409,11 @@ export type SessionCallbacks = {
   onEndCall: (reason: string) => void;
   /** Called when the OpenAI session errors unrecoverably */
   onError: (err: Error) => void;
+  /**
+   * Called for every audio chunk the AI sends back (base64 PCMU 8kHz).
+   * Used to live-stream demo calls to the dashboard browser client via SSE.
+   */
+  onAudioChunk?: (base64Chunk: string) => void;
 };
 
 export class RealtimeSession {
@@ -544,6 +549,11 @@ export class RealtimeSession {
     this.sendToTwilio({ event: "media", streamSid: this.streamSid, media: { payload: event.delta } });
     this.sendToTwilio({ event: "mark", streamSid: this.streamSid, mark: { name: mark } });
     this.markQueue.push(mark);
+
+    // Live-stream demo calls to the dashboard browser (SSE).
+    if (this.callbacks.onAudioChunk) {
+      this.callbacks.onAudioChunk(event.delta);
+    }
   }
 
   private handleBargein() {

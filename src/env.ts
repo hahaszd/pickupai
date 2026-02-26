@@ -71,6 +71,12 @@ const envSchema = z.object({
   // Each must have its Voice webhook pointing to POST /twilio/voice/incoming.
   DEMO_POOL_NUMBERS: z.string().optional().default(""),
 
+  // Twilio IncomingPhoneNumber SID for the first demo pool number.
+  // Used to redirect the voice webhook to THIS server before each simulated demo call,
+  // ensuring the correct instance handles the call when prod and dev share a number.
+  // Find it in Twilio Console → Phone Numbers → Active Numbers → the demo number.
+  DEMO_POOL_NUMBER_SID: z.string().optional(),
+
   // When true, on startup the server updates every owned Twilio number's voice
   // webhook to point to this instance (PUBLIC_BASE_URL). Use this to make dev
   // and prod each own their own webhooks — whichever starts last "wins".

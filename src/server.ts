@@ -1,4 +1,5 @@
 import http from "node:http";
+import { EventEmitter } from "node:events";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
@@ -259,6 +260,12 @@ async function main() {
   // Maps demo pool number → { tenantId, expiresAt }
   // Set when a simulation call is placed; cleared when the call completes.
   const simulationRoutingMap = new Map<string, { tenantId: string; expiresAt: number }>();
+
+  // ── Live audio streaming for demo calls (SSE) ──────────────────────────────
+  // Audio chunks from the AI are emitted on "audio:<tenantId>" events.
+  // When the call ends, "end:<tenantId>" is emitted to close the SSE stream.
+  const demoAudioEmitter = new EventEmitter();
+  demoAudioEmitter.setMaxListeners(100);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // TWILIO WEBHOOKS
@@ -628,6 +635,17 @@ async function main() {
 
     try {
       const { twilioClient } = await import("./twilio/client.js");
+
+      // Point the demo number's webhook to THIS server so that when the call
+      // arrives, the media-stream WebSocket runs here — where the SSE listener
+      // is waiting.  This fixes prod/dev webhook ownership fights.
+      if (env.DEMO_POOL_NUMBER_SID) {
+        await twilioClient.incomingPhoneNumbers(env.DEMO_POOL_NUMBER_SID).update({
+          voiceUrl: `${env.PUBLIC_BASE_URL}/twilio/voice/incoming`,
+          voiceMethod: "POST"
+        }).catch((err: any) => log.warn({ err }, "Could not update demo number webhook"));
+      }
+
       const callerScriptUrl =
         `${env.PUBLIC_BASE_URL}/twilio/demo/caller-script` +
         `?trade_type=${encodeURIComponent(tenant.trade_type)}` +
@@ -688,6 +706,40 @@ async function main() {
       log.warn({ err }, "recording-proxy fetch failed");
       res.status(502).send("Could not fetch recording");
     }
+  });
+
+  // SSE endpoint — streams live AI audio chunks to the dashboard browser.
+  // The client connects immediately after clicking "Generate Demo Call" and
+  // hears the AI receptionist's responses in real-time (PCMU → μ-law decoded
+  // to PCM by the browser's AudioContext).
+  app.get("/dashboard/demo-audio-stream", dashAuth, (req, res) => {
+    const tenant: TenantRow = (req as any).dashTenant;
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no"); // disable nginx buffering if present
+    res.flushHeaders();
+
+    // Send keepalive comments every 20 s so the connection doesn't time out.
+    const keepAlive = setInterval(() => res.write(": ka\n\n"), 20_000);
+
+    const audioHandler = (chunk: string) => {
+      res.write(`data: ${chunk}\n\n`);
+    };
+    const endHandler = () => {
+      res.write("event: end\ndata: done\n\n");
+      clearInterval(keepAlive);
+      res.end();
+    };
+
+    demoAudioEmitter.on(`audio:${tenant.tenant_id}`, audioHandler);
+    demoAudioEmitter.once(`end:${tenant.tenant_id}`, endHandler);
+
+    req.on("close", () => {
+      clearInterval(keepAlive);
+      demoAudioEmitter.off(`audio:${tenant.tenant_id}`, audioHandler);
+      demoAudioEmitter.off(`end:${tenant.tenant_id}`, endHandler);
+    });
   });
 
   // Scripted "caller" TwiML for simulated demo calls — Twilio requests this URL.
@@ -883,6 +935,11 @@ async function main() {
                 );
                 log.info({ callSid, reason }, "AI requested end_call");
 
+                // Signal the SSE stream to close (demo calls only).
+                if (isDemo) {
+                  setTimeout(() => demoAudioEmitter.emit(`end:${tenant.tenant_id}`), 1500);
+                }
+
                 import("./twilio/client.js").then(({ twilioClient }) => {
                   twilioClient.calls(callSid!).update({ status: "completed" }).catch((err: any) =>
                     log.warn({ err }, "failed to hang up call via REST")
@@ -892,7 +949,12 @@ async function main() {
 
               onError: (err) => {
                 log.error({ callSid, err }, "RealtimeSession error");
-              }
+              },
+
+              // Live-stream AI audio to the dashboard browser for demo calls.
+              onAudioChunk: isDemo ? (chunk: string) => {
+                demoAudioEmitter.emit(`audio:${tenant.tenant_id}`, chunk);
+              } : undefined,
             }
           });
 

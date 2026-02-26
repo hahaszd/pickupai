@@ -330,46 +330,111 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
 
   const cardA = simulationStarted
     ? `<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:1.25rem;">
-        <p style="font-weight:600;color:#16a34a;margin-bottom:.5rem;">✓ Demo call in progress!</p>
-        <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:.75rem;">
-          Our AI is placing a simulated customer call to your receptionist now.
-          The recording will appear below once the call finishes (usually 30–90 seconds).
+        <p style="font-weight:600;color:#16a34a;margin-bottom:.4rem;">✓ Demo call in progress!</p>
+        <p style="font-size:.85rem;color:var(--gray-600);margin-bottom:.9rem;">
+          Your AI receptionist is taking a call from a simulated customer right now.
+          Click below to listen live — you'll hear everything the AI says in real-time.
         </p>
-        <div id="recording-area" style="margin-top:.5rem;">
-          ${proxyRecordingUrl
-            ? `<audio controls autoplay style="width:100%;margin-top:.5rem;"><source src="${escape(proxyRecordingUrl)}" type="audio/mpeg" /></audio>
-               <p style="font-size:.8rem;color:var(--gray-600);margin-top:.4rem;">✓ Lead SMS also sent to <strong>${escape(tenant.owner_phone)}</strong>.</p>`
-            : `<div style="display:flex;align-items:center;gap:.6rem;font-size:.85rem;color:var(--gray-600);" id="poll-msg">
-                 <span id="spinner" style="display:inline-block;width:14px;height:14px;border:2px solid #86efac;border-top-color:#16a34a;border-radius:50%;animation:spin .8s linear infinite;"></span>
-                 Waiting for recording…
-               </div>
-               <style>@keyframes spin{to{transform:rotate(360deg)}}</style>`}
+        <div id="live-audio-area">
+          <button id="listen-btn" class="btn btn-primary" style="width:100%;margin-bottom:.6rem;">
+            🎧 Listen Live
+          </button>
+          <div id="stream-status" style="font-size:.82rem;color:var(--gray-600);text-align:center;min-height:1.2em;"></div>
         </div>
-        ${!proxyRecordingUrl ? `<script>
-          (function() {
-            var attempts = 0;
-            var maxAttempts = 40; // ~3 minutes total
-            function poll() {
-              if (attempts++ >= maxAttempts) {
-                document.getElementById('poll-msg').textContent = 'Recording is taking longer than expected — please refresh the page in a minute.';
-                return;
-              }
-              fetch('/dashboard/demo-status').then(function(r) { return r.json(); }).then(function(d) {
-                if (d.status === 'ready' && d.recordingUrl) {
-                  var area = document.getElementById('recording-area');
-                  area.innerHTML =
-                    '<audio controls autoplay style="width:100%;margin-top:.5rem;">' +
-                    '<source src="' + d.recordingUrl + '" type="audio/mpeg" /></audio>' +
-                    '<p style="font-size:.8rem;color:var(--gray-600);margin-top:.4rem;">' +
-                    '✓ Lead SMS also sent to <strong>${escape(tenant.owner_phone)}<\\/strong>.</p>';
-                } else {
-                  setTimeout(poll, 4000);
-                }
-              }).catch(function() { setTimeout(poll, 6000); });
+        <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+        <script>
+        (function() {
+          var btn = document.getElementById('listen-btn');
+          var status = document.getElementById('stream-status');
+
+          // μ-law (PCMU) decode — converts Twilio's 8 kHz audio to float32 PCM
+          function decodeMulaw(bytes) {
+            var out = new Float32Array(bytes.length);
+            for (var i = 0; i < bytes.length; i++) {
+              var u = (~bytes[i]) & 0xFF;
+              var t = ((u & 0x0F) << 3) + 0x84;
+              t = t << ((u & 0x70) >> 4);
+              out[i] = ((u & 0x80) ? (0x84 - t) : (t - 0x84)) / 32768.0;
             }
-            setTimeout(poll, 8000);
-          })();
-        </script>` : ""}
+            return out;
+          }
+
+          btn.addEventListener('click', function() {
+            btn.disabled = true;
+            status.innerHTML = '<span style="display:inline-block;width:10px;height:10px;border:2px solid #86efac;border-top-color:#16a34a;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:5px;"></span> Connecting…';
+
+            // AudioContext must be created inside a user-gesture handler.
+            var AudioCtx = window.AudioContext || window.webkitAudioContext;
+            var ctx = new AudioCtx();
+            var TWILIO_RATE = 8000;
+            var BROWSER_RATE = ctx.sampleRate;
+            var nextPlayTime = ctx.currentTime + 0.15; // 150 ms initial buffer
+
+            function playChunk(b64) {
+              var bin = atob(b64);
+              var bytes = new Uint8Array(bin.length);
+              for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+
+              // Decode μ-law → float32
+              var src = decodeMulaw(bytes);
+
+              // Upsample 8 kHz → browser native rate (usually 44100 or 48000)
+              var ratio = BROWSER_RATE / TWILIO_RATE;
+              var dstLen = Math.round(src.length * ratio);
+              var dst = new Float32Array(dstLen);
+              for (var j = 0; j < dstLen; j++) {
+                var s = j / ratio;
+                var lo = s | 0;
+                var hi = Math.min(lo + 1, src.length - 1);
+                dst[j] = src[lo] + (src[hi] - src[lo]) * (s - lo);
+              }
+
+              var buf = ctx.createBuffer(1, dstLen, BROWSER_RATE);
+              buf.copyToChannel(dst, 0);
+              var node = ctx.createBufferSource();
+              node.buffer = buf;
+              node.connect(ctx.destination);
+
+              var now = ctx.currentTime;
+              if (nextPlayTime < now + 0.05) nextPlayTime = now + 0.15;
+              node.start(nextPlayTime);
+              nextPlayTime += buf.duration;
+            }
+
+            var evtSource = new EventSource('/dashboard/demo-audio-stream');
+
+            evtSource.onopen = function() {
+              status.innerHTML = '<span style="color:#dc2626;font-size:1rem;">●</span> Live — listening to your AI receptionist…';
+            };
+
+            evtSource.onmessage = function(e) {
+              if (ctx.state === 'suspended') ctx.resume();
+              playChunk(e.data);
+            };
+
+            evtSource.addEventListener('end', function() {
+              evtSource.close();
+              ctx.close();
+              status.innerHTML = '✓ Call finished. Check your phone (<strong>${escape(tenant.owner_phone)}</strong>) for the lead SMS!';
+              btn.style.display = 'none';
+            });
+
+            evtSource.onerror = function() {
+              if (evtSource.readyState === EventSource.CLOSED) {
+                status.textContent = '✓ Call completed.';
+              } else {
+                status.textContent = 'Connection issue — the call may still be in progress.';
+              }
+            };
+          });
+
+          // Auto-click the listen button after a short delay so the user sees it
+          // (they must still consciously click; we just scroll it into view)
+          setTimeout(function() {
+            btn.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          }, 500);
+        })();
+        </script>
       </div>`
     : `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius);padding:1.25rem;">
         <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:.6rem;">
