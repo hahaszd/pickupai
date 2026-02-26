@@ -101,7 +101,7 @@
     /* Pricing */
     .pricing-card {
       background: #fff; border: 2px solid var(--brand); border-radius: var(--radius);
-      padding: 2.5rem 2rem; text-align: center; max-width: 400px; margin: 0 auto;
+      padding: 2.5rem 2rem; text-align: center; max-width: 440px; margin: 0 auto;
       box-shadow: 0 8px 32px rgba(37,99,235,.12);
     }
     .pricing-label { font-size: .8rem; font-weight: 700; text-transform: uppercase;
@@ -109,7 +109,11 @@
     .price { font-size: 3.5rem; font-weight: 800; color: var(--gray-900); line-height: 1; }
     .price sup { font-size: 1.5rem; vertical-align: super; }
     .price span { font-size: 1rem; color: var(--gray-500); font-weight: 400; }
+    .price-was { font-size: .95rem; color: var(--gray-400); text-decoration: line-through; margin-top: .2rem; }
     .price-sub { font-size: .9rem; color: var(--gray-500); margin-top: .25rem; margin-bottom: 1.5rem; }
+    .price-urgency { display: inline-block; background: #fef3c7; color: #92400e;
+                     font-size: .8rem; font-weight: 700; padding: .3rem .75rem;
+                     border-radius: 99px; margin-bottom: 1rem; }
     .feature-list { list-style: none; text-align: left; margin: 1.5rem 0; }
     .feature-list li { padding: .5rem 0; font-size: .9rem; color: var(--gray-700); display: flex; gap: .65rem; align-items: flex-start; border-bottom: 1px solid var(--gray-100); }
     .feature-list li:last-child { border-bottom: none; }
@@ -118,6 +122,7 @@
                    padding: .9rem; border-radius: 8px; font-weight: 700; font-size: 1rem;
                    margin-top: 1.5rem; transition: background .15s; }
     .btn-pricing:hover { background: var(--brand-dark); }
+    .pricing-note { font-size: .8rem; color: var(--gray-500); margin-top: .85rem; line-height: 1.5; }
 
     /* Testimonials */
     .testimonial {
@@ -336,19 +341,22 @@
     <p class="lead">No per-minute charges. No hidden fees. One flat rate per month.</p>
   </div>
   <div class="pricing-card">
-    <div class="pricing-label">⭐ Most popular</div>
-    <div class="price"><sup>$</sup>97<span>/month</span></div>
-    <div class="price-sub">Per business · Cancel anytime</div>
+    <div class="pricing-label">Founding Customer Offer</div>
+    <div class="price-urgency">Limited — first 20 businesses only</div>
+    <div class="price"><sup>$</sup>149<span>/month</span></div>
+    <div class="price-was">Regular price $199/month</div>
+    <div class="price-sub">Locked in for 3 months, then $199/mo · Cancel anytime</div>
     <ul class="feature-list">
-      <li>Unlimited inbound calls answered</li>
-      <li>AI trained on your trade (plumbing, electrical, roofing etc.)</li>
-      <li>Instant SMS lead alerts to your phone</li>
-      <li>Online dashboard with call recordings</li>
-      <li>Emergency call detection &amp; priority flagging</li>
-      <li>Returns calls handled intelligently</li>
-      <li>14-day free trial — no credit card needed</li>
+      <li>24/7 call answering — every call picked up, no exceptions</li>
+      <li>AI trained on your specific trade (plumber, electrician, roofer &amp; more)</li>
+      <li>Instant SMS lead summary to your phone after every call</li>
+      <li>Emergency detection — urgent calls flagged with priority label</li>
+      <li>Captures suburb, postcode, issue &amp; best callback number</li>
+      <li>Service area gating — out-of-area calls handled politely</li>
+      <li>14-day free trial — go live in 24–48 hours</li>
     </ul>
-    <a href="/dashboard/signup" class="btn-pricing">Start free 14-day trial →</a>
+    <a href="/dashboard/signup" class="btn-pricing">Claim founding price — start free trial →</a>
+    <p class="pricing-note">Credit card required to start trial. Cancel anytime before day 14 and you won't be charged.</p>
   </div>
 </section>
 
@@ -373,7 +381,7 @@
 <!-- Email capture / CTA -->
 <section class="capture" id="contact">
   <h2>Ready to stop missing jobs?</h2>
-  <p>Start your free 14-day trial. No credit card. Takes 10 minutes to set up.</p>
+  <p>Start your free 14-day trial. Go live in 24–48 hours. Cancel before day 14 and pay nothing.</p>
   <form class="capture-form" action="https://formspree.io/f/YOUR_FORM_ID" method="POST" onsubmit="handleSubmit(event)">
     <input type="text" name="name" placeholder="Your name" required />
     <input type="email" name="email" placeholder="Your email" required />
