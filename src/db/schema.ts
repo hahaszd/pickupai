@@ -76,6 +76,9 @@ export const migrationStatements = [
   `ALTER TABLE leads ADD COLUMN tenant_id TEXT REFERENCES tenants(tenant_id)`,
   `ALTER TABLE leads ADD COLUMN lead_status TEXT DEFAULT 'new'`,
   `ALTER TABLE tenants ADD COLUMN service_area TEXT`,
+  `ALTER TABLE tenants ADD COLUMN last_login_at TEXT`,
+  `ALTER TABLE tenants ADD COLUMN payment_status TEXT DEFAULT 'none'`,
+  `ALTER TABLE tenants ADD COLUMN trial_ends_at TEXT`,
   `CREATE TABLE IF NOT EXISTS demo_sessions (
     demo_number   TEXT NOT NULL PRIMARY KEY,
     tenant_id     TEXT NOT NULL REFERENCES tenants(tenant_id) ON DELETE CASCADE,

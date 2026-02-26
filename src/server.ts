@@ -16,19 +16,24 @@ import {
   createNotification,
   createTenant,
   deleteTenant,
+  generateTempPassword,
   getActiveDemoSession,
+  getAdminTenantDetail,
   getLatestLeadForCall,
   getLeadHistoryByPhone,
   getLeadWithCall,
   getNotificationStatus,
+  getOverviewStats,
   getTenantById,
   getTenantByNumber,
   getTenantBySessionToken,
   getDemoTenantByNumber,
+  hashPassword,
   listLeadsForTenant,
   listNotificationsForCall,
   listSystemConfig,
   listTenants,
+  listTenantsWithStats,
   listDemoSessions,
   clearDemoSessions,
   markNotification,
@@ -42,6 +47,14 @@ import {
   upsertLead
 } from "./db/repo.js";
 import type { TenantRow, SystemConfigRow } from "./db/repo.js";
+import {
+  adminLoginPage,
+  adminOverviewPage,
+  adminUsersPage,
+  adminUserDetailPage,
+  adminDemoSessionsPage,
+  adminConfigPage
+} from "./admin/pages.js";
 import { twilioValidateMiddleware } from "./twilio/verify.js";
 import { buildAbsoluteUrl, getCallSid, shouldWarmTransferNow } from "./twilio/flow.js";
 import { newVoiceResponse, connectStreamTwiml, sayFriendly } from "./twilio/twiml.js";
@@ -144,7 +157,10 @@ function buildFallbackTenant(): TenantRow {
     enable_warm_transfer: env.ENABLE_WARM_TRANSFER ? 1 : 0,
     service_area: null,
     active: 1,
-    created_at: new Date().toISOString()
+    created_at: new Date().toISOString(),
+    last_login_at: null,
+    payment_status: null,
+    trial_ends_at: null
   };
 }
 
@@ -236,13 +252,24 @@ async function main() {
     publicBaseUrl: env.PUBLIC_BASE_URL
   });
 
-  // ── Admin guard ───────────────────────────────────────────────────────────
+  // ── Admin guard (API: header/query — UI: cookie) ──────────────────────────
 
   const adminGuard = (req: Request, res: Response, next: NextFunction) => {
     if (!env.ADMIN_TOKEN) return next();
     const token = req.header("x-admin-token") ?? req.query.token;
     if (token && token === env.ADMIN_TOKEN) return next();
     return res.status(401).json({ error: "unauthorized" });
+  };
+
+  /** Cookie-based admin auth for HTML panel */
+  const adminHtmlAuth = (req: Request, res: Response, next: NextFunction) => {
+    if (!env.ADMIN_TOKEN) return next();
+    const cookies = parseCookies(req);
+    if (cookies.admin_session === env.ADMIN_TOKEN) return next();
+    // Also accept x-admin-token header or ?token= for backwards compat
+    const token = req.header("x-admin-token") ?? (req.query.token as string | undefined);
+    if (token && token === env.ADMIN_TOKEN) return next();
+    return res.redirect("/admin/login");
   };
 
   // ── Dashboard auth middleware ──────────────────────────────────────────────
@@ -489,6 +516,160 @@ async function main() {
   app.delete("/admin/demo-sessions", adminGuard, (_req, res) => {
     clearDemoSessions(db);
     res.json({ ok: true, message: "All demo sessions cleared" });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ADMIN HTML PANEL  (/admin/*)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // Login page
+  app.get("/admin/login", (req, res) => {
+    if (!env.ADMIN_TOKEN) return res.redirect("/admin");
+    const cookies = parseCookies(req);
+    if (cookies.admin_session === env.ADMIN_TOKEN) return res.redirect("/admin");
+    res.send(adminLoginPage());
+  });
+
+  app.post("/admin/login", express.urlencoded({ extended: false }), (req, res) => {
+    const { token } = req.body ?? {};
+    if (!env.ADMIN_TOKEN || token === env.ADMIN_TOKEN) {
+      res.setHeader("Set-Cookie", `admin_session=${env.ADMIN_TOKEN ?? "open"}; HttpOnly; Path=/admin; SameSite=Strict; Max-Age=86400`);
+      return res.redirect("/admin");
+    }
+    res.send(adminLoginPage("Invalid token — try again."));
+  });
+
+  app.get("/admin/logout", (req, res) => {
+    res.setHeader("Set-Cookie", "admin_session=; HttpOnly; Path=/admin; SameSite=Strict; Max-Age=0");
+    res.redirect("/admin/login");
+  });
+
+  // Overview
+  app.get("/admin", adminHtmlAuth, (_req, res) => {
+    const stats = getOverviewStats(db);
+    const recent = listTenantsWithStats(db).slice(0, 10);
+    res.send(adminOverviewPage(stats, recent));
+  });
+
+  // Users list
+  app.get("/admin/users", adminHtmlAuth, (_req, res) => {
+    const tenants = listTenantsWithStats(db);
+    res.send(adminUsersPage(tenants));
+  });
+
+  // User detail (GET)
+  app.get("/admin/users/:id", adminHtmlAuth, (req, res) => {
+    const detail = getAdminTenantDetail(db, req.params.id);
+    if (!detail) return res.status(404).send("User not found");
+    const flash = (req.query.flash as string | undefined) ?? undefined;
+    res.send(adminUserDetailPage(detail, flash));
+  });
+
+  // User edit (POST)
+  app.post("/admin/users/:id", adminHtmlAuth, express.urlencoded({ extended: false }), (req, res) => {
+    const tenant = getTenantById(db, req.params.id);
+    if (!tenant) return res.status(404).send("User not found");
+    const b = req.body ?? {};
+    updateTenant(db, req.params.id, {
+      name: b.name || tenant.name,
+      trade_type: b.trade_type || tenant.trade_type,
+      ai_name: b.ai_name || tenant.ai_name,
+      twilio_number: b.twilio_number || tenant.twilio_number,
+      owner_phone: b.owner_phone || tenant.owner_phone,
+      owner_email: b.owner_email || null,
+      business_hours_start: b.business_hours_start || tenant.business_hours_start,
+      business_hours_end: b.business_hours_end || tenant.business_hours_end,
+      timezone: b.timezone || tenant.timezone,
+      enable_warm_transfer: b.enable_warm_transfer ? 1 : 0,
+      service_area: b.service_area || null,
+      active: b.active ? 1 : 0,
+      payment_status: b.payment_status || "none",
+      trial_ends_at: b.trial_ends_at || null,
+    });
+    res.redirect(`/admin/users/${req.params.id}?flash=✓ Changes saved`);
+  });
+
+  // Reset password → generate temp password, save hash, SMS it
+  app.post("/admin/users/:id/reset-password", adminHtmlAuth, async (req, res) => {
+    const tenant = getTenantById(db, req.params.id);
+    if (!tenant) return res.status(404).send("User not found");
+    const tempPw = generateTempPassword();
+    updateTenant(db, req.params.id, { password: tempPw });
+    try {
+      const twilioClient = (await import("twilio")).default;
+      const client = twilioClient(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);
+      const smsFrom = env.TWILIO_SMS_NUMBERS[0] ?? env.TWILIO_DEFAULT_VOICE_NUMBER;
+      await client.messages.create({
+        from: smsFrom,
+        to: tenant.owner_phone,
+        body: `PickupAI: Your temporary password is: ${tempPw}\nLogin at ${env.PUBLIC_BASE_URL}/dashboard/login`
+      });
+      res.redirect(`/admin/users/${req.params.id}?flash=✓ Temp password sent by SMS to ${tenant.owner_phone}`);
+    } catch (err: any) {
+      log.error({ err }, "admin reset-password SMS failed");
+      res.redirect(`/admin/users/${req.params.id}?flash=⚠ Password reset in DB but SMS failed: ${err.message}`);
+    }
+  });
+
+  // Toggle active
+  app.post("/admin/users/:id/toggle-active", adminHtmlAuth, (req, res) => {
+    const tenant = getTenantById(db, req.params.id);
+    if (!tenant) return res.status(404).send("User not found");
+    updateTenant(db, req.params.id, { active: tenant.active ? 0 : 1 });
+    const msg = tenant.active ? "Account deactivated" : "Account reactivated";
+    res.redirect(`/admin/users/${req.params.id}?flash=✓ ${msg}`);
+  });
+
+  // Delete tenant
+  app.post("/admin/users/:id/delete", adminHtmlAuth, (req, res) => {
+    const tenant = getTenantById(db, req.params.id);
+    if (!tenant) return res.status(404).send("User not found");
+    deleteTenant(db, req.params.id);
+    res.redirect("/admin/users?flash=✓ Account deleted");
+  });
+
+  // Export leads CSV for a tenant (admin)
+  app.get("/admin/users/:id/leads.csv", adminHtmlAuth, (req, res) => {
+    const tenant = getTenantById(db, req.params.id);
+    if (!tenant) return res.status(404).send("User not found");
+    const leads = listLeadsForTenant(db, req.params.id, { limit: 1000 });
+    const header = "Date,Caller Name,Phone,Address,Issue Type,Issue Summary,Urgency,Status\n";
+    const rows = leads.map(l =>
+      [l.created_at, l.name, l.phone, l.address, l.issue_type, l.issue_summary, l.urgency_level, l.lead_status]
+        .map(v => `"${String(v ?? "").replace(/"/g, '""')}"`)
+        .join(",")
+    ).join("\n");
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="${tenant.name.replace(/\W+/g, "_")}_leads.csv"`);
+    res.send(header + rows);
+  });
+
+  // Demo sessions (HTML)
+  app.get("/admin/demo-sessions", adminHtmlAuth, (req, res) => {
+    const sessions = listDemoSessions(db);
+    const poolNumbers = env.DEMO_POOL_NUMBERS ? env.DEMO_POOL_NUMBERS.split(",").map(n => n.trim()).filter(Boolean) : [];
+    const flash = (req.query.flash as string | undefined) ?? undefined;
+    res.send(adminDemoSessionsPage(sessions, poolNumbers, flash));
+  });
+
+  app.post("/admin/demo-sessions/clear", adminHtmlAuth, (_req, res) => {
+    clearDemoSessions(db);
+    res.redirect("/admin/demo-sessions?flash=✓ All demo sessions cleared");
+  });
+
+  // Config (HTML)
+  app.get("/admin/config", adminHtmlAuth, (req, res) => {
+    const configs = listSystemConfig(db);
+    const flash = (req.query.flash as string | undefined) ?? undefined;
+    res.send(adminConfigPage(configs, flash));
+  });
+
+  app.post("/admin/config/:key", adminHtmlAuth, express.urlencoded({ extended: false }), (req, res) => {
+    const key = req.params.key === "__new__" ? req.body?.key?.trim() : req.params.key;
+    const value = req.body?.value?.trim();
+    if (!key || !value) return res.redirect("/admin/config?flash=⚠ Key and value are required");
+    setSystemConfig(db, key, value);
+    res.redirect(`/admin/config?flash=✓ Config "${key}" updated`);
   });
 
   // ═══════════════════════════════════════════════════════════════════════════

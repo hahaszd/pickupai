@@ -21,6 +21,9 @@ export type TenantRow = {
   service_area: string | null;
   active: number;
   created_at: string;
+  last_login_at: string | null;
+  payment_status: string | null;
+  trial_ends_at: string | null;
 };
 
 export type CallRow = {
@@ -172,8 +175,12 @@ export function tenantLogin(db: Db, email: string, password: string): TenantRow 
   if (!verifyPassword(password, tenant.password_hash)) return null;
 
   const token = randomUUID();
-  db.run("UPDATE tenants SET session_token = ? WHERE tenant_id = ?", [token, tenant.tenant_id]);
-  return { ...tenant, session_token: token };
+  const now = new Date().toISOString();
+  db.run(
+    "UPDATE tenants SET session_token = ?, last_login_at = ? WHERE tenant_id = ?",
+    [token, now, tenant.tenant_id]
+  );
+  return { ...tenant, session_token: token, last_login_at: now };
 }
 
 export function tenantLogout(db: Db, tenantId: string) {
@@ -433,6 +440,112 @@ export function getLeadHistoryByName(db: Db, name: string, tenantId?: string, li
 
 export function newLeadId() {
   return randomUUID();
+}
+
+// ─── Admin stats ──────────────────────────────────────────────────────────────
+
+export type TenantWithStats = Omit<TenantRow, "password_hash" | "session_token"> & {
+  lead_count: number;
+  call_count: number;
+  sms_count: number;
+};
+
+export function listTenantsWithStats(db: Db): TenantWithStats[] {
+  return db.all<TenantWithStats>(`
+    SELECT
+      t.tenant_id, t.name, t.trade_type, t.ai_name, t.twilio_number, t.owner_phone,
+      t.owner_email, t.business_hours_start, t.business_hours_end, t.timezone,
+      t.enable_warm_transfer, t.service_area, t.active, t.created_at,
+      t.last_login_at, t.payment_status, t.trial_ends_at,
+      COUNT(DISTINCT l.lead_id) AS lead_count,
+      COUNT(DISTINCT c.call_id) AS call_count,
+      COUNT(DISTINCT CASE WHEN n.channel='sms' AND n.status='sent' THEN n.id END) AS sms_count
+    FROM tenants t
+    LEFT JOIN leads l ON l.tenant_id = t.tenant_id
+    LEFT JOIN calls c ON c.tenant_id = t.tenant_id
+    LEFT JOIN notifications n ON n.call_id = c.call_id
+    GROUP BY t.tenant_id
+    ORDER BY t.created_at DESC
+  `, []);
+}
+
+export type OverviewStats = {
+  total_tenants: number;
+  pending_setup: number;
+  on_trial: number;
+  active_paying: number;
+  calls_today: number;
+  leads_today: number;
+  sms_today: number;
+};
+
+export function getOverviewStats(db: Db): OverviewStats {
+  const today = new Date().toISOString().slice(0, 10);
+  const tenants = db.all<{ twilio_number: string; payment_status: string | null }>(
+    "SELECT twilio_number, payment_status FROM tenants WHERE active = 1", []
+  );
+  const total_tenants = tenants.length;
+  const pending_setup = tenants.filter(t => !t.twilio_number || t.twilio_number.startsWith("+PENDING_")).length;
+  const on_trial = tenants.filter(t => t.payment_status === "trial").length;
+  const active_paying = tenants.filter(t => t.payment_status === "active").length;
+
+  const calls_today = db.get<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM calls WHERE started_at >= ?", [today]
+  )?.n ?? 0;
+  const leads_today = db.get<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM leads WHERE created_at >= ?", [today]
+  )?.n ?? 0;
+  const sms_today = db.get<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM notifications WHERE channel='sms' AND status='sent' AND sent_at >= ?", [today]
+  )?.n ?? 0;
+
+  return { total_tenants, pending_setup, on_trial, active_paying, calls_today, leads_today, sms_today };
+}
+
+export type TenantDetail = TenantWithStats & {
+  recent_leads: (LeadRow & { recording_url: string | null })[];
+  recent_calls: CallRow[];
+};
+
+export function getAdminTenantDetail(db: Db, tenantId: string): TenantDetail | null {
+  const rows = db.all<TenantWithStats>(`
+    SELECT
+      t.tenant_id, t.name, t.trade_type, t.ai_name, t.twilio_number, t.owner_phone,
+      t.owner_email, t.business_hours_start, t.business_hours_end, t.timezone,
+      t.enable_warm_transfer, t.service_area, t.active, t.created_at,
+      t.last_login_at, t.payment_status, t.trial_ends_at,
+      COUNT(DISTINCT l.lead_id) AS lead_count,
+      COUNT(DISTINCT c.call_id) AS call_count,
+      COUNT(DISTINCT CASE WHEN n.channel='sms' AND n.status='sent' THEN n.id END) AS sms_count
+    FROM tenants t
+    LEFT JOIN leads l ON l.tenant_id = t.tenant_id
+    LEFT JOIN calls c ON c.tenant_id = t.tenant_id
+    LEFT JOIN notifications n ON n.call_id = c.call_id
+    WHERE t.tenant_id = ?
+    GROUP BY t.tenant_id
+  `, [tenantId]);
+  if (!rows.length) return null;
+  const base = rows[0];
+
+  const recent_leads = db.all<LeadRow & { recording_url: string | null }>(
+    `SELECT l.*, c.recording_url
+     FROM leads l LEFT JOIN calls c ON l.call_id = c.call_id
+     WHERE l.tenant_id = ? ORDER BY l.created_at DESC LIMIT 10`,
+    [tenantId]
+  );
+  const recent_calls = db.all<CallRow>(
+    "SELECT * FROM calls WHERE tenant_id = ? ORDER BY started_at DESC LIMIT 10",
+    [tenantId]
+  );
+
+  return { ...base, recent_leads, recent_calls };
+}
+
+export function generateTempPassword(): string {
+  const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+  let out = "";
+  for (let i = 0; i < 10; i++) out += chars[Math.floor(Math.random() * chars.length)];
+  return out;
 }
 
 // ─── Demo sessions ────────────────────────────────────────────────────────────
