@@ -150,9 +150,44 @@
     footer { background: var(--gray-900); color: var(--gray-400); text-align: center; padding: 2rem; font-size: .85rem; }
     footer a { color: var(--gray-400); }
 
+    /* ── Demo audio section ── */
+    .demo-section { background: var(--gray-900); color: #fff; }
+    .demo-section .section-center { max-width: 680px; }
+    .demo-section .section-tag { background: rgba(255,255,255,.12); color: #fde68a; }
+    .demo-section h2 { color: #fff; }
+    .demo-section .lead { color: rgba(255,255,255,.7); }
+
+    .trade-tabs, .scenario-tabs {
+      display: flex; gap: .5rem; justify-content: center;
+      flex-wrap: wrap; max-width: 700px; margin: 0 auto 1rem;
+    }
+    .trade-tab, .scenario-tab {
+      padding: .5rem 1.15rem; border-radius: 999px; font-size: .88rem;
+      font-weight: 600; cursor: pointer; border: 2px solid rgba(255,255,255,.2);
+      background: transparent; color: rgba(255,255,255,.6); transition: all .18s;
+    }
+    .trade-tab:hover, .scenario-tab:hover { border-color: rgba(255,255,255,.5); color: #fff; }
+    .trade-tab.active { background: var(--brand); border-color: var(--brand); color: #fff; }
+    .scenario-tab.active { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.45); color: #fff; }
+    .scenario-row { margin-bottom: 2rem; }
+    .demo-divider { width: 40px; height: 2px; background: rgba(255,255,255,.15); margin: 0 auto 1rem; border-radius: 2px; }
+
+    .demo-player {
+      max-width: 640px; margin: 0 auto;
+      background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12);
+      border-radius: var(--radius); padding: 2rem;
+    }
+    .demo-player-label { font-size: .72rem; font-weight: 700; letter-spacing: .7px;
+                         text-transform: uppercase; color: #fde68a; margin-bottom: .5rem; }
+    .demo-player-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 1.25rem; line-height: 1.3; }
+    .demo-player audio  { width: 100%; border-radius: 8px; accent-color: var(--brand); }
+    .demo-player-note   { margin-top: .9rem; font-size: .8rem;
+                          color: rgba(255,255,255,.45); line-height: 1.55; }
+
     @media (max-width: 640px) {
       .hero { padding: 3.5rem 1rem 3rem; }
       section { padding: 3.5rem 1rem; }
+      .demo-player { padding: 1.25rem; }
     }
   </style>
 </head>
@@ -162,6 +197,7 @@
 <nav>
   <a href="/" class="nav-logo">Pickup<span>AI</span></a>
   <div class="nav-spacer"></div>
+  <a href="#demo">Hear it</a>
   <a href="#pricing">Pricing</a>
   <a href="/dashboard/signup" class="nav-cta">Get started</a>
 </nav>
@@ -255,6 +291,43 @@
   </div>
 </section>
 
+<!-- Hear it in action — interactive demo selector -->
+<section id="demo" class="demo-section">
+  <div class="section-center">
+    <div class="section-tag">Hear it in action</div>
+    <h2>Pick your trade. Pick a scenario. Hit play.</h2>
+    <p class="lead">Real AI-generated calls — choose the situation that fits your business and hear exactly how your AI receptionist handles it.</p>
+  </div>
+
+  <!-- Row 1: trade selector -->
+  <div class="trade-tabs">
+    <button class="trade-tab active" data-trade="plumber">🔧 Plumber</button>
+    <button class="trade-tab"        data-trade="electrician">⚡ Electrician</button>
+    <button class="trade-tab"        data-trade="handyman">🏠 Handyman</button>
+    <button class="trade-tab"        data-trade="roofer">🏗 Roofer</button>
+  </div>
+
+  <div class="demo-divider"></div>
+
+  <!-- Row 2: scenario selector -->
+  <div class="scenario-row">
+    <div class="scenario-tabs">
+      <button class="scenario-tab active" data-scenario="emergency">🚨 Emergency</button>
+      <button class="scenario-tab"        data-scenario="quote">💬 Quote inquiry</button>
+      <button class="scenario-tab"        data-scenario="followup">🔄 Follow-up</button>
+      <button class="scenario-tab"        data-scenario="afterhours">🌙 After hours</button>
+    </div>
+  </div>
+
+  <!-- Player card -->
+  <div class="demo-player">
+    <div class="demo-player-label" id="demo-label"></div>
+    <div class="demo-player-title" id="demo-title"></div>
+    <audio id="demo-audio" controls preload="none"></audio>
+    <p class="demo-player-note" id="demo-note"></p>
+  </div>
+</section>
+
 <!-- Pricing -->
 <section id="pricing" style="background: var(--gray-50);">
   <div class="section-center">
@@ -324,6 +397,63 @@
       if (target) { e.preventDefault(); target.scrollIntoView({ behavior: 'smooth' }); }
     });
   });
+
+  // ── Interactive demo selector ──────────────────────────────────────────────
+  const DEMO_META = {
+    "plumber-emergency":     { label: "Plumber · Emergency",      title: "Burst pipe under the kitchen sink",           note: "AI flags the call as urgent, collects all details, and assures a tradesperson will call back within the hour." },
+    "plumber-quote":         { label: "Plumber · Quote inquiry",  title: "Bathroom renovation — requesting a quote",     note: "AI collects job scope, suburb, and contact details for the team to follow up with a price." },
+    "plumber-followup":      { label: "Plumber · Follow-up",      title: "Checking in after a previous job",            note: "AI handles a returning customer, acknowledges the previous work, and logs the follow-up for the team." },
+    "plumber-afterhours":    { label: "Plumber · After hours",    title: "Blocked drain — not an emergency",            note: "AI captures the details and sets clear expectations that the team will be in touch next business day." },
+    "electrician-emergency": { label: "Electrician · Emergency",  title: "Sparking power outlet — safety concern",      note: "AI identifies the safety hazard, escalates urgency, and gathers all contact details." },
+    "electrician-quote":     { label: "Electrician · Quote",      title: "Adding power points to a converted garage",   note: "AI takes the job scope and confirms the team will call back with pricing." },
+    "electrician-followup":  { label: "Electrician · Follow-up",  title: "Chasing up a switchboard inspection quote",   note: "AI acknowledges the missed follow-up and escalates it as a priority for the team." },
+    "electrician-afterhours":{ label: "Electrician · After hours",title: "Lights flickering throughout the house",      note: "AI collects details, gives safety advice, and schedules a morning callback." },
+    "handyman-emergency":    { label: "Handyman · Emergency",     title: "Leaking tap flooding the laundry",            note: "AI gives immediate practical advice, logs the job as urgent, and promises a fast callback." },
+    "handyman-quote":        { label: "Handyman · Quote inquiry", title: "Fence panels + leaky bathroom tap",           note: "AI takes a multi-job inquiry and arranges for the team to call back with a quote." },
+    "handyman-followup":     { label: "Handyman · Follow-up",     title: "Following up on a deck repair quote",         note: "AI logs the follow-up and confirms the team will be back in touch to lock in a date." },
+    "handyman-afterhours":   { label: "Handyman · After hours",   title: "Front door lock not working",                 note: "AI notes the security concern, gives immediate advice, and schedules a morning callback." },
+    "roofer-emergency":      { label: "Roofer · Emergency",       title: "Roof leaking heavily during rain",            note: "AI flags it as urgent, gives practical advice to limit damage, and promises a fast callback." },
+    "roofer-quote":          { label: "Roofer · Quote inquiry",   title: "Full roof replacement — requesting a quote",  note: "AI collects property details and suburb for an on-site measure and quote." },
+    "roofer-followup":       { label: "Roofer · Follow-up",       title: "Chasing a roof quote from last week",         note: "AI flags it as a priority follow-up and assures the team will send the quote today." },
+    "roofer-afterhours":     { label: "Roofer · After hours",     title: "Missing tiles spotted after a storm",         note: "AI captures the concern and books a morning callback to get an inspection scheduled quickly." },
+  };
+
+  let currentTrade    = "plumber";
+  let currentScenario = "emergency";
+
+  function updateDemoPlayer() {
+    const key  = currentTrade + "-" + currentScenario;
+    const meta = DEMO_META[key];
+    if (!meta) return;
+    const audio = document.getElementById("demo-audio");
+    audio.pause();
+    audio.src = "/demos/" + key + ".mp3";
+    audio.load();
+    document.getElementById("demo-label").textContent = meta.label;
+    document.getElementById("demo-title").textContent = meta.title;
+    document.getElementById("demo-note").textContent  = meta.note;
+  }
+
+  document.querySelectorAll(".trade-tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".trade-tab").forEach(t => t.classList.remove("active"));
+      btn.classList.add("active");
+      currentTrade = btn.dataset.trade;
+      updateDemoPlayer();
+    });
+  });
+
+  document.querySelectorAll(".scenario-tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".scenario-tab").forEach(t => t.classList.remove("active"));
+      btn.classList.add("active");
+      currentScenario = btn.dataset.scenario;
+      updateDemoPlayer();
+    });
+  });
+
+  updateDemoPlayer(); // initialise with plumber + emergency
+  // ── End demo selector ──────────────────────────────────────────────────────
 
   function handleSubmit(e) {
     // Replace with your actual form handler (Formspree, Mailchimp, etc.)
