@@ -955,6 +955,12 @@ async function main() {
               onAudioChunk: isDemo ? (chunk: string) => {
                 demoAudioEmitter.emit(`audio:${tenant.tenant_id}`, chunk);
               } : undefined,
+
+              // Live-stream caller audio (Polly's voice) so the browser hears
+              // both sides of the conversation.
+              onCallerAudioChunk: isDemo ? (chunk: string) => {
+                demoAudioEmitter.emit(`audio:${tenant.tenant_id}`, chunk);
+              } : undefined,
             }
           });
 

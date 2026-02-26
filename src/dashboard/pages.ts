@@ -449,7 +449,9 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
 
   // Card B: Call it yourself (claims a demo slot for 1 hour)
   const expiryTime = demoExpiresAt
-    ? new Date(demoExpiresAt).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" })
+    ? new Date(demoExpiresAt).toLocaleTimeString("en-AU", {
+        hour: "2-digit", minute: "2-digit", timeZone: "Australia/Sydney"
+      }) + " Sydney time"
     : null;
 
   const cardB = demoNumber

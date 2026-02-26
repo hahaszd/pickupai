@@ -25,7 +25,7 @@ const TOOLS = [
       properties: {
         name: { type: "string", description: "Caller's full name" },
         phone: { type: "string", description: "Best callback number" },
-        address: { type: "string", description: "Job address (suburb, street, or postcode — any format)" },
+        address: { type: "string", description: "Job address — suburb + postcode preferred (e.g. 'Parramatta 2150'); street is optional" },
         issue_type: { type: "string", description: "Short category: plumbing, electrical, roofing, etc." },
         issue_summary: { type: "string", description: "Brief description of the problem in caller's own words" },
         urgency_level: {
@@ -332,13 +332,15 @@ Success means the caller feels helped, not interrogated.
 - If the caller speaks another language, politely explain you can only assist in English.
 
 # Instructions / Rules
-- Collect information in this natural order: understand the issue first → name → address (suburb or street is fine, do NOT insist on postcode) → callback number if different from caller ID → preferred time.
+- Collect information in this natural order: understand the issue first → name → suburb + postcode → best callback number → preferred time.
 - ASK ONE QUESTION AT A TIME. Never list multiple questions in one response.
 - CHECK what you already know before asking. NEVER ask for something you already have.
 - Be PROACTIVE — if the caller pauses or seems done, guide them to the next piece of information naturally. Don't wait for them to volunteer details.
-- STOP collecting once you have: name + issue description + any address detail + callback number. Move to the closing step.
+- For address: ask for suburb + postcode. Postcode is the priority — it's how we confirm the service area quickly. Street address is optional. Do NOT insist on a full street address.
+- For callback number: ALWAYS ask "What's the best number to reach you on?" even if you already have their caller ID (${fromNumber ?? "unknown"}) — they may want to be called on a different number. If they say "this one" or "same number", use their caller ID.
+- STOP collecting once you have: name + issue description + suburb/postcode + callback number. Move to the closing step.
 - NEVER promise specific prices, quotes, or arrival times.
-- The caller's number is: ${fromNumber ?? "unknown"}. Use this as the callback number unless they give a different one.
+- The caller's number on file is ${fromNumber ?? "unknown"} — use this only if they confirm it as their best contact number.
 
 # Closing — MANDATORY for every call
 After you have all key details, ALWAYS follow these steps in order:
@@ -414,6 +416,12 @@ export type SessionCallbacks = {
    * Used to live-stream demo calls to the dashboard browser client via SSE.
    */
   onAudioChunk?: (base64Chunk: string) => void;
+  /**
+   * Called for incoming caller audio chunks (base64 PCMU 8kHz) when the AI
+   * is NOT currently speaking (mark queue is empty).  Used to stream the
+   * caller's side of demo calls alongside the AI's responses.
+   */
+  onCallerAudioChunk?: (base64Chunk: string) => void;
 };
 
 export class RealtimeSession {
@@ -427,6 +435,8 @@ export class RealtimeSession {
   private callbacks: SessionCallbacks;
   private callSid: string;
   private ended = false;
+  /** Set when end_call fires; consumed by the response.done handler. */
+  private pendingEndReason: string | null = null;
 
   constructor(opts: {
     twilioWs: TwilioWs;
@@ -518,6 +528,16 @@ export class RealtimeSession {
         if (event.item?.id) this.lastAssistantItemId = event.item.id;
         break;
 
+      case "response.done":
+        // If end_call was requested, now that the farewell response is fully
+        // generated we wait for Twilio to finish playing it before hanging up.
+        if (this.pendingEndReason !== null) {
+          const reason = this.pendingEndReason;
+          this.pendingEndReason = null;
+          this.waitForMarksDrained(reason);
+        }
+        break;
+
       case "input_audio_buffer.speech_started":
         this.handleBargein();
         break;
@@ -532,7 +552,6 @@ export class RealtimeSession {
 
       case "session.created":
       case "session.updated":
-      case "response.done":
       case "rate_limits.updated":
         break;
     }
@@ -599,7 +618,7 @@ export class RealtimeSession {
     } else if (name === "end_call") {
       if (this.ended) return;
       this.ended = true;
-      // Acknowledge so the model can say farewell before we hang up.
+      // Acknowledge so the model can speak its farewell.
       this.send({
         type: "conversation.item.create",
         item: {
@@ -609,11 +628,41 @@ export class RealtimeSession {
         }
       });
       this.send({ type: "response.create" });
-      // Give the AI a moment to speak its farewell, then trigger hangup.
+      // Store the reason — hangup is triggered by waitForMarksDrained() once
+      // response.done fires and Twilio has played all buffered audio.
+      this.pendingEndReason = args.reason ?? "conversation complete";
+      // Hard safety fallback: if response.done never arrives within 15 s, hang up anyway.
       setTimeout(() => {
-        this.callbacks.onEndCall(args.reason ?? "conversation complete");
-      }, 4000);
+        if (this.pendingEndReason !== null) {
+          const r = this.pendingEndReason;
+          this.pendingEndReason = null;
+          this.callbacks.onEndCall(r);
+        }
+      }, 15_000);
     }
+  }
+
+  // ── Wait for Twilio to finish playing buffered audio before hanging up ────
+  //
+  // After the AI speaks its farewell, audio chunks sit in Twilio's playback
+  // buffer.  Twilio sends a "mark" acknowledgement for each chunk as it's
+  // played.  We poll until the mark queue is empty, then add a small tail
+  // buffer to account for the final chunks still in transit.
+
+  private waitForMarksDrained(reason: string) {
+    const TAIL_MS  = 2_500;   // extra buffer after marks drain
+    const MAX_MS   = 10_000;  // give up and hang up if marks never drain
+    const POLL_MS  = 300;
+    const start    = Date.now();
+
+    const check = () => {
+      if (this.markQueue.length === 0 || Date.now() - start > MAX_MS) {
+        setTimeout(() => this.callbacks.onEndCall(reason), TAIL_MS);
+      } else {
+        setTimeout(check, POLL_MS);
+      }
+    };
+    setTimeout(check, 200);
   }
 
   // ── Handle events from Twilio ─────────────────────────────────────────────
@@ -638,6 +687,12 @@ export class RealtimeSession {
         this.latestMediaTs = data.media?.timestamp ?? this.latestMediaTs;
         if (this.openAiWs.readyState === WebSocket.OPEN) {
           this.send({ type: "input_audio_buffer.append", audio: data.media?.payload });
+        }
+        // Stream caller audio to demo SSE only when the AI is not speaking
+        // (mark queue empty = Twilio has played everything we sent).
+        // This prevents overlapping with AI audio in the browser player.
+        if (this.callbacks.onCallerAudioChunk && data.media?.payload && this.markQueue.length === 0) {
+          this.callbacks.onCallerAudioChunk(data.media.payload);
         }
         break;
 
