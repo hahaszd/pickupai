@@ -525,7 +525,7 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
   </div>
 
   <div style="text-align:center;margin-top:1.25rem;">
-    <a href="/dashboard/leads" style="font-size:.85rem;color:var(--gray-600);">Skip to Dashboard →</a>
+    <a href="/dashboard/leads" style="font-size:.85rem;color:var(--gray-600);">Skip for now — go to Dashboard →</a>
   </div>
 
 </div>
@@ -592,7 +592,21 @@ export function leadsPage(
       </tr>`).join("");
 
   const csvQs = qs(filters.urgency, filters.status);
+  const isPending = !tenant.twilio_number || tenant.twilio_number.startsWith("+PENDING_");
+  const setupBanner = isPending ? `
+<div style="background:#fffbeb;border:1.5px solid #fcd34d;border-radius:var(--radius);padding:1rem 1.25rem;margin-bottom:1.25rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem;">
+  <div>
+    <p style="font-weight:600;margin:0 0 .2rem;">⚙️ Your AI receptionist isn't active yet</p>
+    <p style="font-size:.85rem;color:var(--gray-600);margin:0;">You haven't set up call forwarding — customers can't reach your AI receptionist until this is done.</p>
+  </div>
+  <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+    <a href="/dashboard/welcome" class="btn btn-outline btn-sm">Try Demo</a>
+    <a href="/dashboard/setup-guide" class="btn btn-primary btn-sm">Set Up Now →</a>
+  </div>
+</div>` : "";
+
   const body = `
+${setupBanner}
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;flex-wrap:wrap;gap:.75rem;">
   <h1 style="margin:0">Leads</h1>
   <a href="/dashboard/leads/export.csv${csvQs}" class="btn btn-outline btn-sm">Export CSV</a>

@@ -59,6 +59,11 @@ const PUBLIC_DIR = path.resolve(__dirname, "../public");
 
 // ─── Cookie helpers (no extra deps needed) ───────────────────────────────────
 
+/** Returns true if the tenant hasn't linked a real Twilio number yet */
+function isPendingNumber(twilio_number: string | null | undefined): boolean {
+  return !twilio_number || twilio_number.startsWith("+PENDING_");
+}
+
 function parseCookies(req: Request): Record<string, string> {
   const cookies: Record<string, string> = {};
   const header = req.headers.cookie ?? "";
@@ -506,7 +511,9 @@ async function main() {
       return res.send(loginPage("Invalid email or password."));
     }
     setSessionCookie(res, tenant.session_token);
-    res.redirect("/dashboard/leads");
+    // Send unset-up users to welcome/demo page first
+    const destination = isPendingNumber(tenant.twilio_number) ? "/dashboard/welcome" : "/dashboard/leads";
+    res.redirect(destination);
   });
 
   app.get("/dashboard/logout", (req, res) => {
@@ -775,7 +782,11 @@ async function main() {
     res.type("text/xml").send(vr.toString());
   });
 
-  app.get("/dashboard", dashAuth, (_req, res) => res.redirect("/dashboard/leads"));
+  app.get("/dashboard", dashAuth, (req, res) => {
+    const tenant: TenantRow = (req as any).dashTenant;
+    const destination = isPendingNumber(tenant.twilio_number) ? "/dashboard/welcome" : "/dashboard/leads";
+    res.redirect(destination);
+  });
 
   app.get("/dashboard/leads/export.csv", dashAuth, (req, res) => {
     const tenant: TenantRow = (req as any).dashTenant;
