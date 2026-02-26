@@ -20,9 +20,6 @@ RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
 COPY public ./public
 
-# Persistent SQLite lives on a mounted volume
-VOLUME ["/app/data"]
-
 ENV NODE_ENV=production
 ENV SQLITE_PATH=/app/data/app.sqlite
 ENV PORT=3000
