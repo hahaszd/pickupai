@@ -2,6 +2,51 @@ import type { TenantWithStats, TenantDetail, OverviewStats, DemoSessionRow } fro
 
 // ─── Shared helpers ────────────────────────────────────────────────────────────
 
+/** Format an E.164 Australian number to local display (e.g. +61412345678 → 0412 345 678) */
+export function formatAuPhone(e164: string): string {
+  if (!e164 || !e164.startsWith("+61")) return e164;
+  const local = "0" + e164.slice(3);
+  if (local.startsWith("04")) {
+    // Mobile: 04XX XXX XXX
+    return `${local.slice(0, 4)} ${local.slice(4, 7)} ${local.slice(7)}`;
+  }
+  // Landline: (0X) XXXX XXXX
+  return `(${local.slice(0, 2)}) ${local.slice(2, 6)} ${local.slice(6)}`;
+}
+
+/** Generate the Australian USSD code for no-answer call divert, timeout 20s */
+export function ussdDivertCode(e164: string): string {
+  const stripped = e164.replace("+", ""); // e.g. 61280000796
+  return `**61*${stripped}*11*20#`;
+}
+
+/** Build the SMS body sent to the tradie when their number is provisioned */
+export function buildProvisionSms(
+  businessName: string,
+  e164: string,
+  publicBaseUrl: string
+): string {
+  const formatted = formatAuPhone(e164);
+  const ussd = ussdDivertCode(e164);
+  return `Hi ${businessName}! Your PickupAI AI receptionist is set up and ready to go.
+
+Your dedicated forwarding number:
+${formatted}
+
+To activate "no-answer" call divert on your business phone, dial this code from that phone:
+${ussd}
+
+Or call your phone provider and ask them to set up "no-answer call divert" to ${formatted}.
+
+Full setup guide:
+${publicBaseUrl}/dashboard/setup-guide
+
+Login to your dashboard:
+${publicBaseUrl}/dashboard/login
+
+Questions? Just reply to this message — PickupAI`;
+}
+
 function esc(s: string | null | undefined): string {
   return (s ?? "")
     .replace(/&/g, "&amp;")
@@ -403,7 +448,7 @@ export function adminUsersPage(tenants: TenantWithStats[], flash?: string): stri
 
 // ─── User detail page ──────────────────────────────────────────────────────────
 
-export function adminUserDetailPage(detail: TenantDetail, flash?: string): string {
+export function adminUserDetailPage(detail: TenantDetail, publicBaseUrl: string, flash?: string): string {
   const t = detail;
   const setupBadge = isPending(t.twilio_number)
     ? `<span class="badge badge-pending">Pending setup</span>`
@@ -572,6 +617,51 @@ export function adminUserDetailPage(detail: TenantDetail, flash?: string): strin
       <div class="info-row"><span class="info-label">Last login</span><span>${fmtDateTime(t.last_login_at)}</span></div>
       <div class="info-row"><span class="info-label">Trial ends</span><span>${fmtDate(t.trial_ends_at)}</span></div>
       <div class="info-row"><span class="info-label">Tenant ID</span><span class="mono" style="font-size:.72rem">${t.tenant_id.slice(0,18)}…</span></div>
+    </div>
+
+    <!-- Provision number -->
+    <div class="card" style="border:1.5px solid #7c3aed22;background:linear-gradient(135deg,#faf5ff 0%,#fff 100%)">
+      <div class="section-title" style="color:#7c3aed">Provision Number</div>
+      ${isPending(t.twilio_number)
+        ? `<div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;padding:.65rem .85rem;font-size:.82rem;color:#92400e;margin-bottom:1rem">
+             ⏳ No number assigned yet. Buy one in Twilio Console then enter it below.
+           </div>`
+        : `<div class="info-row" style="margin-bottom:.75rem">
+             <span class="info-label">Current number</span>
+             <span class="mono" style="font-size:.85rem;color:#7c3aed;font-weight:700">${esc(t.twilio_number)}</span>
+           </div>
+           <div class="info-row" style="margin-bottom:.75rem">
+             <span class="info-label">Display</span>
+             <span style="font-weight:600">${esc(formatAuPhone(t.twilio_number))}</span>
+           </div>
+           <div class="info-row" style="margin-bottom:1rem">
+             <span class="info-label">Divert code</span>
+             <span class="mono" style="font-size:.78rem">${esc(ussdDivertCode(t.twilio_number))}</span>
+           </div>`}
+      <form method="POST" action="/admin/users/${t.tenant_id}/provision-number">
+        <div class="form-group">
+          <label>Twilio number (E.164)</label>
+          <input type="text" name="twilio_number" placeholder="+61280000000"
+            value="${isPending(t.twilio_number) ? "" : esc(t.twilio_number)}" required
+            pattern="\\+[0-9]{9,15}" title="Must start with + and country code (e.g. +61)" />
+          <div class="form-hint">Buy in <a href="https://console.twilio.com/us1/develop/phone-numbers/manage/incoming" target="_blank">Twilio Console</a>, then paste here</div>
+        </div>
+        <div class="check-row" style="margin-bottom:.6rem">
+          <input type="checkbox" id="mark_active" name="mark_active" value="1" checked />
+          <label for="mark_active" style="margin:0;font-weight:500;font-size:.84rem">Set payment status → Active</label>
+        </div>
+        <div class="check-row" style="margin-bottom:1rem">
+          <input type="checkbox" id="send_sms" name="send_sms" value="1" checked />
+          <label for="send_sms" style="margin:0;font-weight:500;font-size:.84rem">Send setup SMS to ${esc(t.owner_phone)}</label>
+        </div>
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:.85rem;margin-bottom:1rem">
+          <div style="font-size:.72rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-bottom:.5rem">SMS preview</div>
+          <div style="font-size:.79rem;color:#334155;white-space:pre-line;line-height:1.55;font-family:monospace">${esc(buildProvisionSms(t.name, t.twilio_number && !isPending(t.twilio_number) ? t.twilio_number : "+61XXXXXXXXX", publicBaseUrl))}</div>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%">
+          Assign number &amp; notify →
+        </button>
+      </form>
     </div>
 
     <div class="card">

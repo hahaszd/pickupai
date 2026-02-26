@@ -53,7 +53,9 @@ import {
   adminUsersPage,
   adminUserDetailPage,
   adminDemoSessionsPage,
-  adminConfigPage
+  adminConfigPage,
+  buildProvisionSms,
+  formatAuPhone
 } from "./admin/pages.js";
 import { twilioValidateMiddleware } from "./twilio/verify.js";
 import { buildAbsoluteUrl, getCallSid, shouldWarmTransferNow } from "./twilio/flow.js";
@@ -562,7 +564,7 @@ async function main() {
     const detail = getAdminTenantDetail(db, req.params.id);
     if (!detail) return res.status(404).send("User not found");
     const flash = (req.query.flash as string | undefined) ?? undefined;
-    res.send(adminUserDetailPage(detail, flash));
+    res.send(adminUserDetailPage(detail, env.PUBLIC_BASE_URL, flash));
   });
 
   // User edit (POST)
@@ -587,6 +589,49 @@ async function main() {
       trial_ends_at: b.trial_ends_at || null,
     });
     res.redirect(`/admin/users/${req.params.id}?flash=✓ Changes saved`);
+  });
+
+  // Provision Twilio number + optionally notify owner by SMS
+  app.post("/admin/users/:id/provision-number", adminHtmlAuth, express.urlencoded({ extended: false }), async (req, res) => {
+    const tenant = getTenantById(db, req.params.id);
+    if (!tenant) return res.status(404).send("User not found");
+
+    const b = req.body ?? {};
+    const newNumber: string = (b.twilio_number ?? "").trim();
+
+    if (!newNumber.startsWith("+") || newNumber.length < 10) {
+      return res.redirect(`/admin/users/${req.params.id}?flash=⚠ Invalid number format — must start with + (e.g. +61280000000)`);
+    }
+
+    // Update twilio_number
+    const patch: Record<string, any> = { twilio_number: newNumber };
+    if (b.mark_active) patch.payment_status = "active";
+    updateTenant(db, req.params.id, patch);
+
+    // Reload fresh tenant after update
+    const updated = getTenantById(db, req.params.id)!;
+
+    if (!b.send_sms) {
+      return res.redirect(`/admin/users/${req.params.id}?flash=✓ Number ${newNumber} assigned (SMS not sent)`);
+    }
+
+    // Send setup SMS to owner
+    try {
+      const twilioClient = (await import("twilio")).default;
+      const client = twilioClient(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);
+      const smsFrom = env.TWILIO_SMS_NUMBERS[0] ?? env.TWILIO_DEFAULT_VOICE_NUMBER;
+      const smsBody = buildProvisionSms(updated.name, newNumber, env.PUBLIC_BASE_URL);
+      await client.messages.create({ from: smsFrom, to: updated.owner_phone, body: smsBody });
+      log.info({ tenantId: req.params.id, number: newNumber }, "provision-number SMS sent");
+      res.redirect(
+        `/admin/users/${req.params.id}?flash=✓ Number ${formatAuPhone(newNumber)} assigned & setup SMS sent to ${updated.owner_phone}`
+      );
+    } catch (err: any) {
+      log.error({ err }, "provision-number SMS failed");
+      res.redirect(
+        `/admin/users/${req.params.id}?flash=⚠ Number assigned but SMS failed: ${err.message}`
+      );
+    }
   });
 
   // Reset password → generate temp password, save hash, SMS it
