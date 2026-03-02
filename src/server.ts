@@ -303,15 +303,22 @@ async function main() {
     next();
   };
 
-  /** Blocks access to premium routes when trial has expired.
-   *  Only enforces if payment_status === "trial" AND trial_ends_at is in the past.
-   *  Legacy accounts (payment_status null/none) and active accounts are always allowed. */
+  /** Blocks access to premium routes when trial has expired or payment is pending.
+   *  - "active"          → always allowed
+   *  - "trial" + valid   → allowed
+   *  - "pending"         → redirect to checkout (signup incomplete)
+   *  - null / "none"     → allowed (legacy/seed accounts — no card required)
+   *  - "trial" expired, "expired", "cancelled" → redirect to upgrade page */
   const trialGuard = (req: Request, res: Response, next: NextFunction) => {
     const tenant: TenantRow = (req as any).dashTenant;
     if (!tenant) return next();
     const status = tenant.payment_status;
     if (status === "active") return next();
     if (!status || status === "none") return next(); // legacy / seed accounts
+    if (status === "pending") {
+      // Signed up but never completed Stripe checkout — send them back to checkout
+      return res.redirect("/dashboard/upgrade");
+    }
     if (status === "trial" && tenant.trial_ends_at) {
       if (new Date(tenant.trial_ends_at) > new Date()) return next(); // still in trial
     }
@@ -828,14 +835,21 @@ async function main() {
       password: password as string,
     });
 
-    // Auto-start 14-day free trial
-    const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
-    updateTenant(db, tenant.tenant_id, { payment_status: "trial", trial_ends_at: trialEndsAt });
+    // Mark account as pending until Stripe checkout is completed.
+    // When Stripe is NOT configured (ABN pending / local dev), fall back to
+    // granting a free 14-day trial so internal testing still works.
+    const stripeReady = !!env.STRIPE_SECRET_KEY && !!env.STRIPE_PRICE_ID;
+    if (stripeReady) {
+      updateTenant(db, tenant.tenant_id, { payment_status: "pending" });
+    } else {
+      const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+      updateTenant(db, tenant.tenant_id, { payment_status: "trial", trial_ends_at: trialEndsAt });
+    }
 
     // Welcome SMS to new user
     try {
       await sendOwnerSms(db,
-        `Welcome to PickupAI, ${name}! 🎉 Your 14-day free trial has started. Set up your demo at: ${env.PUBLIC_BASE_URL}/dashboard/welcome`,
+        `Welcome to PickupAI, ${name}! Your 14-day free trial has started. Set up your demo at: ${env.PUBLIC_BASE_URL}/dashboard/welcome`,
         owner_phone as string
       );
     } catch (e) { log.warn({ e }, "Welcome SMS failed"); }
@@ -854,6 +868,12 @@ async function main() {
       setSessionCookie(res, loggedIn.session_token);
     }
 
+    // If Stripe is configured, send user straight to checkout to collect card.
+    // Checkout session creation is reused from the /dashboard/create-checkout-session
+    // route by redirecting internally.
+    if (stripeReady) {
+      return res.redirect("/dashboard/create-checkout-session-get");
+    }
     res.redirect("/dashboard/welcome");
   });
 
@@ -1077,7 +1097,9 @@ async function main() {
   });
 
   // Stripe Checkout — create session and redirect to Stripe's hosted page
-  app.post("/dashboard/create-checkout-session", dashAuth, async (req, res) => {
+  // POST version: used from the upgrade page button
+  // GET version:  used by the signup flow redirect (after account creation)
+  const createStripeCheckoutSession = async (req: Request, res: Response) => {
     const tenant: TenantRow = (req as any).dashTenant;
     const stripe = getStripe();
     if (!stripe || !env.STRIPE_PRICE_ID) {
@@ -1091,35 +1113,44 @@ async function main() {
         success_url: `${env.PUBLIC_BASE_URL}/dashboard/stripe-success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${env.PUBLIC_BASE_URL}/dashboard/upgrade`,
         metadata: { tenant_id: tenant.tenant_id },
-        subscription_data: { metadata: { tenant_id: tenant.tenant_id } }
+        subscription_data: {
+          trial_period_days: 14,
+          metadata: { tenant_id: tenant.tenant_id }
+        }
       });
       res.redirect(303, session.url!);
     } catch (err: any) {
       log.error({ err }, "Stripe checkout session creation failed");
       res.redirect("/dashboard/upgrade");
     }
-  });
+  };
 
-  // Stripe success redirect — verify session and activate account
+  app.post("/dashboard/create-checkout-session", dashAuth, createStripeCheckoutSession);
+  app.get("/dashboard/create-checkout-session-get", dashAuth, createStripeCheckoutSession);
+
+  // Stripe success redirect — card collected, 14-day trial has begun
   app.get("/dashboard/stripe-success", dashAuth, async (req, res) => {
     const tenant: TenantRow = (req as any).dashTenant;
     const stripe = getStripe();
     const sessionId = req.query.session_id as string | undefined;
-    if (!stripe || !sessionId) return res.redirect("/dashboard/leads");
+    if (!stripe || !sessionId) return res.redirect("/dashboard/welcome");
 
     try {
       const session = await stripe.checkout.sessions.retrieve(sessionId);
-      if (session.payment_status === "paid" || session.status === "complete") {
+      if (session.status === "complete" || session.payment_status === "paid" || session.payment_status === "no_payment_required") {
+        // "no_payment_required" is the status when a trial is active (no charge yet)
+        const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
         updateTenant(db, tenant.tenant_id, {
-          payment_status: "active",
+          payment_status: "trial",
+          trial_ends_at: trialEndsAt,
           stripe_customer_id: session.customer as string
         });
-        log.info({ tenantId: tenant.tenant_id }, "Stripe payment confirmed — account activated");
+        log.info({ tenantId: tenant.tenant_id }, "Stripe checkout complete — 14-day trial started");
       }
     } catch (err: any) {
       log.error({ err }, "Stripe session retrieval failed");
     }
-    res.redirect("/dashboard/leads?flash=✓ Subscription activated — welcome to PickupAI!");
+    res.redirect("/dashboard/welcome");
   });
 
   // Stripe webhook — handles ongoing subscription events
@@ -1139,19 +1170,45 @@ async function main() {
 
     try {
       if (event.type === "checkout.session.completed") {
+        // Card collected, trial has started — NOT yet charged
         const session = event.data.object as Stripe.Checkout.Session;
         const tenantId = session.metadata?.tenant_id;
         if (tenantId) {
+          const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
           updateTenant(db, tenantId, {
-            payment_status: "active",
+            payment_status: "trial",
+            trial_ends_at: trialEndsAt,
             stripe_customer_id: session.customer as string
           });
           const t = getTenantById(db, tenantId);
           if (t) {
+            // Notify founder of new card-on-file signup
+            if (env.OWNER_PHONE_NUMBER) {
+              try {
+                await sendOwnerSms(db,
+                  `PickupAI: New trial signup (card on file) — ${t.name} (${t.owner_phone}). Trial ends in 14 days. Admin: ${env.PUBLIC_BASE_URL}/admin/users/${t.tenant_id}`
+                );
+              } catch (e) { log.warn({ e }, "founder trial notification SMS failed"); }
+            }
+          }
+        }
+      } else if (event.type === "invoice.payment_succeeded") {
+        // First real charge after trial ends (or any subsequent renewal) — activate account
+        const invoice = event.data.object as Stripe.Invoice;
+        if ((invoice as any).billing_reason === "subscription_create" && (invoice as any).amount_paid === 0) {
+          // This is the $0 invoice generated when the trial starts — not a real payment, skip
+          log.info("Stripe: trial start $0 invoice — skipping activation");
+        } else {
+          const customerId = typeof invoice.customer === "string" ? invoice.customer : (invoice.customer as any)?.id;
+          const tenants = listTenants(db);
+          const t = tenants.find(x => x.stripe_customer_id === customerId);
+          if (t) {
+            updateTenant(db, t.tenant_id, { payment_status: "active" });
+            log.info({ tenantId: t.tenant_id }, "Stripe payment succeeded — account activated");
             // Notify customer
             try {
               await sendOwnerSms(db,
-                `Great news ${t.name}! Your PickupAI subscription is active. We'll assign your dedicated number and send setup instructions within 24 hours.`,
+                `Your PickupAI subscription is now active, ${t.name}! We'll assign your dedicated number and send setup instructions within 24 hours.`,
                 t.owner_phone
               );
             } catch (e) { log.warn({ e }, "customer activation SMS failed"); }
@@ -1180,7 +1237,7 @@ async function main() {
         const tenants = listTenants(db);
         const t = tenants.find(x => x.stripe_customer_id === customerId);
         if (t) {
-          log.warn({ tenantId: t.tenant_id }, "Stripe payment failed for customer");
+          log.warn({ tenantId: t.tenant_id }, "Stripe payment failed — manual follow-up needed");
         }
       }
     } catch (err: any) {
