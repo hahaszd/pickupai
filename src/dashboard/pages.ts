@@ -827,14 +827,31 @@ ${flashHtml}
 
 // ─── Upgrade / trial-expired page ─────────────────────────────────────────────
 
-export function upgradePage(tenant?: TenantRow): string {
+export function upgradePage(tenant?: TenantRow, stripeEnabled?: boolean): string {
+  const ctaHtml = stripeEnabled
+    ? `<form method="POST" action="/dashboard/create-checkout-session">
+        <button type="submit" class="btn btn-primary" style="font-size:1rem;padding:.8rem 2.25rem;cursor:pointer">
+          Subscribe — $149 / month →
+        </button>
+      </form>
+      <p style="margin-top:.65rem;font-size:.82rem;color:var(--gray-400)">
+        Secure payment via Stripe · Cancel anytime · No lock-in
+      </p>`
+    : `<a href="mailto:hello@pickupai.com.au?subject=I'd like to upgrade PickupAI&body=Hi, I'd like to continue my PickupAI subscription for ${escape(tenant?.name ?? "my business")}."
+         class="btn btn-primary" style="font-size:1rem;padding:.8rem 2rem;display:inline-block">
+        Email us to activate →
+      </a>
+      <p style="margin-top:1rem;font-size:.85rem;color:var(--gray-400)">
+        Or text/call <a href="tel:+61400000000">0400 000 000</a> — we'll respond same day
+      </p>`;
+
   const body = `
 <div style="max-width:560px;margin:4rem auto;text-align:center">
   <div style="font-size:3rem;margin-bottom:1rem">⏰</div>
   <h1 style="font-size:1.75rem;margin-bottom:.75rem">Your free trial has ended</h1>
   <p style="color:var(--gray-600);font-size:1rem;line-height:1.6;margin-bottom:2rem">
     Thanks for trying PickupAI! To keep your AI receptionist answering calls and capturing leads,
-    reach out and we'll get you activated within a few hours.
+    subscribe below and we'll have your dedicated number set up within 24 hours.
   </p>
   <div class="card" style="text-align:left;margin-bottom:1.5rem">
     <h2 style="margin-bottom:1rem">What's included — $149 / month</h2>
@@ -864,13 +881,7 @@ export function upgradePage(tenant?: TenantRow): string {
       Founding customer price — locked for 3 months, then $199/mo. Cancel anytime.
     </p>
   </div>
-  <a href="mailto:hello@pickupai.com.au?subject=I'd like to upgrade PickupAI&body=Hi, I'd like to continue my PickupAI subscription for ${escape(tenant?.name ?? "my business")}."
-     class="btn btn-primary" style="font-size:1rem;padding:.8rem 2rem;display:inline-block">
-    Email us to activate →
-  </a>
-  <p style="margin-top:1rem;font-size:.85rem;color:var(--gray-400)">
-    Or text/call <a href="tel:+61400000000">0400 000 000</a> — we'll respond same day
-  </p>
+  ${ctaHtml}
   <p style="margin-top:1.5rem">
     <a href="/dashboard/logout" style="font-size:.85rem;color:var(--gray-400)">Sign out</a>
   </p>

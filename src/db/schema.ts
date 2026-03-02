@@ -79,6 +79,7 @@ export const migrationStatements = [
   `ALTER TABLE tenants ADD COLUMN last_login_at TEXT`,
   `ALTER TABLE tenants ADD COLUMN payment_status TEXT DEFAULT 'none'`,
   `ALTER TABLE tenants ADD COLUMN trial_ends_at TEXT`,
+  `ALTER TABLE tenants ADD COLUMN stripe_customer_id TEXT`,
   `CREATE TABLE IF NOT EXISTS demo_sessions (
     demo_number   TEXT NOT NULL PRIMARY KEY,
     tenant_id     TEXT NOT NULL REFERENCES tenants(tenant_id) ON DELETE CASCADE,

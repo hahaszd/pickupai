@@ -83,7 +83,18 @@ const envSchema = z.object({
   TWILIO_AUTO_CONFIGURE_WEBHOOKS: z
     .enum(["true", "false"])
     .default("false")
-    .transform((v) => v === "true")
+    .transform((v) => v === "true"),
+
+  // ── Stripe (optional — set when ABN is confirmed and Stripe is live) ────────
+  // Leave unset to keep the upgrade page in "contact us" mode.
+  // Set STRIPE_SECRET_KEY to sk_test_... to enable test-mode Stripe Checkout.
+  // Set to sk_live_... when ABN is confirmed and Stripe account is verified.
+  STRIPE_SECRET_KEY:     z.string().optional(),
+  STRIPE_PUBLISHABLE_KEY: z.string().optional(),
+  // Price ID from Stripe dashboard (Product → Price → copy ID e.g. price_xxx)
+  STRIPE_PRICE_ID:       z.string().optional(),
+  // Signing secret from Stripe dashboard → Webhooks → your endpoint → Signing secret
+  STRIPE_WEBHOOK_SECRET: z.string().optional()
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -24,6 +24,7 @@ export type TenantRow = {
   last_login_at: string | null;
   payment_status: string | null;
   trial_ends_at: string | null;
+  stripe_customer_id: string | null;
 };
 
 export type CallRow = {

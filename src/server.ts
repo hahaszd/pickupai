@@ -75,6 +75,13 @@ import {
   settingsPage,
   upgradePage
 } from "./dashboard/pages.js";
+import Stripe from "stripe";
+
+/** Lazy Stripe client — only instantiated if STRIPE_SECRET_KEY is set */
+function getStripe(): Stripe | null {
+  if (!env.STRIPE_SECRET_KEY) return null;
+  return new Stripe(env.STRIPE_SECRET_KEY, { apiVersion: "2024-06-20" as any });
+}
 
 const log = pino({ level: "info" });
 
@@ -171,7 +178,8 @@ function buildFallbackTenant(): TenantRow {
     created_at: new Date().toISOString(),
     last_login_at: null,
     payment_status: null,
-    trial_ends_at: null
+    trial_ends_at: null,
+    stripe_customer_id: null
   };
 }
 
@@ -788,7 +796,7 @@ async function main() {
     res.send(signupPage());
   });
 
-  app.post("/dashboard/signup", express.urlencoded({ extended: false }), (req, res) => {
+  app.post("/dashboard/signup", express.urlencoded({ extended: false }), async (req, res) => {
     const { name, trade_type, ai_name, owner_phone, email, password } = req.body ?? {};
     const prefill = { name, trade_type, ai_name, owner_phone, email };
 
@@ -823,6 +831,23 @@ async function main() {
     // Auto-start 14-day free trial
     const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
     updateTenant(db, tenant.tenant_id, { payment_status: "trial", trial_ends_at: trialEndsAt });
+
+    // Welcome SMS to new user
+    try {
+      await sendOwnerSms(db,
+        `Welcome to PickupAI, ${name}! 🎉 Your 14-day free trial has started. Set up your demo at: ${env.PUBLIC_BASE_URL}/dashboard/welcome`,
+        owner_phone as string
+      );
+    } catch (e) { log.warn({ e }, "Welcome SMS failed"); }
+
+    // Notify founder of new signup
+    if (env.OWNER_PHONE_NUMBER) {
+      try {
+        await sendOwnerSms(db,
+          `PickupAI: New trial signup — ${name} (${trade_type}, ${owner_phone}). Admin: ${env.PUBLIC_BASE_URL}/admin/users/${tenant.tenant_id}`
+        );
+      } catch (e) { log.warn({ e }, "Founder signup notification SMS failed"); }
+    }
 
     const loggedIn = tenantLogin(db, email as string, password as string);
     if (loggedIn?.session_token) {
@@ -1048,7 +1073,120 @@ async function main() {
   // Upgrade / trial-expired page (no trialGuard — it IS the gate)
   app.get("/dashboard/upgrade", dashAuth, (req, res) => {
     const tenant: TenantRow = (req as any).dashTenant;
-    res.send(upgradePage(tenant));
+    res.send(upgradePage(tenant, !!env.STRIPE_SECRET_KEY));
+  });
+
+  // Stripe Checkout — create session and redirect to Stripe's hosted page
+  app.post("/dashboard/create-checkout-session", dashAuth, async (req, res) => {
+    const tenant: TenantRow = (req as any).dashTenant;
+    const stripe = getStripe();
+    if (!stripe || !env.STRIPE_PRICE_ID) {
+      return res.redirect("/dashboard/upgrade");
+    }
+    try {
+      const session = await stripe.checkout.sessions.create({
+        mode: "subscription",
+        customer_email: tenant.owner_email ?? undefined,
+        line_items: [{ price: env.STRIPE_PRICE_ID, quantity: 1 }],
+        success_url: `${env.PUBLIC_BASE_URL}/dashboard/stripe-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${env.PUBLIC_BASE_URL}/dashboard/upgrade`,
+        metadata: { tenant_id: tenant.tenant_id },
+        subscription_data: { metadata: { tenant_id: tenant.tenant_id } }
+      });
+      res.redirect(303, session.url!);
+    } catch (err: any) {
+      log.error({ err }, "Stripe checkout session creation failed");
+      res.redirect("/dashboard/upgrade");
+    }
+  });
+
+  // Stripe success redirect — verify session and activate account
+  app.get("/dashboard/stripe-success", dashAuth, async (req, res) => {
+    const tenant: TenantRow = (req as any).dashTenant;
+    const stripe = getStripe();
+    const sessionId = req.query.session_id as string | undefined;
+    if (!stripe || !sessionId) return res.redirect("/dashboard/leads");
+
+    try {
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      if (session.payment_status === "paid" || session.status === "complete") {
+        updateTenant(db, tenant.tenant_id, {
+          payment_status: "active",
+          stripe_customer_id: session.customer as string
+        });
+        log.info({ tenantId: tenant.tenant_id }, "Stripe payment confirmed — account activated");
+      }
+    } catch (err: any) {
+      log.error({ err }, "Stripe session retrieval failed");
+    }
+    res.redirect("/dashboard/leads?flash=✓ Subscription activated — welcome to PickupAI!");
+  });
+
+  // Stripe webhook — handles ongoing subscription events
+  app.post("/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+    const stripe = getStripe();
+    if (!stripe || !env.STRIPE_WEBHOOK_SECRET) {
+      return res.sendStatus(200); // silently ignore if not configured
+    }
+    const sig = req.headers["stripe-signature"] as string;
+    let event: Stripe.Event;
+    try {
+      event = stripe.webhooks.constructEvent(req.body, sig, env.STRIPE_WEBHOOK_SECRET);
+    } catch (err: any) {
+      log.warn({ err }, "Stripe webhook signature verification failed");
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    try {
+      if (event.type === "checkout.session.completed") {
+        const session = event.data.object as Stripe.Checkout.Session;
+        const tenantId = session.metadata?.tenant_id;
+        if (tenantId) {
+          updateTenant(db, tenantId, {
+            payment_status: "active",
+            stripe_customer_id: session.customer as string
+          });
+          const t = getTenantById(db, tenantId);
+          if (t) {
+            // Notify customer
+            try {
+              await sendOwnerSms(db,
+                `Great news ${t.name}! Your PickupAI subscription is active. We'll assign your dedicated number and send setup instructions within 24 hours.`,
+                t.owner_phone
+              );
+            } catch (e) { log.warn({ e }, "customer activation SMS failed"); }
+            // Notify founder
+            if (env.OWNER_PHONE_NUMBER) {
+              try {
+                await sendOwnerSms(db,
+                  `PickupAI: New paying customer — ${t.name} (${t.owner_phone}). Log in to assign their number: ${env.PUBLIC_BASE_URL}/admin/users/${t.tenant_id}`
+                );
+              } catch (e) { log.warn({ e }, "founder notification SMS failed"); }
+            }
+          }
+        }
+      } else if (event.type === "customer.subscription.deleted") {
+        const sub = event.data.object as Stripe.Subscription;
+        const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
+        const tenants = listTenants(db);
+        const t = tenants.find(x => x.stripe_customer_id === customerId);
+        if (t) {
+          updateTenant(db, t.tenant_id, { payment_status: "expired" });
+          log.info({ tenantId: t.tenant_id }, "Stripe subscription cancelled — account expired");
+        }
+      } else if (event.type === "invoice.payment_failed") {
+        const invoice = event.data.object as Stripe.Invoice;
+        const customerId = typeof invoice.customer === "string" ? invoice.customer : (invoice.customer as any)?.id;
+        const tenants = listTenants(db);
+        const t = tenants.find(x => x.stripe_customer_id === customerId);
+        if (t) {
+          log.warn({ tenantId: t.tenant_id }, "Stripe payment failed for customer");
+        }
+      }
+    } catch (err: any) {
+      log.error({ err }, "Stripe webhook handler error");
+    }
+    res.sendStatus(200);
   });
 
   // User self-service settings
