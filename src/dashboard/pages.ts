@@ -1,9 +1,31 @@
 import type { LeadRow, TenantRow } from "../db/repo.js";
 
+// ─── Trial helpers ────────────────────────────────────────────────────────────
+
+function trialDaysLeft(tenant: TenantRow): number | null {
+  if (tenant.payment_status !== "trial" || !tenant.trial_ends_at) return null;
+  return Math.ceil((new Date(tenant.trial_ends_at).getTime() - Date.now()) / 86400000);
+}
+
+function trialBannerHtml(tenant: TenantRow): string {
+  const days = trialDaysLeft(tenant);
+  if (days === null || days > 7) return "";
+  if (days <= 0) {
+    return `<div style="background:#fee2e2;color:#dc2626;text-align:center;padding:.6rem 1rem;font-size:.85rem;font-weight:600">
+      Your free trial has ended. <a href="/dashboard/upgrade" style="color:#dc2626;text-decoration:underline">Upgrade to continue →</a>
+    </div>`;
+  }
+  return `<div style="background:#fef3c7;color:#92400e;text-align:center;padding:.6rem 1rem;font-size:.85rem;font-weight:600">
+    ${days} day${days === 1 ? "" : "s"} left in your free trial.
+    <a href="/dashboard/upgrade" style="color:#92400e;text-decoration:underline">Upgrade now →</a>
+  </div>`;
+}
+
 // ─── Shared shell ─────────────────────────────────────────────────────────────
 
 function shell(title: string, body: string, tenant?: TenantRow) {
   const tenantName = tenant?.name ?? "";
+  const banner = tenant ? trialBannerHtml(tenant) : "";
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -66,9 +88,10 @@ function shell(title: string, body: string, tenant?: TenantRow) {
     .btn-ghost { background: transparent; color: var(--gray-600); border: 1.5px solid var(--gray-200); }
     .form-group { margin-bottom: 1rem; }
     label { display: block; font-size: .85rem; font-weight: 600; margin-bottom: .3rem; }
-    input, select { width: 100%; padding: .5rem .75rem; border: 1.5px solid var(--gray-200);
-                    border-radius: 6px; font-size: .9rem; outline: none; }
-    input:focus, select:focus { border-color: var(--brand); }
+    input, select, textarea { width: 100%; padding: .5rem .75rem; border: 1.5px solid var(--gray-200);
+                    border-radius: 6px; font-size: .9rem; outline: none; font-family: inherit; }
+    input:focus, select:focus, textarea:focus { border-color: var(--brand); }
+    textarea { resize: vertical; min-height: 80px; }
     .filters { display: flex; gap: .75rem; flex-wrap: wrap; margin-bottom: 1rem; }
     .filter-chip {
       padding: .35rem .9rem; border-radius: 999px; font-size: .8rem; font-weight: 600;
@@ -79,6 +102,7 @@ function shell(title: string, body: string, tenant?: TenantRow) {
     .filter-chip.active { background: var(--brand); color: #fff; border-color: var(--brand); }
     .alert { padding: .75rem 1rem; border-radius: 6px; margin-bottom: 1rem; font-size: .9rem; }
     .alert-error { background: #fee2e2; color: var(--red); }
+    .alert-success { background: #dcfce7; color: var(--green); }
     .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
     .detail-item label { color: var(--gray-600); font-size: .78rem; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; margin-bottom: .2rem; }
     .detail-item p { font-size: .95rem; }
@@ -88,8 +112,9 @@ function shell(title: string, body: string, tenant?: TenantRow) {
                   max-height: 300px; overflow-y: auto; color: var(--gray-600); }
     .status-row { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .75rem; }
     .empty { text-align: center; padding: 3rem; color: var(--gray-400); }
+    .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
     @media (max-width: 640px) {
-      .detail-grid { grid-template-columns: 1fr; }
+      .detail-grid, .settings-grid { grid-template-columns: 1fr; }
       nav .hide-sm { display: none; }
     }
   </style>
@@ -97,8 +122,14 @@ function shell(title: string, body: string, tenant?: TenantRow) {
 <body>
 <nav>
   <a href="/" class="logo">PickupAI <span>${escape(tenantName)}</span></a>
-  ${tenant ? `<a href="/dashboard/leads">Leads</a><div class="spacer"></div><a href="/dashboard/logout" class="hide-sm">Log out</a>` : `<div class="spacer"></div>`}
+  ${tenant
+    ? `<a href="/dashboard/leads">Leads</a>
+       <a href="/dashboard/settings" class="hide-sm">Settings</a>
+       <div class="spacer"></div>
+       <a href="/dashboard/logout" class="hide-sm">Log out</a>`
+    : `<div class="spacer"></div>`}
 </nav>
+${banner}
 <div class="container">
   ${body}
 </div>
@@ -708,4 +739,141 @@ ${flash ? `<div class="alert" style="background:#dcfce7;color:var(--green);">${e
 ${recordingSection}
 ${transcriptSection}`;
   return shell(`Lead — ${lead.name ?? "Unknown"}`, body, tenant);
+}
+
+// ─── Settings page ────────────────────────────────────────────────────────────
+
+export function settingsPage(tenant: TenantRow, flash?: string): string {
+  const tradeOptions = ["plumber","electrician","handyman","roofer","painter","carpenter","builder","other"];
+  const tradeSelect = tradeOptions.map(o =>
+    `<option value="${o}"${tenant.trade_type === o ? " selected" : ""}>${o.charAt(0).toUpperCase() + o.slice(1)}</option>`
+  ).join("");
+
+  const flashHtml = flash
+    ? `<div class="alert ${flash.startsWith("✓") ? "alert-success" : "alert-error"}">${escape(flash)}</div>`
+    : "";
+
+  const body = `
+<h1>Account Settings</h1>
+${flashHtml}
+<div class="card">
+  <form method="POST" action="/dashboard/settings">
+    <div class="settings-grid">
+      <div class="form-group">
+        <label for="name">Business name</label>
+        <input type="text" id="name" name="name" value="${escape(tenant.name)}" required />
+      </div>
+      <div class="form-group">
+        <label for="trade_type">Trade type</label>
+        <select id="trade_type" name="trade_type">${tradeSelect}</select>
+      </div>
+      <div class="form-group">
+        <label for="ai_name">AI receptionist name</label>
+        <input type="text" id="ai_name" name="ai_name" value="${escape(tenant.ai_name)}" placeholder="Olivia" />
+        <p style="font-size:.8rem;color:var(--gray-400);margin-top:.25rem">The name your AI uses when answering calls</p>
+      </div>
+      <div class="form-group">
+        <label for="owner_phone">Your callback number</label>
+        <input type="tel" id="owner_phone" name="owner_phone" value="${escape(tenant.owner_phone)}" required />
+        <p style="font-size:.8rem;color:var(--gray-400);margin-top:.25rem">Lead SMS summaries are sent here</p>
+      </div>
+      <div class="form-group">
+        <label for="business_hours_start">Business hours start</label>
+        <input type="time" id="business_hours_start" name="business_hours_start" value="${escape(tenant.business_hours_start)}" />
+      </div>
+      <div class="form-group">
+        <label for="business_hours_end">Business hours end</label>
+        <input type="time" id="business_hours_end" name="business_hours_end" value="${escape(tenant.business_hours_end)}" />
+      </div>
+    </div>
+    <div class="form-group">
+      <label for="service_area">Service area</label>
+      <textarea id="service_area" name="service_area" rows="3">${escape(tenant.service_area ?? "")}</textarea>
+      <p style="font-size:.8rem;color:var(--gray-400);margin-top:.25rem">
+        Describe where you work — the AI will politely decline jobs outside this area.
+        Example: "All suburbs within 40km of Parramatta, including the Hills District and Inner West."
+      </p>
+    </div>
+    <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;margin-top:.5rem">
+      <button type="submit" class="btn btn-primary">Save changes</button>
+      <a href="/dashboard/leads" class="btn btn-ghost">Cancel</a>
+    </div>
+  </form>
+</div>
+
+<div class="card" style="margin-top:1.25rem">
+  <h2>Account info</h2>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;font-size:.9rem">
+    <div>
+      <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.2rem">Email</p>
+      <p>${escape(tenant.owner_email ?? "")}</p>
+    </div>
+    <div>
+      <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.2rem">Plan</p>
+      <p>${tenant.payment_status === "active" ? "Active" : tenant.payment_status === "trial" ? "Free trial" : "—"}</p>
+    </div>
+    ${tenant.trial_ends_at ? `<div>
+      <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.2rem">Trial ends</p>
+      <p>${new Date(tenant.trial_ends_at).toLocaleDateString("en-AU", { dateStyle: "long" })}</p>
+    </div>` : ""}
+  </div>
+  <p style="font-size:.82rem;color:var(--gray-400);margin-top:1rem">
+    To change your email or password, contact us at
+    <a href="mailto:hello@pickupai.com.au">hello@pickupai.com.au</a>
+  </p>
+</div>`;
+  return shell("Settings", body, tenant);
+}
+
+// ─── Upgrade / trial-expired page ─────────────────────────────────────────────
+
+export function upgradePage(tenant?: TenantRow): string {
+  const body = `
+<div style="max-width:560px;margin:4rem auto;text-align:center">
+  <div style="font-size:3rem;margin-bottom:1rem">⏰</div>
+  <h1 style="font-size:1.75rem;margin-bottom:.75rem">Your free trial has ended</h1>
+  <p style="color:var(--gray-600);font-size:1rem;line-height:1.6;margin-bottom:2rem">
+    Thanks for trying PickupAI! To keep your AI receptionist answering calls and capturing leads,
+    reach out and we'll get you activated within a few hours.
+  </p>
+  <div class="card" style="text-align:left;margin-bottom:1.5rem">
+    <h2 style="margin-bottom:1rem">What's included — $149 / month</h2>
+    <ul style="list-style:none;display:flex;flex-direction:column;gap:.65rem">
+      <li style="display:flex;gap:.65rem;align-items:flex-start">
+        <span style="color:var(--green);font-weight:700;margin-top:.1rem">✓</span>
+        <span>24/7 call answering — every call picked up, no voicemail</span>
+      </li>
+      <li style="display:flex;gap:.65rem;align-items:flex-start">
+        <span style="color:var(--green);font-weight:700;margin-top:.1rem">✓</span>
+        <span>Instant SMS lead summary after every call</span>
+      </li>
+      <li style="display:flex;gap:.65rem;align-items:flex-start">
+        <span style="color:var(--green);font-weight:700;margin-top:.1rem">✓</span>
+        <span>Emergency detection and priority flagging</span>
+      </li>
+      <li style="display:flex;gap:.65rem;align-items:flex-start">
+        <span style="color:var(--green);font-weight:700;margin-top:.1rem">✓</span>
+        <span>AI trained on your trade and service area</span>
+      </li>
+      <li style="display:flex;gap:.65rem;align-items:flex-start">
+        <span style="color:var(--green);font-weight:700;margin-top:.1rem">✓</span>
+        <span>Dashboard with all your leads and call history</span>
+      </li>
+    </ul>
+    <p style="font-size:.8rem;color:var(--gray-400);margin-top:1rem">
+      Founding customer price — locked for 3 months, then $199/mo. Cancel anytime.
+    </p>
+  </div>
+  <a href="mailto:hello@pickupai.com.au?subject=I'd like to upgrade PickupAI&body=Hi, I'd like to continue my PickupAI subscription for ${escape(tenant?.name ?? "my business")}."
+     class="btn btn-primary" style="font-size:1rem;padding:.8rem 2rem;display:inline-block">
+    Email us to activate →
+  </a>
+  <p style="margin-top:1rem;font-size:.85rem;color:var(--gray-400)">
+    Or text/call <a href="tel:+61400000000">0400 000 000</a> — we'll respond same day
+  </p>
+  <p style="margin-top:1.5rem">
+    <a href="/dashboard/logout" style="font-size:.85rem;color:var(--gray-400)">Sign out</a>
+  </p>
+</div>`;
+  return shell("Upgrade", body, tenant);
 }

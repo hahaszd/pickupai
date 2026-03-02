@@ -65,7 +65,16 @@ import { startCallRecording } from "./twilio/recording.js";
 import { formatOwnerSms, NO_SMS_INTENTS, sendOwnerSms } from "./twilio/sms.js";
 import { createCrmExporters, exportLeadToCrm } from "./crm/index.js";
 import { RealtimeSession } from "./realtime/session.js";
-import { loginPage, signupPage, setupGuidePage, welcomePage, leadsPage, leadDetailPage } from "./dashboard/pages.js";
+import {
+  loginPage,
+  signupPage,
+  setupGuidePage,
+  welcomePage,
+  leadsPage,
+  leadDetailPage,
+  settingsPage,
+  upgradePage
+} from "./dashboard/pages.js";
 
 const log = pino({ level: "info" });
 
@@ -283,6 +292,24 @@ async function main() {
     const tenant = getTenantBySessionToken(db, token);
     if (!tenant) return res.redirect("/dashboard/login");
     (req as any).dashTenant = tenant;
+    next();
+  };
+
+  /** Blocks access to premium routes when trial has expired.
+   *  Only enforces if payment_status === "trial" AND trial_ends_at is in the past.
+   *  Legacy accounts (payment_status null/none) and active accounts are always allowed. */
+  const trialGuard = (req: Request, res: Response, next: NextFunction) => {
+    const tenant: TenantRow = (req as any).dashTenant;
+    if (!tenant) return next();
+    const status = tenant.payment_status;
+    if (status === "active") return next();
+    if (!status || status === "none") return next(); // legacy / seed accounts
+    if (status === "trial" && tenant.trial_ends_at) {
+      if (new Date(tenant.trial_ends_at) > new Date()) return next(); // still in trial
+    }
+    if (status === "trial" || status === "expired" || status === "cancelled") {
+      return res.redirect("/dashboard/upgrade");
+    }
     next();
   };
 
@@ -793,6 +820,10 @@ async function main() {
       password: password as string,
     });
 
+    // Auto-start 14-day free trial
+    const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+    updateTenant(db, tenant.tenant_id, { payment_status: "trial", trial_ends_at: trialEndsAt });
+
     const loggedIn = tenantLogin(db, email as string, password as string);
     if (loggedIn?.session_token) {
       setSessionCookie(res, loggedIn.session_token);
@@ -1014,7 +1045,38 @@ async function main() {
     res.redirect(destination);
   });
 
-  app.get("/dashboard/leads/export.csv", dashAuth, (req, res) => {
+  // Upgrade / trial-expired page (no trialGuard — it IS the gate)
+  app.get("/dashboard/upgrade", dashAuth, (req, res) => {
+    const tenant: TenantRow = (req as any).dashTenant;
+    res.send(upgradePage(tenant));
+  });
+
+  // User self-service settings
+  app.get("/dashboard/settings", dashAuth, (req, res) => {
+    const tenant: TenantRow = (req as any).dashTenant;
+    const flash = (req.query.flash as string | undefined) ?? undefined;
+    res.send(settingsPage(tenant, flash));
+  });
+
+  app.post("/dashboard/settings", dashAuth, express.urlencoded({ extended: false }), (req, res) => {
+    const tenant: TenantRow = (req as any).dashTenant;
+    const b = req.body ?? {};
+    if (!b.name || !b.owner_phone) {
+      return res.send(settingsPage(tenant, "Business name and phone are required."));
+    }
+    updateTenant(db, tenant.tenant_id, {
+      name: b.name,
+      trade_type: b.trade_type || tenant.trade_type,
+      ai_name: b.ai_name || tenant.ai_name,
+      owner_phone: b.owner_phone,
+      service_area: b.service_area || null,
+      business_hours_start: b.business_hours_start || tenant.business_hours_start,
+      business_hours_end: b.business_hours_end || tenant.business_hours_end,
+    });
+    res.redirect("/dashboard/settings?flash=✓ Settings saved");
+  });
+
+  app.get("/dashboard/leads/export.csv", dashAuth, trialGuard, (req, res) => {
     const tenant: TenantRow = (req as any).dashTenant;
     const urgency = typeof req.query.urgency === "string" ? req.query.urgency : undefined;
     const status = typeof req.query.status === "string" ? req.query.status : undefined;
@@ -1025,7 +1087,7 @@ async function main() {
     res.send(csv);
   });
 
-  app.get("/dashboard/leads", dashAuth, (req, res) => {
+  app.get("/dashboard/leads", dashAuth, trialGuard, (req, res) => {
     const tenant: TenantRow = (req as any).dashTenant;
     const urgency = typeof req.query.urgency === "string" && req.query.urgency ? req.query.urgency : undefined;
     const status = typeof req.query.status === "string" && req.query.status ? req.query.status : undefined;
@@ -1033,7 +1095,7 @@ async function main() {
     res.send(leadsPage(tenant, leads, { urgency, status }));
   });
 
-  app.get("/dashboard/leads/:id", dashAuth, (req, res) => {
+  app.get("/dashboard/leads/:id", dashAuth, trialGuard, (req, res) => {
     const tenant: TenantRow = (req as any).dashTenant;
     const lead = getLeadWithCall(db, req.params.id, tenant.tenant_id);
     if (!lead) return res.status(404).send("Lead not found");
@@ -1041,7 +1103,7 @@ async function main() {
     res.send(leadDetailPage(tenant, lead, flash));
   });
 
-  app.post("/dashboard/leads/:id/status", dashAuth,
+  app.post("/dashboard/leads/:id/status", dashAuth, trialGuard,
     express.urlencoded({ extended: false }),
     (req, res) => {
       const tenant: TenantRow = (req as any).dashTenant;
