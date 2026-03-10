@@ -7,9 +7,10 @@ import type { LeadDraft } from "../twilio/state.js";
 
 const log = pino({ level: "info" });
 
-// Pinned to the latest gpt-realtime-mini snapshot (verified 2026-02-22 on OpenAI docs).
-// Latest available: gpt-realtime-mini-2025-12-15
-const OPENAI_REALTIME_MODEL = "gpt-realtime-mini-2025-12-15";
+// Updated to gpt-realtime-1.5 per OpenAI announcement (2026-03-10).
+// Improvements: stronger instruction following, more reliable tool calling,
+// improved multilingual accuracy.
+const OPENAI_REALTIME_MODEL = "gpt-realtime-1.5";
 const OPENAI_REALTIME_URL = `wss://api.openai.com/v1/realtime?model=${OPENAI_REALTIME_MODEL}`;
 
 // ─── Tool definitions sent to OpenAI ─────────────────────────────────────────
