@@ -178,7 +178,18 @@ const TRADE_ALIASES: Record<string, string> = {
   tiles: "tiler",
   general: "handyman",
   maintenance: "handyman",
-  "general maintenance": "handyman"
+  "general maintenance": "handyman",
+  building: "handyman",
+  builder: "handyman",
+  locksmith: "handyman",
+  locks: "handyman",
+  landscaping: "handyman",
+  landscaper: "handyman",
+  gardener: "handyman",
+  concreter: "handyman",
+  concreting: "handyman",
+  fencing: "handyman",
+  fencer: "handyman"
 };
 
 function resolveTradeKey(raw: string): string {

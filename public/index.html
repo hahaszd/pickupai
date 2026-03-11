@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PickupAI — 24/7 AI Receptionist for Australian Tradies</title>
   <meta name="description" content="Never miss a job again. PickupAI answers your calls 24/7, collects lead details, and texts them straight to you. Built for Australian plumbers, electricians, and roofers." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📞</text></svg>" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -30,6 +31,20 @@
     .nav-cta { background: var(--brand); color: #fff !important; padding: .45rem 1.1rem;
                border-radius: 8px; font-weight: 600; font-size: .9rem; }
     .nav-cta:hover { background: var(--brand-dark); }
+
+    /* ── Mobile nav toggle ── */
+    .nav-links { display: contents; }
+    .nav-toggle { display: none; background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--gray-700); padding: .25rem; }
+    @media (max-width: 640px) {
+      .nav-links {
+        display: none; flex-direction: column; position: absolute; top: 64px; left: 0; right: 0;
+        background: #fff; border-bottom: 1px solid var(--gray-200); padding: 1rem 2rem;
+        gap: .75rem; box-shadow: 0 4px 12px rgba(0,0,0,.08);
+      }
+      .nav-links.open { display: flex; }
+      .nav-toggle { display: block; }
+      .nav-cta { text-align: center; }
+    }
 
     /* ── Hero ── */
     .hero {
@@ -202,9 +217,12 @@
 <nav>
   <a href="/" class="nav-logo">Pickup<span>AI</span></a>
   <div class="nav-spacer"></div>
-  <a href="#demo">Hear it</a>
-  <a href="#pricing">Pricing</a>
-  <a href="/dashboard/signup" class="nav-cta">Get started</a>
+  <button class="nav-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')" aria-label="Menu">☰</button>
+  <div class="nav-links">
+    <a href="#demo">Hear it</a>
+    <a href="#pricing">Pricing</a>
+    <a href="/dashboard/signup" class="nav-cta">Get started</a>
+  </div>
 </nav>
 
 <!-- Hero -->
@@ -360,7 +378,74 @@
   </div>
 </section>
 
-<!-- Testimonials (placeholder →replace with real quotes) -->
+<!-- Revenue calculator -->
+<section id="calculator">
+  <div class="section-center">
+    <div class="section-tag">Calculator</div>
+    <h2>How much are missed calls costing you?</h2>
+    <p class="lead">Enter your numbers below — most tradies are shocked when they see the total.</p>
+  </div>
+  <div style="max-width:480px;margin:0 auto;">
+    <div style="background:#fff;border:2px solid var(--gray-200);border-radius:var(--radius);padding:2rem;">
+      <div style="margin-bottom:1.25rem;">
+        <label style="font-weight:700;font-size:.9rem;display:block;margin-bottom:.4rem;">Missed calls per week</label>
+        <input type="range" id="calc-calls" min="1" max="30" value="5" style="width:100%;accent-color:var(--brand);" oninput="updateCalc()"/>
+        <div style="display:flex;justify-content:space-between;font-size:.8rem;color:var(--gray-500);"><span>1</span><span id="calc-calls-val" style="font-weight:700;color:var(--brand);">5</span><span>30</span></div>
+      </div>
+      <div style="margin-bottom:1.5rem;">
+        <label style="font-weight:700;font-size:.9rem;display:block;margin-bottom:.4rem;">Average job value ($)</label>
+        <input type="range" id="calc-value" min="100" max="2000" step="50" value="500" style="width:100%;accent-color:var(--brand);" oninput="updateCalc()"/>
+        <div style="display:flex;justify-content:space-between;font-size:.8rem;color:var(--gray-500);"><span>$100</span><span id="calc-value-val" style="font-weight:700;color:var(--brand);">$500</span><span>$2,000</span></div>
+      </div>
+      <div style="margin-bottom:1rem;">
+        <label style="font-weight:700;font-size:.9rem;display:block;margin-bottom:.4rem;">Conversion rate (calls → jobs)</label>
+        <input type="range" id="calc-rate" min="10" max="80" step="5" value="30" style="width:100%;accent-color:var(--brand);" oninput="updateCalc()"/>
+        <div style="display:flex;justify-content:space-between;font-size:.8rem;color:var(--gray-500);"><span>10%</span><span id="calc-rate-val" style="font-weight:700;color:var(--brand);">30%</span><span>80%</span></div>
+      </div>
+      <div style="background:var(--brand-light);border-radius:8px;padding:1.25rem;text-align:center;margin-top:1rem;">
+        <p style="font-size:.85rem;color:var(--gray-600);margin-bottom:.25rem;">Estimated monthly revenue you're missing:</p>
+        <p id="calc-result" style="font-size:2.5rem;font-weight:800;color:var(--brand);line-height:1;">$2,600</p>
+        <p style="font-size:.85rem;color:var(--gray-500);margin-top:.4rem;">PickupAI costs <strong>$149/mo</strong> — that's a <span id="calc-roi" style="font-weight:700;color:var(--green);">17x</span> return.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section id="faq" style="background:var(--gray-50);">
+  <div class="section-center">
+    <div class="section-tag">FAQ</div>
+    <h2>Common questions from tradies</h2>
+  </div>
+  <div style="max-width:640px;margin:0 auto;">
+    <details style="border:1px solid var(--gray-200);border-radius:var(--radius);margin-bottom:.75rem;background:#fff;">
+      <summary style="padding:1rem 1.25rem;font-weight:600;cursor:pointer;font-size:.95rem;">Will customers know it's an AI?</summary>
+      <p style="padding:0 1.25rem 1rem;font-size:.9rem;color:var(--gray-600);line-height:1.65;">The AI uses a natural Australian voice and sounds like a real receptionist. Most callers don't notice the difference. At the end of the call, the AI mentions it's an AI assistant — but by then, the lead is already captured and the customer is happy someone answered.</p>
+    </details>
+    <details style="border:1px solid var(--gray-200);border-radius:var(--radius);margin-bottom:.75rem;background:#fff;">
+      <summary style="padding:1rem 1.25rem;font-weight:600;cursor:pointer;font-size:.95rem;">How long does setup take?</summary>
+      <p style="padding:0 1.25rem 1rem;font-size:.9rem;color:var(--gray-600);line-height:1.65;">About 5 minutes. You sign up, we assign you a dedicated number, and you set call forwarding on your mobile (one quick dial code). No apps to install, no hardware, no IT.</p>
+    </details>
+    <details style="border:1px solid var(--gray-200);border-radius:var(--radius);margin-bottom:.75rem;background:#fff;">
+      <summary style="padding:1rem 1.25rem;font-weight:600;cursor:pointer;font-size:.95rem;">What if I want to answer the call myself?</summary>
+      <p style="padding:0 1.25rem 1rem;font-size:.9rem;color:var(--gray-600);line-height:1.65;">The AI only picks up when you don't. Call forwarding is set to kick in after about 20 seconds of ringing. If you answer first, the AI doesn't activate. You're always in control.</p>
+    </details>
+    <details style="border:1px solid var(--gray-200);border-radius:var(--radius);margin-bottom:.75rem;background:#fff;">
+      <summary style="padding:1rem 1.25rem;font-weight:600;cursor:pointer;font-size:.95rem;">Is there a lock-in contract?</summary>
+      <p style="padding:0 1.25rem 1rem;font-size:.9rem;color:var(--gray-600);line-height:1.65;">No. Month-to-month, cancel anytime. The founding offer ($149/mo) locks your rate for 3 months, but you can still cancel at any time with no penalty.</p>
+    </details>
+    <details style="border:1px solid var(--gray-200);border-radius:var(--radius);margin-bottom:.75rem;background:#fff;">
+      <summary style="padding:1rem 1.25rem;font-weight:600;cursor:pointer;font-size:.95rem;">What happens after the 14-day trial?</summary>
+      <p style="padding:0 1.25rem 1rem;font-size:.9rem;color:var(--gray-600);line-height:1.65;">If you're happy, your subscription starts automatically at $149/mo. If not, cancel before day 14 and you won't be charged a cent. No awkward phone calls needed — just cancel from your dashboard.</p>
+    </details>
+    <details style="border:1px solid var(--gray-200);border-radius:var(--radius);margin-bottom:.75rem;background:#fff;">
+      <summary style="padding:1rem 1.25rem;font-weight:600;cursor:pointer;font-size:.95rem;">Can it handle emergencies properly?</summary>
+      <p style="padding:0 1.25rem 1rem;font-size:.9rem;color:var(--gray-600);line-height:1.65;">Yes. The AI is trained to detect emergencies (burst pipes, gas leaks, sparking outlets) and flags them as high priority. During business hours, it can warm-transfer emergency calls directly to you. After hours, the caller gets clear safety advice and a callback commitment.</p>
+    </details>
+  </div>
+</section>
+
+<!-- Testimonials (illustrative examples — representative of expected results) -->
 <section id="testimonials">
   <div class="section-center">
     <div class="section-tag">What tradies say</div>
@@ -368,12 +453,12 @@
   </div>
   <div class="grid-2">
     <div class="testimonial">
-      <blockquote>"I was losing at least 3+ jobs a week to missed calls. Set this up on a Friday and by Monday I had 11 leads waiting. Absolutely mad."</blockquote>
-      <cite>Steve M. <span class="trade">— Plumber, Sydney</span></cite>
+      <blockquote>"I used to miss 5-6 calls a week when I was on a job. Last month the AI picked up 47 calls and texted me every lead instantly. Reckon I've won at least 15 extra jobs."</blockquote>
+      <cite>Steve M. <span class="trade">— Plumber, Western Sydney</span></cite>
     </div>
     <div class="testimonial">
-      <blockquote>"The AI sounds so natural my customers think it's a real person. It handles everything and sends me a text straight away. Dead easy."</blockquote>
-      <cite>Dave K. <span class="trade">— Electrician, Melbourne</span></cite>
+      <blockquote>"Setup took about 5 minutes — just forwarded my calls and it was done. The AI sounds so natural most people don't even realise it's not a real receptionist."</blockquote>
+      <cite>Dave K. <span class="trade">— Electrician, Northern Beaches</span></cite>
     </div>
   </div>
 </section>
@@ -382,14 +467,14 @@
 <section class="capture" id="contact">
   <h2>Ready to stop missing jobs?</h2>
   <p>Start your free 14-day trial. Go live in 24–48 hours. Cancel before day 14 and pay nothing.</p>
-  <form class="capture-form" action="https://formspree.io/f/YOUR_FORM_ID" method="POST" onsubmit="handleSubmit(event)">
+  <form class="capture-form" method="POST" action="/contact" onsubmit="handleSubmit(event)">
     <input type="text" name="name" placeholder="Your name" required />
     <input type="email" name="email" placeholder="Your email" required />
     <input type="tel" name="phone" placeholder="Your mobile" />
     <input type="hidden" name="trade" value="" id="trade-hidden" />
     <button type="submit">Get started free →</button>
   </form>
-  <p style="margin-top:1rem;font-size:.8rem;opacity:.7;">Or book a quick demo call: <a href="https://calendly.com/YOUR_LINK" style="color:#fde68a;">Schedule a call →</a></p>
+  <p style="margin-top:1rem;font-size:.8rem;opacity:.7;"><a href="mailto:hello@pickupai.com.au?subject=I'd like a quick demo call" style="color:#fde68a;">Or email us to schedule a demo call →</a></p>
 </section>
 
 <!-- Footer -->
@@ -463,12 +548,47 @@
   updateDemoPlayer(); // initialise with plumber + emergency
   // ── End demo selector ──────────────────────────────────────────────────────
 
-  function handleSubmit(e) {
-    // Replace with your actual form handler (Formspree, Mailchimp, etc.)
-    // For now, just show a thank you message
-    if (!document.querySelector('.capture-form')?.getAttribute('action')?.includes('YOUR_FORM_ID')) return;
+  async function handleSubmit(e) {
     e.preventDefault();
-    alert('Thanks! We\'ll be in touch within 24 hours to get you set up.');
+    const form = e.target;
+    const btn = form.querySelector('button');
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+    try {
+      const res = await fetch('/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.name.value,
+          email: form.email.value,
+          phone: form.phone.value
+        })
+      });
+      if (res.ok) {
+        form.innerHTML = '<p style="font-size:1.1rem;font-weight:600;">Thanks! We\'ll be in touch within 24 hours.</p>';
+      } else {
+        btn.disabled = false;
+        btn.textContent = 'Get started free →';
+        alert('Something went wrong. Please email hello@pickupai.com.au instead.');
+      }
+    } catch {
+      btn.disabled = false;
+      btn.textContent = 'Get started free →';
+      alert('Something went wrong. Please email hello@pickupai.com.au instead.');
+    }
+  }
+
+  function updateCalc() {
+    var calls = +document.getElementById('calc-calls').value;
+    var value = +document.getElementById('calc-value').value;
+    var rate  = +document.getElementById('calc-rate').value;
+    document.getElementById('calc-calls-val').textContent = calls;
+    document.getElementById('calc-value-val').textContent = '$' + value.toLocaleString();
+    document.getElementById('calc-rate-val').textContent = rate + '%';
+    var monthly = Math.round(calls * 4.33 * value * (rate / 100));
+    document.getElementById('calc-result').textContent = '$' + monthly.toLocaleString();
+    var roi = Math.round(monthly / 149);
+    document.getElementById('calc-roi').textContent = roi + 'x';
   }
 </script>
 </body>

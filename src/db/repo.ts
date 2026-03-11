@@ -422,20 +422,24 @@ export function getLeadHistoryByPhone(db: Db, phone: string, tenantId?: string, 
   );
 }
 
+function escapeLike(s: string): string {
+  return s.replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+
 export function getLeadHistoryByName(db: Db, name: string, tenantId?: string, limit = 5): LeadRow[] {
   if (tenantId) {
     return db.all<LeadRow>(
       `SELECT * FROM leads
-       WHERE LOWER(name) LIKE LOWER(?) AND tenant_id = ? AND issue_summary IS NOT NULL
+       WHERE LOWER(name) LIKE LOWER(?) ESCAPE '\\' AND tenant_id = ? AND issue_summary IS NOT NULL
        ORDER BY created_at DESC LIMIT ?`,
-      [`%${name}%`, tenantId, limit]
+      [`%${escapeLike(name)}%`, tenantId, limit]
     );
   }
   return db.all<LeadRow>(
     `SELECT * FROM leads
-     WHERE LOWER(name) LIKE LOWER(?) AND issue_summary IS NOT NULL
+     WHERE LOWER(name) LIKE LOWER(?) ESCAPE '\\' AND issue_summary IS NOT NULL
      ORDER BY created_at DESC LIMIT ?`,
-    [`%${name}%`, limit]
+    [`%${escapeLike(name)}%`, limit]
   );
 }
 

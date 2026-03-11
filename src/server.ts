@@ -186,6 +186,11 @@ function buildFallbackTenant(): TenantRow {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
+  // Startup validations
+  if (!env.OPENAI_API_KEY) {
+    log.warn("OPENAI_API_KEY is not set — AI voice calls will fail. Set it in your environment variables.");
+  }
+
   const db = await openDb(env.SQLITE_PATH, env.DATABASE_URL);
   seedDefaultTenant(db);
 
@@ -331,6 +336,21 @@ async function main() {
   // ── Health ────────────────────────────────────────────────────────────────
 
   app.get("/health", (_req, res) => res.json({ ok: true, mode: "realtime", multiTenant: true }));
+
+  // ── Landing page contact form ───────────────────────────────────────────
+  app.post("/contact", express.json(), async (req, res) => {
+    const { name, email, phone } = req.body ?? {};
+    if (!name || !email) return res.status(400).json({ error: "Name and email are required" });
+    log.info({ name, email, phone }, "Contact form submission");
+    if (env.OWNER_PHONE_NUMBER) {
+      try {
+        await sendOwnerSms(db,
+          `PickupAI lead from website:\nName: ${name}\nEmail: ${email}${phone ? `\nPhone: ${phone}` : ""}`,
+        );
+      } catch (e) { log.warn({ e }, "Contact form SMS notification failed"); }
+    }
+    res.json({ ok: true });
+  });
 
   // ── Option A simulation routing (in-memory, no DB slot used) ─────────────
   // Maps demo pool number → { tenantId, expiresAt }

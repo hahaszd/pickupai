@@ -10,7 +10,10 @@
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
     "build": "tsc -p tsconfig.json",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "tsx scripts/test-lifecycle.ts"
   },
   "dependencies": {
     "@types/pg": "^8.16.0",
@@ -36,6 +39,7 @@
     "@typescript-eslint/parser": "^8.25.0",
     "eslint": "^9.20.1",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^4.0.18"
   }
 }

@@ -269,7 +269,7 @@ await check("T02", "GET / → HTML contains 'PickupAI'", async () => {
 
 await check("T03", "TypeScript compiles without errors", async () => {
   try {
-    execSync("npx tsc --noEmit", { cwd: "D:\\Cursor Temp", stdio: "pipe" });
+    execSync("npx tsc --noEmit", { cwd: process.cwd(), stdio: "pipe" });
   } catch (err: any) {
     throw new Error(`TypeScript errors:\n${err.stdout?.toString() ?? err.message}`);
   }

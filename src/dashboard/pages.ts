@@ -523,7 +523,7 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
 
   ${error ? `<div class="alert alert-error" style="margin-bottom:1rem;">${escape(error)}</div>` : ""}
 
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
+  <div class="demo-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
 
     <div class="card">
       <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;">
@@ -651,6 +651,7 @@ ${setupBanner}
     <span style="font-size:.8rem;color:var(--gray-600);line-height:2;">Status:</span>
     ${statusFilters}
   </div>
+  <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
   <table>
     <thead>
       <tr>
@@ -660,6 +661,7 @@ ${setupBanner}
     </thead>
     <tbody>${rows}</tbody>
   </table>
+  </div>
 </div>`;
   return shell("Leads", body, tenant);
 }
@@ -842,7 +844,7 @@ export function upgradePage(tenant?: TenantRow, stripeEnabled?: boolean): string
         Email us to activate →
       </a>
       <p style="margin-top:1rem;font-size:.85rem;color:var(--gray-400)">
-        Or text/call <a href="tel:+61400000000">0400 000 000</a> — we'll respond same day
+        Or email <a href="mailto:hello@pickupai.com.au" style="color:var(--gray-400)">hello@pickupai.com.au</a> — we'll respond same day
       </p>`;
 
   const body = `

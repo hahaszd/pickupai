@@ -6,6 +6,8 @@ This playbook is a practical, step-by-step GTM guide for launching the **Core (n
 **Outcome promise (no booking / no integrations):**
 > We answer every call 24/7 and turn it into a structured SMS lead. During business hours, genuine emergencies are warm-transferred to the owner; after-hours, callers get instant SMS confirmation and a clear callback commitment.
 
+**Pricing:** $149/mo (founding offer for first 20 customers, locks for 3 months), then $199/mo. 14-day free trial with credit card required.
+
 **Pricing reference:** see `docs/core-pricing-gtm.md`.
 
 ---
@@ -77,17 +79,17 @@ You do not need a fancy brand. You need credibility and speed.
   - “Book a 10-min call” + “Request demo number”
 - **A demo phone number** (that shows the flow end-to-end)
 - **One screenshot example** of the SMS summary (mocked is fine initially)
-- **Pilot offer** (paid, simple): “7 days, cancel anytime, go live in 24–48h”
+- **Trial offer**: 14-day free trial (credit card required at signup, no charge for 14 days); founding customer price $149/mo locked for 3 months, then $199/mo; go-live in 24–48 hours; cancel before day 14 and you won't be charged
 
 ---
 
 ## 5) Outreach scripts (copy/paste)
 
 ### 5.1 SMS #1 (cold, short)
-> Hey {Name} — I’m local near Sydney and building PickupAI for plumbers. It answers missed calls 24/7, asks the right questions, and texts you a structured lead summary. During business hours, real emergencies can warm-transfer to you. Want to test a demo number?
+> Hey {Name} — I’m local near Sydney and building PickupAI for plumbers. It answers missed calls 24/7, asks the right questions, and texts you a structured lead summary. During business hours, real emergencies can warm-transfer to you. 14-day free trial, cancel anytime. Want to hear a demo?
 
 ### 5.2 SMS #2 (if no reply in 24h)
-> Quick one — do you miss calls while on the tools? If yes, I can set you up with a 7‑day pilot this week (no admin work, just call forwarding). Want me to send details?
+> Quick one — do you miss calls while on the tools? If yes, I can set you up this week — no admin work, just call forwarding, 14-day free trial. Want me to send details?
 
 ### 5.3 Phone opener (10–20 seconds)
 > Hey {Name}, I’ll be super quick — I’m building an AI receptionist for Sydney plumbers. It picks up every call, captures the job details, and texts you a clean summary. If it’s an emergency during business hours it can warm-transfer to you. Are missed calls a problem for you right now?
@@ -98,7 +100,7 @@ You do not need a fancy brand. You need credibility and speed.
 3) Are you okay to enable “no-answer call forwarding” after ~20 seconds?
 
 ### 5.5 Close (pilot)
-> Let’s do a 7‑day pilot. If it doesn’t capture extra jobs, cancel. If it does, you keep it. We can go live in 24–48 hours.
+> Let's start with the 14-day free trial — credit card needed but no charge until day 14. If it doesn't capture extra jobs, cancel before then. We can go live in 24–48 hours.
 
 ### 5.6 Objection handling (common)
 **“Will customers hate AI?”**
@@ -112,12 +114,14 @@ You do not need a fancy brand. You need credibility and speed.
 
 ---
 
-## 6) Pilot offer structure (recommended)
+## 6) Trial offer structure (recommended)
 Keep it simple and time-boxed.
 
-### Pilot offer (suggested)
-- 7 days, **paid pilot** (e.g., $99 credited to first month) OR founding offer pricing
+### Trial offer (suggested)
+- **14-day free trial** (credit card required at signup, no charge for 14 days)
+- Founding customer price: **$149/mo** locked for 3 months, then $199/mo
 - Go-live in 24–48 hours
+- Cancel before day 14 and you won't be charged
 - Clear success criteria:
   - every call answered
   - every call produces an SMS lead summary

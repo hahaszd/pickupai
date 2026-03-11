@@ -11,11 +11,12 @@ let smsNumberIndex = 0;
  * Reads from the `sms_numbers` key in system_config first;
  * falls back to the TWILIO_SMS_NUMBERS env var if not set in DB.
  */
-function nextSmsNumber(db: Db): string {
+function nextSmsNumber(db: Db): string | undefined {
   const dbValue = getSystemConfig(db, "sms_numbers");
   const pool = dbValue
     ? dbValue.split(",").map((n) => n.trim()).filter(Boolean)
     : env.TWILIO_SMS_NUMBERS;
+  if (pool.length === 0) return undefined;
   const number = pool[smsNumberIndex % pool.length];
   smsNumberIndex = (smsNumberIndex + 1) % pool.length;
   return number;
@@ -77,9 +78,14 @@ export function formatOwnerSms(opts: {
 
 export async function sendOwnerSms(db: Db, body: string, ownerPhone?: string) {
   const to = ownerPhone ?? env.OWNER_PHONE_NUMBER;
-  return twilioClient.messages.create({
-    to,
-    from: nextSmsNumber(db),
-    body
-  });
+  if (!to) {
+    console.warn("[sms] skipping SMS — no recipient phone number");
+    return null;
+  }
+  const from = nextSmsNumber(db);
+  if (!from) {
+    console.warn("[sms] skipping SMS — no sender numbers configured");
+    return null;
+  }
+  return twilioClient.messages.create({ to, from, body });
 }

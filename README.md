@@ -1,64 +1,102 @@
-# AU Tradie AI Receptionist (MVP)
+# PickupAI — 24/7 AI Receptionist for Australian Tradies
 
-An MVP “AI receptionist” for Australian tradies (e.g., plumbers) that answers inbound calls via Twilio, collects job details, and sends the business owner a post-call SMS summary + exports leads to a CRM placeholder (Google Sheets / Airtable).
+An AI receptionist that answers inbound calls via Twilio, collects job details in natural conversation, sends SMS lead summaries to the business owner, and provides a dashboard for lead management.
 
-## What’s included (MVP)
+## What's included
 
-- Twilio inbound voice webhook (answer, recording, speech gather, optional warm transfer)
-- Per-call state + transcript storage (SQLite)
-- Post-call notification channel (SMS)
-- CRM export adapter layer (Airtable / Google Sheets optional)
+- **Real-time AI voice** — speech-to-speech via OpenAI Realtime API (`gpt-realtime-1.5`)
+- **Twilio integration** — inbound voice, call recording, media streams, SMS notifications
+- **Multi-tenant** — each business gets its own AI personality, trade-specific prompts, and service area rules
+- **Owner dashboard** — leads list, lead detail with recordings/transcripts, settings, trial management
+- **Admin panel** — tenant management, number provisioning, stats overview, config
+- **Stripe integration** (test mode) — checkout, webhooks, subscription lifecycle
+- **Demo flow** — hands-free AI-simulated demo + call-it-yourself demo for new signups
+- **Landing page** — interactive demo player, revenue calculator, FAQ, pricing
 
-## Prereqs
-
-- Node.js 20+ (tested on Node 24)
-- A Twilio account with:
-  - An AU Voice-capable phone number (for inbound calls)
-  - An SMS-capable phone number (for sending owner notifications)
-
-## Setup
-
-1. Install dependencies:
+## Quick start
 
 ```bash
 npm install
+cp .env.example .env    # fill in your API keys
+npm run dev              # starts on localhost:3000
 ```
 
-2. Create `.env` from `.env.example` and fill values.
+Expose locally with `ngrok http 3000` and set `PUBLIC_BASE_URL` to your public URL.
 
-3. Start the server:
+## Scripts
 
-```bash
-npm run dev
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start dev server with hot reload (tsx watch) |
+| `npm run build` | Compile TypeScript to `dist/` |
+| `npm start` | Run compiled server (production) |
+| `npm test` | Run unit tests (Vitest) |
+| `npm run test:watch` | Run tests in watch mode |
+| `npm run test:e2e` | Run lifecycle integration tests |
+| `npm run lint` | Lint with ESLint |
+
+## Project structure
+
+```
+src/
+  server.ts          — Express app, all routes, middleware
+  env.ts             — Environment variable schema (Zod)
+  realtime/
+    session.ts       — OpenAI Realtime API session, system prompt, tools
+  twilio/
+    client.ts        — Twilio client singleton
+    sms.ts           — SMS formatting and sending
+  dashboard/
+    pages.ts         — Dashboard HTML pages (SSR)
+  admin/
+    pages.ts         — Admin panel HTML pages (SSR)
+  db/
+    db.ts            — SQLite wrapper with PostgreSQL backup
+    schema.ts        — Schema DDL and migrations
+    repo.ts          — All database operations
+  crm/
+    index.ts         — CRM export adapters (Airtable, Google Sheets)
+public/
+  index.html         — Marketing landing page
+  demos/             — Pre-recorded demo audio files (16 trade/scenario combos)
+scripts/
+  test-lifecycle.ts  — Integration test suite (44 tests)
+  generate-demos.ts  — Generate demo audio via OpenAI TTS
+tests/
+  sms.test.ts        — SMS formatting unit tests
+  repo.test.ts       — Database helper unit tests
+  session.test.ts    — Trade alias resolution tests
+docs/
+  product-workflow.md        — Product architecture and workflow (English)
+  产品工作流程说明.md          — Product architecture and workflow (Chinese)
+  tradie-setup-guide.md      — End-user setup guide
+  core-pricing-gtm.md        — Pricing strategy
+  gtm-playbook.md            — Go-to-market playbook
 ```
 
-4. Expose locally (choose one):
-   - `ngrok http 3000`
-   - Cloudflare tunnel
+## Environment variables
 
-Set `PUBLIC_BASE_URL` to your public URL (e.g. `https://xxxx.ngrok-free.app`).
+See `src/env.ts` for the full schema. Key variables:
 
-## Twilio configuration
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `PUBLIC_BASE_URL` | Yes | Your server's public URL |
+| `TWILIO_ACCOUNT_SID` | Yes | Twilio account SID |
+| `TWILIO_AUTH_TOKEN` | Yes | Twilio auth token |
+| `TWILIO_DEFAULT_VOICE_NUMBER` | Yes | Default inbound voice number |
+| `TWILIO_SMS_NUMBERS` | Yes | Comma-separated SMS sender numbers |
+| `OPENAI_API_KEY` | Yes* | OpenAI API key for voice AI |
+| `ADMIN_TOKEN` | No | Admin panel auth token |
+| `STRIPE_SECRET_KEY` | No | Stripe secret key (test or live) |
+| `STRIPE_PRICE_ID` | No | Stripe subscription price ID |
+| `STRIPE_WEBHOOK_SECRET` | No | Stripe webhook signing secret |
+| `DATABASE_URL` | No | PostgreSQL URL for persistence |
 
-In Twilio Console for your **Voice number**:
+*The server starts without `OPENAI_API_KEY` but will log a warning and voice calls will fail.
 
-- **A Call Comes In**: `POST {PUBLIC_BASE_URL}/twilio/voice/incoming`
+## Documentation
 
-If you enable signature validation, also set:
-
-- `TWILIO_VALIDATE_SIGNATURE=true`
-
-## Endpoints
-
-- `POST /twilio/voice/incoming`: initial inbound call webhook (returns TwiML)
-- `POST /twilio/voice/collect`: receives speech result (returns TwiML)
-- `POST /twilio/voice/status`: call status updates
-- `POST /twilio/voice/recording`: recording status callback
-
-## Notes
-
-- If `OPENAI_API_KEY` is not set, the call flow still works but uses a scripted “form-style” dialogue (useful for wiring and QA).
-- Do not promise prices or arrival times; keep advice limited and safety-oriented.
-- Debug endpoints under `/debug/*` can be protected with `ADMIN_TOKEN` (send header `x-admin-token`).
-- To minimize stored PII, set `STORE_FULL_TRANSCRIPT=false` to avoid saving full per-turn transcripts.
-
+- [Product workflow](docs/product-workflow.md) — architecture, data flow, deployment
+- [Tradie setup guide](docs/tradie-setup-guide.md) — customer-facing setup instructions
+- [Pricing strategy](docs/core-pricing-gtm.md) — pricing tiers and positioning
+- [GTM playbook](docs/gtm-playbook.md) — go-to-market strategy and outreach scripts
