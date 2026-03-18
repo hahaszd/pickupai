@@ -1,0 +1,76 @@
+Bondi
+Randwick
+Maroubra
+Coogee
+Double Bay
+Woollahra
+Newtown
+Marrickville
+Ashfield
+Burwood
+Strathfield
+Drummoyne
+Canterbury
+Chatswood
+Lane Cove
+Willoughby
+Hornsby
+Turramurra
+Gordon
+Lindfield
+Ryde
+Eastwood
+Epping
+Macquarie Park
+Dee Why
+Manly
+Mona Vale
+Newport
+Avalon
+Warriewood
+Brookvale
+Narrabeen
+Hurstville
+Kogarah
+Rockdale
+Sans Souci
+Liverpool
+Campbelltown
+Camden
+Fairfield
+Cabramatta
+Ingleburn
+Cronulla
+Miranda
+Caringbah
+Engadine
+Menai
+Sutherland
+Castle Hill
+Bella Vista
+Baulkham Hills
+Kellyville
+Dural
+Blacktown
+Mount Druitt
+St Marys
+Penrith
+Richmond
+Windsor
+Parramatta
+Auburn
+Granville
+Merrylands
+Lidcombe
+Wollongong
+Shellharbour
+Kiama
+Berry
+Nowra
+Ulladulla
+Dapto
+Corrimal
+Thirroul
+Bulli
+Helensburgh
+Albion Park
