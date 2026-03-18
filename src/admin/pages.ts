@@ -1,4 +1,13 @@
-import type { TenantWithStats, TenantDetail, OverviewStats, DemoSessionRow } from "../db/repo.js";
+import type {
+  TenantWithStats,
+  TenantDetail,
+  OverviewStats,
+  DemoSessionRow,
+  ProspectRow,
+  ProspectStats,
+  OutreachLogRow,
+  DailyFunnelStats
+} from "../db/repo.js";
 
 // ─── Shared helpers ────────────────────────────────────────────────────────────
 
@@ -88,6 +97,11 @@ function isPending(number: string | null | undefined): boolean {
   return !number || number.startsWith("+PENDING_");
 }
 
+function pct(num: number, den: number): string {
+  if (den <= 0) return "0.0%";
+  return `${((num / den) * 100).toFixed(1)}%`;
+}
+
 function paymentBadge(status: string | null | undefined): string {
   switch (status) {
     case "active":    return `<span class="badge badge-active">Active</span>`;
@@ -103,7 +117,9 @@ function paymentBadge(status: string | null | undefined): string {
 function adminShell(title: string, activeTab: string, content: string, flash?: string): string {
   const tabs = [
     { href: "/admin", label: "Overview", key: "overview" },
+    { href: "/admin/funnel", label: "Funnel", key: "funnel" },
     { href: "/admin/users", label: "Users", key: "users" },
+    { href: "/admin/prospects", label: "Prospects", key: "prospects" },
     { href: "/admin/demo-sessions", label: "Demo Pool", key: "demo" },
     { href: "/admin/config", label: "Config", key: "config" },
   ];
@@ -321,6 +337,7 @@ export function adminLoginPage(error?: string): string {
 export function adminOverviewPage(
   stats: OverviewStats,
   recentSignups: TenantWithStats[],
+  foundingCustomerCount?: number,
   flash?: string
 ): string {
   const recentRows = recentSignups.slice(0, 10).map(t => `
@@ -366,6 +383,11 @@ export function adminOverviewPage(
     <div class="stat-label">SMS Sent Today</div>
     <div class="stat-value">${stats.sms_today}</div>
   </div>
+  ${foundingCustomerCount != null ? `<div class="stat-card${(foundingCustomerCount ?? 0) >= 20 ? " green" : " brand"}">
+    <div class="stat-label">Founding Customers</div>
+    <div class="stat-value">${foundingCustomerCount} / 20</div>
+    <div class="stat-sub">${(foundingCustomerCount ?? 0) >= 20 ? "Offer limit reached" : "Founding offer active"}</div>
+  </div>` : ""}
 </div>
 
 <div class="card">
@@ -384,6 +406,107 @@ export function adminOverviewPage(
 </div>
 `;
   return adminShell("Overview", "overview", content, flash);
+}
+
+export function adminFunnelPage(rows: DailyFunnelStats[], days: number, flash?: string): string {
+  const totals = rows.reduce(
+    (acc, r) => {
+      acc.calls += r.calls_started;
+      acc.leads += r.leads_captured;
+      acc.complete += r.complete_captures;
+      acc.smsTotal += r.sms_total;
+      acc.smsSent += r.sms_sent;
+      acc.demosStarted += r.demos_started;
+      acc.demosReady += r.demo_recordings_ready;
+      return acc;
+    },
+    { calls: 0, leads: 0, complete: 0, smsTotal: 0, smsSent: 0, demosStarted: 0, demosReady: 0 }
+  );
+
+  const tableRows = rows
+    .map((r) => {
+      const leadRate = pct(r.leads_captured, r.calls_started);
+      const completeRate = pct(r.complete_captures, r.leads_captured);
+      const smsRate = pct(r.sms_sent, r.sms_total);
+      const demoRate = pct(r.demo_recordings_ready, r.demos_started);
+      return `<tr>
+        <td>${esc(r.day)}</td>
+        <td class="number-cell">${r.calls_started}</td>
+        <td class="number-cell">${r.leads_captured}</td>
+        <td class="number-cell">${leadRate}</td>
+        <td class="number-cell">${r.complete_captures}</td>
+        <td class="number-cell">${completeRate}</td>
+        <td class="number-cell">${r.sms_sent}/${r.sms_total}</td>
+        <td class="number-cell">${smsRate}</td>
+        <td class="number-cell">${r.demo_recordings_ready}/${r.demos_started}</td>
+        <td class="number-cell">${demoRate}</td>
+      </tr>`;
+    })
+    .join("");
+
+  const content = `
+<div style="display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap;margin-bottom:1.25rem">
+  <div class="page-title" style="margin:0">Funnel Dashboard</div>
+  <div style="font-size:.82rem;color:#64748b">Window: last ${days} day${days === 1 ? "" : "s"}</div>
+</div>
+
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="stat-label">Calls</div>
+    <div class="stat-value">${totals.calls}</div>
+  </div>
+  <div class="stat-card brand">
+    <div class="stat-label">Leads Captured</div>
+    <div class="stat-value">${totals.leads}</div>
+    <div class="stat-sub">${pct(totals.leads, totals.calls)} of calls</div>
+  </div>
+  <div class="stat-card green">
+    <div class="stat-label">Complete Captures</div>
+    <div class="stat-value">${totals.complete}</div>
+    <div class="stat-sub">${pct(totals.complete, totals.leads)} of leads</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">SMS Success</div>
+    <div class="stat-value">${pct(totals.smsSent, totals.smsTotal)}</div>
+    <div class="stat-sub">${totals.smsSent}/${totals.smsTotal} sent</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Demo Conversion</div>
+    <div class="stat-value">${pct(totals.demosReady, totals.demosStarted)}</div>
+    <div class="stat-sub">${totals.demosReady}/${totals.demosStarted} recordings ready</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="section-title">Daily Breakdown</div>
+  <div class="form-hint" style="margin-bottom:.75rem">
+    Complete capture = lead with name + phone + issue summary + urgency. Demo conversion = recording-ready / demo-started.
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Day</th>
+          <th>Calls</th>
+          <th>Leads</th>
+          <th>Lead Rate</th>
+          <th>Complete</th>
+          <th>Complete Rate</th>
+          <th>SMS Sent</th>
+          <th>SMS Success</th>
+          <th>Demo Ready</th>
+          <th>Demo Conversion</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${tableRows || `<tr><td colspan="10" class="empty">No funnel data yet</td></tr>`}
+      </tbody>
+    </table>
+  </div>
+</div>
+`;
+
+  return adminShell("Funnel", "funnel", content, flash);
 }
 
 // ─── Users list page ───────────────────────────────────────────────────────────
@@ -459,7 +582,7 @@ export function adminUserDetailPage(detail: TenantDetail, publicBaseUrl: string,
     `<option value="${o}"${t.trade_type === o ? " selected" : ""}>${o.charAt(0).toUpperCase()+o.slice(1)}</option>`
   ).join("");
 
-  const paymentOptions = ["none","trial","active","expired","cancelled"];
+  const paymentOptions = ["none","trial","active","cancelling","payment_failed","expired","cancelled"];
   const paymentSelect = paymentOptions.map(o =>
     `<option value="${o}"${(t.payment_status ?? "none") === o ? " selected" : ""}>${o.charAt(0).toUpperCase()+o.slice(1)}</option>`
   ).join("");
@@ -808,4 +931,291 @@ export function adminConfigPage(
 </div>
 `;
   return adminShell("Config", "config", content, flash);
+}
+
+// ─── Prospects pages ──────────────────────────────────────────────────────────
+
+function prospectStatusBadge(status: string): string {
+  const colors: Record<string, string> = {
+    new: "badge-none",
+    contacted: "badge-trial",
+    replied: "badge-active",
+    demo_booked: "badge-active",
+    trial: "badge-trial",
+    paying: "badge-active",
+    not_interested: "badge-expired",
+    do_not_contact: "badge-expired"
+  };
+  const cls = colors[status] ?? "badge-none";
+  const label = status.replace(/_/g, " ");
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+
+export function adminProspectsPage(
+  prospects: ProspectRow[],
+  stats: ProspectStats,
+  filters: { status?: string; trade_type?: string; suburb?: string },
+  flash?: string
+): string {
+  const statusOpts = ["", "new", "contacted", "replied", "demo_booked", "trial", "paying", "not_interested", "do_not_contact"];
+  const tradeOpts = ["", "plumber", "electrician", "roofer", "handyman", "painter", "carpenter", "tiler", "builder"];
+
+  const statusSelect = statusOpts.map(o =>
+    `<option value="${o}"${filters.status === o ? " selected" : ""}>${o ? o.replace(/_/g, " ") : "All statuses"}</option>`
+  ).join("");
+  const tradeSelect = tradeOpts.map(o =>
+    `<option value="${o}"${filters.trade_type === o ? " selected" : ""}>${o ? o.charAt(0).toUpperCase() + o.slice(1) : "All trades"}</option>`
+  ).join("");
+
+  const rows = prospects.map(p => `
+    <tr>
+      <td><a href="/admin/prospects/${p.prospect_id}">${esc(p.business_name)}</a></td>
+      <td>${esc(p.phone ?? "—")}</td>
+      <td>${esc(p.trade_type ?? "—")}</td>
+      <td>${esc(p.suburb ?? "—")}</td>
+      <td>${prospectStatusBadge(p.status)}</td>
+      <td>${esc(p.source)}</td>
+      <td>${p.last_contacted_at ? relativeTime(p.last_contacted_at) : "—"}</td>
+    </tr>
+  `).join("");
+
+  const content = `
+<div class="stat-grid">
+  <div class="stat-card"><div class="stat-value">${stats.total}</div><div class="stat-label">Total</div></div>
+  <div class="stat-card"><div class="stat-value">${stats.new_count}</div><div class="stat-label">New</div></div>
+  <div class="stat-card"><div class="stat-value">${stats.contacted}</div><div class="stat-label">Contacted</div></div>
+  <div class="stat-card"><div class="stat-value">${stats.replied}</div><div class="stat-label">Replied</div></div>
+  <div class="stat-card"><div class="stat-value">${stats.demo_booked}</div><div class="stat-label">Demo</div></div>
+  <div class="stat-card"><div class="stat-value">${stats.trial + stats.paying}</div><div class="stat-label">Trial/Paying</div></div>
+</div>
+
+<div class="card">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem;margin-bottom:1rem">
+    <div class="section-title" style="margin:0">Prospects (${prospects.length})</div>
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+      <a href="/admin/prospects/import-form" class="btn btn-outline" style="font-size:.82rem">Import CSV</a>
+      <a href="/admin/prospects/bulk-sms-form" class="btn btn-primary" style="font-size:.82rem">Bulk SMS</a>
+    </div>
+  </div>
+
+  <form method="GET" action="/admin/prospects" style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1rem">
+    <select name="status" style="padding:.35rem .5rem;border-radius:6px;border:1px solid var(--navy-light);background:var(--navy-mid);color:#fff;font-size:.82rem">${statusSelect}</select>
+    <select name="trade_type" style="padding:.35rem .5rem;border-radius:6px;border:1px solid var(--navy-light);background:var(--navy-mid);color:#fff;font-size:.82rem">${tradeSelect}</select>
+    <input type="text" name="suburb" placeholder="Suburb" value="${esc(filters.suburb ?? "")}" style="padding:.35rem .5rem;border-radius:6px;border:1px solid var(--navy-light);background:var(--navy-mid);color:#fff;font-size:.82rem;width:120px" />
+    <button type="submit" class="btn btn-outline" style="font-size:.82rem">Filter</button>
+  </form>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Business</th><th>Phone</th><th>Trade</th><th>Suburb</th><th>Status</th><th>Source</th><th>Last Contact</th>
+      </tr></thead>
+      <tbody>${rows || '<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--gray-400)">No prospects yet. Import a CSV or add manually.</td></tr>'}</tbody>
+    </table>
+  </div>
+</div>
+`;
+  return adminShell("Prospects", "prospects", content, flash);
+}
+
+export function adminProspectDetailPage(
+  p: ProspectRow,
+  outreachLog: OutreachLogRow[],
+  flash?: string
+): string {
+  const statusOpts = ["new", "contacted", "replied", "demo_booked", "trial", "paying", "not_interested", "do_not_contact"];
+  const statusSelect = statusOpts.map(o =>
+    `<option value="${o}"${p.status === o ? " selected" : ""}>${o.replace(/_/g, " ")}</option>`
+  ).join("");
+
+  const logRows = outreachLog.length > 0
+    ? outreachLog.map(l => `
+        <tr>
+          <td>${fmtDateTime(l.sent_at)}</td>
+          <td>${esc(l.channel)}</td>
+          <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(l.message ?? "—")}</td>
+          <td>${esc(l.status)}</td>
+        </tr>`).join("")
+    : '<tr><td colspan="4" style="text-align:center;padding:1rem;color:var(--gray-400)">No outreach yet</td></tr>';
+
+  const content = `
+<div style="margin-bottom:1rem">
+  <a href="/admin/prospects" style="color:var(--brand);font-size:.85rem">&larr; Back to prospects</a>
+</div>
+
+<div class="two-col">
+  <div>
+    <div class="card">
+      <div class="section-title">Prospect Details</div>
+      <form method="POST" action="/admin/prospects/${p.prospect_id}">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Business name</label>
+            <input type="text" name="business_name" value="${esc(p.business_name)}" required />
+          </div>
+          <div class="form-group">
+            <label>Owner name</label>
+            <input type="text" name="owner_name" value="${esc(p.owner_name ?? "")}" />
+          </div>
+          <div class="form-group">
+            <label>Phone</label>
+            <input type="text" name="phone" value="${esc(p.phone ?? "")}" />
+          </div>
+          <div class="form-group">
+            <label>Email</label>
+            <input type="email" name="email" value="${esc(p.email ?? "")}" />
+          </div>
+          <div class="form-group">
+            <label>Website</label>
+            <input type="text" name="website" value="${esc(p.website ?? "")}" />
+          </div>
+          <div class="form-group">
+            <label>Trade</label>
+            <input type="text" name="trade_type" value="${esc(p.trade_type ?? "")}" />
+          </div>
+          <div class="form-group">
+            <label>Suburb</label>
+            <input type="text" name="suburb" value="${esc(p.suburb ?? "")}" />
+          </div>
+          <div class="form-group">
+            <label>Status</label>
+            <select name="status">${statusSelect}</select>
+          </div>
+          <div class="form-group full">
+            <label>Notes</label>
+            <textarea name="notes" rows="3" style="width:100%;background:var(--navy-mid);color:#fff;border:1px solid var(--navy-light);border-radius:6px;padding:.5rem;font-family:inherit">${esc(p.notes ?? "")}</textarea>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary" style="margin-top:.5rem">Save changes</button>
+      </form>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="section-title">Quick SMS</div>
+      <form method="POST" action="/admin/prospects/${p.prospect_id}/sms">
+        <textarea name="message" rows="4" placeholder="Type your SMS message…" required
+          style="width:100%;background:var(--navy-mid);color:#fff;border:1px solid var(--navy-light);border-radius:6px;padding:.5rem;font-family:inherit;margin-bottom:.5rem"></textarea>
+        <button type="submit" class="btn btn-primary" ${!p.phone ? 'disabled title="No phone number"' : ""}>Send SMS →</button>
+      </form>
+    </div>
+
+    <div class="card" style="margin-top:1rem">
+      <div class="section-title">Info</div>
+      <div style="font-size:.85rem;display:flex;flex-direction:column;gap:.4rem">
+        <div><strong>Source:</strong> ${esc(p.source)}</div>
+        <div><strong>Google rating:</strong> ${p.google_rating ? `${p.google_rating} (${p.review_count ?? 0} reviews)` : "—"}</div>
+        <div><strong>Added:</strong> ${fmtDate(p.created_at)}</div>
+        <div><strong>Last contacted:</strong> ${p.last_contacted_at ? fmtDateTime(p.last_contacted_at) : "Never"}</div>
+        ${p.website ? `<div><a href="${esc(p.website)}" target="_blank" style="color:var(--brand)">Visit website →</a></div>` : ""}
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:1rem">
+      <div class="section-title">Actions</div>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+        <form method="POST" action="/admin/prospects/${p.prospect_id}/delete" onsubmit="return confirm('Delete this prospect?')">
+          <button type="submit" class="btn btn-danger">Delete</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <div class="section-title">Outreach History</div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Date</th><th>Channel</th><th>Message</th><th>Status</th></tr></thead>
+      <tbody>${logRows}</tbody>
+    </table>
+  </div>
+</div>
+`;
+  return adminShell(`Prospect: ${p.business_name}`, "prospects", content, flash);
+}
+
+export function adminProspectImportPage(flash?: string): string {
+  const content = `
+<div class="card" style="max-width:640px">
+  <div class="section-title">Import Prospects from CSV</div>
+  <p style="font-size:.85rem;color:var(--gray-400);margin-bottom:1rem">
+    Paste CSV data below with the following columns (header row required):<br>
+    <code style="font-size:.8rem">business_name, phone, email, website, trade_type, suburb, state, source, google_rating, review_count</code><br>
+    Only <strong>business_name</strong> is required. Duplicates (same phone) are skipped.
+  </p>
+  <form method="POST" action="/admin/prospects/import">
+    <textarea name="csv_text" rows="12" placeholder="business_name,phone,email,website,trade_type,suburb,state,source,google_rating,review_count
+Mike's Plumbing,+61412345678,mike@example.com,www.mikesplumbing.com.au,plumber,Parramatta,NSW,google_places,4.5,28"
+      style="width:100%;background:var(--navy-mid);color:#fff;border:1px solid var(--navy-light);border-radius:6px;padding:.75rem;font-family:monospace;font-size:.82rem" required></textarea>
+    <button type="submit" class="btn btn-primary" style="margin-top:.75rem">Import CSV →</button>
+  </form>
+</div>
+`;
+  return adminShell("Import Prospects", "prospects", content, flash);
+}
+
+export function adminBulkSmsPage(
+  prospectCount: number,
+  filters: { status?: string; trade_type?: string },
+  flash?: string
+): string {
+  const statusOpts = ["", "new", "contacted", "replied", "demo_booked"];
+  const tradeOpts = ["", "plumber", "electrician", "roofer", "handyman", "painter", "carpenter", "tiler", "builder"];
+
+  const statusSelect = statusOpts.map(o =>
+    `<option value="${o}"${filters.status === o ? " selected" : ""}>${o ? o.replace(/_/g, " ") : "All statuses"}</option>`
+  ).join("");
+  const tradeSelect = tradeOpts.map(o =>
+    `<option value="${o}"${filters.trade_type === o ? " selected" : ""}>${o ? o.charAt(0).toUpperCase() + o.slice(1) : "All trades"}</option>`
+  ).join("");
+
+  const templates = [
+    { label: "First touch", text: "Hey {name} — I built an AI receptionist for NSW tradies. It answers missed calls 24/7, captures the job details, and texts you a lead summary. 14-day free trial. Want to hear a demo? pickupai.com.au Reply STOP to opt out" },
+    { label: "Follow-up", text: "Quick follow-up {name} — do you miss calls on the tools? PickupAI picks up when you can't, captures the lead, and texts it to you. 14-day free trial, cancel anytime. pickupai.com.au Reply STOP to opt out" },
+    { label: "Final touch", text: "Last one {name} — we're offering founding pricing ($149/mo locked) to our first 20 customers. After that it's $199/mo. If missed calls cost you jobs, worth a look: pickupai.com.au Reply STOP to opt out" }
+  ];
+
+  const templateButtons = templates.map((t, i) =>
+    `<button type="button" class="btn btn-outline" style="font-size:.78rem" onclick="document.getElementById('sms-body').value=\`${t.text.replace(/`/g, "\\`")}\`">${t.label}</button>`
+  ).join(" ");
+
+  const content = `
+<div class="card" style="max-width:640px">
+  <div class="section-title">Bulk SMS Campaign</div>
+
+  <form method="POST" action="/admin/prospects/bulk-sms">
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1rem">
+      <div class="form-group" style="flex:1;min-width:140px">
+        <label>Filter by status</label>
+        <select name="status" style="width:100%">${statusSelect}</select>
+      </div>
+      <div class="form-group" style="flex:1;min-width:140px">
+        <label>Filter by trade</label>
+        <select name="trade_type" style="width:100%">${tradeSelect}</select>
+      </div>
+    </div>
+    <p style="font-size:.85rem;color:var(--gray-400);margin-bottom:.75rem">
+      Matching prospects with phone numbers: <strong>${prospectCount}</strong>.
+      Prospects with status "do_not_contact" or "not_interested" are always excluded.
+    </p>
+
+    <div class="form-group">
+      <label>Message template</label>
+      <div style="margin-bottom:.5rem">${templateButtons}</div>
+      <textarea id="sms-body" name="message" rows="5" required placeholder="Type your SMS here. Use {name} for business name."
+        style="width:100%;background:var(--navy-mid);color:#fff;border:1px solid var(--navy-light);border-radius:6px;padding:.5rem;font-family:inherit"></textarea>
+      <p style="font-size:.78rem;color:var(--gray-400);margin-top:.25rem">
+        Use <code>{name}</code> to insert the business name. "Reply STOP to opt out" will be appended automatically if not included.
+      </p>
+    </div>
+
+    <button type="submit" class="btn btn-primary" onclick="return confirm('Send SMS to ${prospectCount} prospects?')">
+      Send to ${prospectCount} prospects →
+    </button>
+  </form>
+</div>
+`;
+  return adminShell("Bulk SMS", "prospects", content, flash);
 }

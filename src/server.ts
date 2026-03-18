@@ -8,12 +8,43 @@ import { WebSocketServer } from "ws";
 import pino from "pino";
 import pinoHttp from "pino-http";
 
+// ─── Simple in-memory rate limiter ────────────────────────────────────────────
+// Tracks attempt counts per IP in a sliding window. No external deps needed.
+const rateLimitStore = new Map<string, { count: number; windowStart: number }>();
+
+function rateLimit(opts: { maxRequests: number; windowMs: number; message?: string }) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ?? req.socket.remoteAddress ?? "unknown";
+    const now = Date.now();
+    const key = `${req.path}:${ip}`;
+    const entry = rateLimitStore.get(key);
+    if (!entry || now - entry.windowStart > opts.windowMs) {
+      rateLimitStore.set(key, { count: 1, windowStart: now });
+      return next();
+    }
+    entry.count++;
+    if (entry.count > opts.maxRequests) {
+      return res.status(429).send(opts.message ?? "Too many requests. Please try again later.");
+    }
+    return next();
+  };
+}
+
+// Prune stale rate-limit entries every 5 minutes to avoid memory growth.
+setInterval(() => {
+  const cutoff = Date.now() - 10 * 60 * 1000;
+  for (const [key, entry] of rateLimitStore) {
+    if (entry.windowStart < cutoff) rateLimitStore.delete(key);
+  }
+}, 5 * 60 * 1000).unref();
+
 import { env } from "./env.js";
 import { openDb } from "./db/db.js";
 import {
   appendTranscript,
   claimDemoNumber,
   createNotification,
+  createAnalyticsEvent,
   createTenant,
   deleteTenant,
   generateTempPassword,
@@ -24,6 +55,7 @@ import {
   getLeadWithCall,
   getNotificationStatus,
   getOverviewStats,
+  getDailyFunnelStats,
   getTenantById,
   getTenantByNumber,
   getTenantBySessionToken,
@@ -31,6 +63,7 @@ import {
   hashPassword,
   listLeadsForTenant,
   listNotificationsForCall,
+  listAnalyticsEvents,
   listSystemConfig,
   listTenants,
   listTenantsWithStats,
@@ -44,25 +77,45 @@ import {
   updateLeadStatus,
   updateTenant,
   upsertCall,
-  upsertLead
+  upsertLead,
+  createProspect,
+  updateProspect,
+  getProspectById,
+  listProspects,
+  deleteProspect,
+  getProspectStats,
+  importProspects,
+  createOutreachLog,
+  listOutreachForProspect,
+  createPasswordResetToken,
+  verifyPasswordResetToken,
+  getTenantLeadStats,
+  getFoundingCustomerCount,
+  newLeadId
 } from "./db/repo.js";
-import type { TenantRow, SystemConfigRow } from "./db/repo.js";
+import type { TenantRow, CallRow, SystemConfigRow, ProspectRow } from "./db/repo.js";
 import {
   adminLoginPage,
   adminOverviewPage,
+  adminFunnelPage,
   adminUsersPage,
   adminUserDetailPage,
   adminDemoSessionsPage,
   adminConfigPage,
+  adminProspectsPage,
+  adminProspectDetailPage,
+  adminProspectImportPage,
+  adminBulkSmsPage,
   buildProvisionSms,
   formatAuPhone
 } from "./admin/pages.js";
 import { twilioValidateMiddleware } from "./twilio/verify.js";
 import { buildAbsoluteUrl, getCallSid, shouldWarmTransferNow } from "./twilio/flow.js";
-import { newVoiceResponse, connectStreamTwiml, sayFriendly } from "./twilio/twiml.js";
+import { newVoiceResponse, connectStreamTwiml, sayFriendly, voicemailFallbackTwiml } from "./twilio/twiml.js";
 import { getOrInitCallState, setCallState, clearCallState } from "./twilio/state.js";
 import { startCallRecording } from "./twilio/recording.js";
 import { formatOwnerSms, NO_SMS_INTENTS, sendOwnerSms } from "./twilio/sms.js";
+import { isEmailConfigured, sendEmail, formatLeadEmail } from "./utils/email.js";
 import { createCrmExporters, exportLeadToCrm } from "./crm/index.js";
 import { RealtimeSession } from "./realtime/session.js";
 import {
@@ -73,7 +126,9 @@ import {
   leadsPage,
   leadDetailPage,
   settingsPage,
-  upgradePage
+  upgradePage,
+  forgotPasswordPage,
+  resetPasswordPage
 } from "./dashboard/pages.js";
 import Stripe from "stripe";
 
@@ -174,6 +229,9 @@ function buildFallbackTenant(): TenantRow {
     timezone: env.BUSINESS_TIMEZONE,
     enable_warm_transfer: env.ENABLE_WARM_TRANSFER ? 1 : 0,
     service_area: null,
+    custom_instructions: null,
+    vacation_mode: 0,
+    vacation_message: null,
     active: 1,
     created_at: new Date().toISOString(),
     last_login_at: null,
@@ -228,16 +286,28 @@ async function main() {
   async function notifyOwnerSmsIfNeeded(
     callId: string,
     callerIntent?: string | null,
-    ownerPhone?: string
+    ownerPhone?: string,
+    ownerEmail?: string
   ) {
+    const id = createNotification(db, callId, "sms");
     if (callerIntent && NO_SMS_INTENTS.has(callerIntent)) {
+      markNotification(db, id, { status: "skipped", error: `intent:${callerIntent}` });
+      trackEvent("sms_skipped_intent", {
+        call_id: callId,
+        level: "info",
+        payload: { callerIntent }
+      });
       log.info({ callId, callerIntent }, "skipping owner SMS for non-actionable call type");
       return;
     }
     const existing = getNotificationStatus(db, callId, "sms");
     if (existing?.status === "sent") return;
     const lead = getLatestLeadForCall(db, callId);
-    if (!lead) return;
+    if (!lead) {
+      markNotification(db, id, { status: "skipped", error: "no_lead_for_call" });
+      trackEvent("sms_skipped_no_lead", { call_id: callId, level: "warn" });
+      return;
+    }
 
     exportLeadToCrm(crmExporters, lead)
       .then((results) => {
@@ -246,15 +316,225 @@ async function main() {
       })
       .catch((err) => log.warn({ err }, "crm export failed"));
 
-    const id = createNotification(db, callId, "sms");
+    // Resolve tenant to get business name and owner email for notifications
+    const notifyTenant = lead.tenant_id ? getTenantById(db, lead.tenant_id) : null;
+    const businessName = notifyTenant?.name ?? "Your Business";
+    const recipientEmail = ownerEmail ?? notifyTenant?.owner_email ?? null;
+
     try {
       const body = formatOwnerSms({ lead, callId, callerIntent });
-      await sendOwnerSms(db, body, ownerPhone);
-      markNotification(db, id, { status: "sent" });
+      const sms = await sendOwnerSms(db, body, ownerPhone);
+      if (sms.status === "sent") {
+        markNotification(db, id, { status: "sent", error: null });
+        trackEvent("owner_sms_sent", { call_id: callId, tenant_id: lead.tenant_id });
+      } else {
+        markNotification(db, id, { status: "skipped", error: sms.reason });
+        trackEvent("owner_sms_skipped", {
+          call_id: callId,
+          tenant_id: lead.tenant_id,
+          level: "warn",
+          payload: { reason: sms.reason }
+        });
+      }
     } catch (err: any) {
       markNotification(db, id, { status: "error", error: err?.message ?? String(err) });
+      trackEvent("owner_sms_error", {
+        call_id: callId,
+        tenant_id: lead.tenant_id,
+        level: "error",
+        payload: { message: err?.message ?? String(err) }
+      });
+    }
+
+    // Send email notification in parallel (non-blocking, best-effort)
+    if (recipientEmail && isEmailConfigured()) {
+      const emailId = createNotification(db, callId, "email");
+      const { subject, text } = formatLeadEmail({
+        lead, callId, callerIntent, businessName,
+        dashboardUrl: env.PUBLIC_BASE_URL
+      });
+      sendEmail({ to: recipientEmail, subject, text })
+        .then((result) => {
+          if (result.status === "sent") {
+            markNotification(db, emailId, { status: "sent", error: null });
+            trackEvent("owner_email_sent", { call_id: callId, tenant_id: lead.tenant_id });
+          } else {
+            markNotification(db, emailId, { status: "skipped", error: result.reason });
+          }
+        })
+        .catch((err) => {
+          markNotification(db, emailId, { status: "error", error: err?.message ?? String(err) });
+          log.warn({ err, callId }, "owner email notification failed");
+        });
+    }
+
+    // For emergency calls: send a second urgent follow-up SMS 2 minutes later
+    // to ensure the owner doesn't miss it
+    if (lead.urgency_level === "emergency") {
+      const ownerSmsNumber = ownerPhone ?? notifyTenant?.owner_phone;
+      if (ownerSmsNumber) {
+        setTimeout(async () => {
+          try {
+            await sendOwnerSms(
+              db,
+              `⚠️ EMERGENCY FOLLOW-UP: ${lead.name ?? "A caller"} reported an emergency${lead.address ? ` at ${lead.address}` : ""}. Have you called them back? ${lead.phone ? `Their number: ${lead.phone}` : ""} View lead: ${env.PUBLIC_BASE_URL}/dashboard/leads/${callId}`,
+              ownerSmsNumber
+            );
+            trackEvent("emergency_followup_sms_sent", { call_id: callId, tenant_id: lead.tenant_id });
+          } catch (err) {
+            log.warn({ err, callId }, "emergency follow-up SMS failed");
+          }
+        }, 2 * 60 * 1000); // 2 minutes
+      }
     }
   }
+
+  function trackEvent(
+    eventName: string,
+    opts: {
+      tenant_id?: string | null;
+      call_id?: string | null;
+      level?: "info" | "warn" | "error";
+      payload?: Record<string, unknown>;
+    } = {}
+  ) {
+    const payloadJson = opts.payload ? JSON.stringify(opts.payload) : null;
+    createAnalyticsEvent(db, {
+      event_name: eventName,
+      tenant_id: opts.tenant_id ?? null,
+      call_id: opts.call_id ?? null,
+      level: opts.level ?? "info",
+      payload_json: payloadJson
+    });
+    const logPayload = { eventName, tenant_id: opts.tenant_id, call_id: opts.call_id, ...(opts.payload ?? {}) };
+    if (opts.level === "error") log.error(logPayload, "analytics event");
+    else if (opts.level === "warn") log.warn(logPayload, "analytics event");
+    else log.info(logPayload, "analytics event");
+  }
+
+  // ── Stripe webhook (MUST be registered before express.json() to preserve raw body) ──
+
+  app.post("/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+    const stripe = getStripe();
+    if (!stripe || !env.STRIPE_WEBHOOK_SECRET) {
+      return res.sendStatus(200);
+    }
+    const sig = req.headers["stripe-signature"] as string;
+    let event: Stripe.Event;
+    try {
+      event = stripe.webhooks.constructEvent(req.body, sig, env.STRIPE_WEBHOOK_SECRET);
+    } catch (err: any) {
+      log.warn({ err }, "Stripe webhook signature verification failed");
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    try {
+      if (event.type === "checkout.session.completed") {
+        const session = event.data.object as Stripe.Checkout.Session;
+        const tenantId = session.metadata?.tenant_id;
+        if (tenantId) {
+          const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+          updateTenant(db, tenantId, {
+            payment_status: "trial",
+            trial_ends_at: trialEndsAt,
+            stripe_customer_id: session.customer as string
+          });
+          const t = getTenantById(db, tenantId);
+          if (t) {
+            if (env.OWNER_PHONE_NUMBER) {
+              try {
+                const sms = await sendOwnerSms(db,
+                  `PickupAI: New trial signup (card on file) — ${t.name} (${t.owner_phone}). Trial ends in 14 days. Admin: ${env.PUBLIC_BASE_URL}/admin/users/${t.tenant_id}`
+                );
+                if (sms.status === "skipped") log.warn({ reason: sms.reason }, "founder trial notification SMS skipped");
+              } catch (e) { log.warn({ e }, "founder trial notification SMS failed"); }
+            }
+          }
+        }
+      } else if (event.type === "invoice.payment_succeeded") {
+        const invoice = event.data.object as Stripe.Invoice;
+        if ((invoice as any).billing_reason === "subscription_create" && (invoice as any).amount_paid === 0) {
+          log.info("Stripe: trial start $0 invoice — skipping activation");
+        } else {
+          const customerId = typeof invoice.customer === "string" ? invoice.customer : (invoice.customer as any)?.id;
+          const tenants = listTenants(db);
+          const t = tenants.find(x => x.stripe_customer_id === customerId);
+          if (t) {
+            updateTenant(db, t.tenant_id, { payment_status: "active" });
+            log.info({ tenantId: t.tenant_id }, "Stripe payment succeeded — account activated");
+            try {
+              const sms = await sendOwnerSms(db,
+                `Your PickupAI subscription is now active, ${t.name}! We'll assign your dedicated number and send setup instructions within 24 hours.`,
+                t.owner_phone
+              );
+              if (sms.status === "skipped") log.warn({ reason: sms.reason }, "customer activation SMS skipped");
+            } catch (e) { log.warn({ e }, "customer activation SMS failed"); }
+            if (env.OWNER_PHONE_NUMBER) {
+              try {
+                const sms = await sendOwnerSms(db,
+                  `PickupAI: New paying customer — ${t.name} (${t.owner_phone}). Log in to assign their number: ${env.PUBLIC_BASE_URL}/admin/users/${t.tenant_id}`
+                );
+                if (sms.status === "skipped") log.warn({ reason: sms.reason }, "founder payment notification SMS skipped");
+              } catch (e) { log.warn({ e }, "founder notification SMS failed"); }
+            }
+          }
+        }
+      } else if (event.type === "customer.subscription.deleted") {
+        const sub = event.data.object as Stripe.Subscription;
+        const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
+        const tenants = listTenants(db);
+        const t = tenants.find(x => x.stripe_customer_id === customerId);
+        if (t) {
+          updateTenant(db, t.tenant_id, { payment_status: "expired" });
+          log.info({ tenantId: t.tenant_id }, "Stripe subscription cancelled — account expired");
+        }
+      } else if (event.type === "customer.subscription.updated") {
+        const sub = event.data.object as Stripe.Subscription;
+        if (sub.cancel_at_period_end) {
+          const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
+          const tenants = listTenants(db);
+          const t = tenants.find(x => x.stripe_customer_id === customerId);
+          if (t) {
+            updateTenant(db, t.tenant_id, { payment_status: "cancelling" });
+            const periodEnd = new Date((sub as any).current_period_end * 1000).toLocaleDateString("en-AU");
+            try {
+              await sendOwnerSms(db,
+                `PickupAI: Your subscription is set to cancel on ${periodEnd}. Your AI receptionist will stay active until then.`,
+                t.owner_phone
+              );
+            } catch (e) { log.warn({ e }, "cancelling notification SMS failed"); }
+            log.info({ tenantId: t.tenant_id, periodEnd }, "Subscription cancelling at period end");
+          }
+        }
+      } else if (event.type === "invoice.payment_failed") {
+        const invoice = event.data.object as Stripe.Invoice;
+        const customerId = typeof invoice.customer === "string" ? invoice.customer : (invoice.customer as any)?.id;
+        const tenants = listTenants(db);
+        const t = tenants.find(x => x.stripe_customer_id === customerId);
+        if (t) {
+          updateTenant(db, t.tenant_id, { payment_status: "payment_failed" });
+          log.warn({ tenantId: t.tenant_id }, "Stripe payment failed — marking account, notifying customer");
+          try {
+            const sms = await sendOwnerSms(db,
+              `PickupAI: Your payment failed. Your AI receptionist may stop answering calls soon. Please update your payment method at ${env.PUBLIC_BASE_URL}/dashboard/upgrade or contact us at hello@pickupai.com.au`,
+              t.owner_phone
+            );
+            if (sms.status === "skipped") log.warn({ reason: sms.reason }, "payment failed notification SMS skipped");
+          } catch (e) { log.warn({ e }, "payment failed notification SMS failed"); }
+          if (env.OWNER_PHONE_NUMBER) {
+            try {
+              await sendOwnerSms(db,
+                `PickupAI: Payment failed for ${t.name} (${t.owner_phone}). Follow up: ${env.PUBLIC_BASE_URL}/admin/users/${t.tenant_id}`
+              );
+            } catch (e) { log.warn({ e }, "founder payment-failed notification SMS failed"); }
+          }
+        }
+      }
+    } catch (err: any) {
+      log.error({ err }, "Stripe webhook handler error");
+    }
+    res.sendStatus(200);
+  });
 
   // ── Middleware ────────────────────────────────────────────────────────────
 
@@ -270,6 +550,10 @@ async function main() {
   // Serve landing page from /public
   app.use(express.static(PUBLIC_DIR));
 
+  // Clean URLs for legal pages
+  app.get("/terms", (_req, res) => res.sendFile(path.join(PUBLIC_DIR, "terms.html")));
+  app.get("/privacy", (_req, res) => res.sendFile(path.join(PUBLIC_DIR, "privacy.html")));
+
   const twilioVerify = twilioValidateMiddleware({
     authToken: env.TWILIO_AUTH_TOKEN,
     enabled: env.TWILIO_VALIDATE_SIGNATURE,
@@ -279,7 +563,9 @@ async function main() {
   // ── Admin guard (API: header/query — UI: cookie) ──────────────────────────
 
   const adminGuard = (req: Request, res: Response, next: NextFunction) => {
-    if (!env.ADMIN_TOKEN) return next();
+    if (!env.ADMIN_TOKEN) {
+      return res.status(503).send("Admin panel is not configured. Set ADMIN_TOKEN to enable.");
+    }
     const token = req.header("x-admin-token") ?? req.query.token;
     if (token && token === env.ADMIN_TOKEN) return next();
     return res.status(401).json({ error: "unauthorized" });
@@ -287,7 +573,9 @@ async function main() {
 
   /** Cookie-based admin auth for HTML panel */
   const adminHtmlAuth = (req: Request, res: Response, next: NextFunction) => {
-    if (!env.ADMIN_TOKEN) return next();
+    if (!env.ADMIN_TOKEN) {
+      return res.status(503).send("Admin panel is not configured. Set ADMIN_TOKEN to enable.");
+    }
     const cookies = parseCookies(req);
     if (cookies.admin_session === env.ADMIN_TOKEN) return next();
     // Also accept x-admin-token header or ?token= for backwards compat
@@ -313,16 +601,20 @@ async function main() {
    *  - "trial" + valid   → allowed
    *  - "pending"         → redirect to checkout (signup incomplete)
    *  - null / "none"     → allowed (legacy/seed accounts — no card required)
+   *  - "payment_failed"  → redirect to upgrade page with payment failed message
    *  - "trial" expired, "expired", "cancelled" → redirect to upgrade page */
   const trialGuard = (req: Request, res: Response, next: NextFunction) => {
     const tenant: TenantRow = (req as any).dashTenant;
     if (!tenant) return next();
     const status = tenant.payment_status;
-    if (status === "active") return next();
+    if (status === "active" || status === "cancelling") return next();
     if (!status || status === "none") return next(); // legacy / seed accounts
     if (status === "pending") {
       // Signed up but never completed Stripe checkout — send them back to checkout
       return res.redirect("/dashboard/upgrade");
+    }
+    if (status === "payment_failed") {
+      return res.redirect("/dashboard/upgrade?reason=payment_failed");
     }
     if (status === "trial" && tenant.trial_ends_at) {
       if (new Date(tenant.trial_ends_at) > new Date()) return next(); // still in trial
@@ -337,16 +629,46 @@ async function main() {
 
   app.get("/health", (_req, res) => res.json({ ok: true, mode: "realtime", multiTenant: true }));
 
+  // ── System health monitoring ───────────────────────────────────────────────
+  app.get("/health/detailed", adminGuard, (_req, res) => {
+    const today = new Date().toISOString().slice(0, 10);
+    const recentErrors = db.all<{ event_name: string; created_at: string; payload_json: string | null }>(
+      `SELECT event_name, created_at, payload_json FROM analytics_events
+       WHERE level IN ('warn','error') AND created_at >= ? ORDER BY created_at DESC LIMIT 50`,
+      [today + "T00:00:00.000Z"]
+    );
+    const aiFailures = db.get<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM analytics_events WHERE event_name LIKE '%fail%' OR event_name LIKE '%error%' OR event_name LIKE '%timeout%' AND created_at >= ?`,
+      [today + "T00:00:00.000Z"]
+    )?.n ?? 0;
+    const smsFailed = db.get<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM notifications WHERE status IN ('error','failed') AND sent_at >= ?`,
+      [today + "T00:00:00.000Z"]
+    )?.n ?? 0;
+    const callsInProgress = db.get<{ n: number }>(
+      "SELECT COUNT(*) AS n FROM calls WHERE status = 'in-progress'"
+    )?.n ?? 0;
+    res.json({
+      ok: aiFailures === 0 && smsFailed === 0,
+      timestamp: new Date().toISOString(),
+      today: { ai_failures: aiFailures, sms_failed: smsFailed, calls_in_progress: callsInProgress },
+      recent_errors: recentErrors.slice(0, 20)
+    });
+  });
+
   // ── Landing page contact form ───────────────────────────────────────────
-  app.post("/contact", express.json(), async (req, res) => {
+  app.post("/contact", express.json(), rateLimit({ maxRequests: 5, windowMs: 60_000 }), async (req, res) => {
     const { name, email, phone } = req.body ?? {};
     if (!name || !email) return res.status(400).json({ error: "Name and email are required" });
     log.info({ name, email, phone }, "Contact form submission");
     if (env.OWNER_PHONE_NUMBER) {
       try {
-        await sendOwnerSms(db,
+        const sms = await sendOwnerSms(db,
           `PickupAI lead from website:\nName: ${name}\nEmail: ${email}${phone ? `\nPhone: ${phone}` : ""}`,
         );
+        if (sms.status === "skipped") {
+          log.warn({ reason: sms.reason }, "Contact form SMS skipped");
+        }
       } catch (e) { log.warn({ e }, "Contact form SMS notification failed"); }
     }
     res.json({ ok: true });
@@ -388,6 +710,11 @@ async function main() {
 
     if (tenant.tenant_id === "default" && typeof to === "string") {
       log.warn({ to }, "No tenant found for number — using fallback tenant");
+      trackEvent("tenant_not_found_fallback", {
+        call_id: callSid,
+        level: "warn",
+        payload: { to }
+      });
     }
 
     const state = getOrInitCallState(callSid);
@@ -403,6 +730,7 @@ async function main() {
     // Store tenant context in call state for media-stream handler
     (state as any).tenantId = tenant.tenant_id;
     (state as any).tenantOwnerPhone = tenant.owner_phone;
+    (state as any).tenantOwnerEmail = tenant.owner_email ?? undefined;
     (state as any).isDemo = isDemo;
     setCallState(callSid, state);
 
@@ -414,8 +742,25 @@ async function main() {
       started_at: new Date().toISOString(),
       status: "in-progress"
     });
+    trackEvent("call_started", {
+      tenant_id: tenant.tenant_id !== "default" ? tenant.tenant_id : null,
+      call_id: callSid,
+      payload: { from, to, isDemo }
+    });
 
     startCallRecording(callSid).catch((err) => log.warn({ err }, "start recording failed"));
+
+    if (!env.OPENAI_API_KEY) {
+      log.warn({ callSid, tenantId: tenant.tenant_id }, "OPENAI_API_KEY not set — serving voicemail fallback");
+      trackEvent("ai_unavailable_voicemail_fallback", {
+        tenant_id: tenant.tenant_id !== "default" ? tenant.tenant_id : null,
+        call_id: callSid,
+        level: "warn"
+      });
+      const recordingCallbackUrl = buildAbsoluteUrl("/twilio/voice/recording");
+      const twiml = voicemailFallbackTwiml(tenant.name, recordingCallbackUrl);
+      return res.type("text/xml").send(twiml);
+    }
 
     if (shouldWarmTransferNow() && tenant.enable_warm_transfer) {
       const vr = newVoiceResponse();
@@ -460,7 +805,12 @@ async function main() {
       if (callStatus === "completed") {
         const state = getOrInitCallState(callSid);
         const ownerPhone = (state as any).tenantOwnerPhone ?? undefined;
-        notifyOwnerSmsIfNeeded(callSid, state.callerIntent, ownerPhone).catch((err) =>
+        const ownerEmail = (state as any).tenantOwnerEmail ?? undefined;
+        trackEvent("call_ended_status_webhook", {
+          call_id: callSid,
+          payload: { callStatus, callerIntent: state.callerIntent }
+        });
+        notifyOwnerSmsIfNeeded(callSid, state.callerIntent, ownerPhone, ownerEmail).catch((err) =>
           log.warn({ err }, "owner sms on status failed")
         );
         // Clear Option A simulation routing entry for the TO number (if any)
@@ -472,7 +822,7 @@ async function main() {
     res.sendStatus(200);
   });
 
-  app.post("/twilio/voice/recording", twilioVerify, (req, res) => {
+  app.post("/twilio/voice/recording", twilioVerify, async (req, res) => {
     const callSid = typeof req.body?.CallSid === "string" ? req.body.CallSid : null;
     const recordingSid = typeof req.body?.RecordingSid === "string" ? req.body.RecordingSid : null;
     const recordingUrl = typeof req.body?.RecordingUrl === "string" ? req.body.RecordingUrl : null;
@@ -482,6 +832,51 @@ async function main() {
         recording_sid: recordingSid ?? undefined,
         recording_url: recordingUrl ? `${recordingUrl}.mp3` : undefined
       });
+      if (recordingUrl) {
+        trackEvent("recording_ready", { call_id: callSid, payload: { recordingSid } });
+      } else {
+        trackEvent("recording_missing_url", {
+          call_id: callSid,
+          level: "warn",
+          payload: { recordingSid }
+        });
+      }
+
+      // If no lead exists for this call, this was a voicemail fallback —
+      // create a lead so the owner gets notified and it appears in the dashboard.
+      const existingLead = getLatestLeadForCall(db, callSid);
+      if (!existingLead) {
+        const call = db.get<CallRow>("SELECT * FROM calls WHERE call_id = ?", [callSid]);
+        if (call) {
+          const leadId = newLeadId();
+          upsertLead(db, {
+            lead_id: leadId,
+            tenant_id: call.tenant_id,
+            call_id: callSid,
+            name: null,
+            phone: call.from_number,
+            address: null,
+            issue_type: "voicemail",
+            issue_summary: "Voicemail left — listen to recording",
+            urgency_level: "routine",
+            preferred_time: null,
+            notes: null,
+            confidence: null,
+            next_action: "Listen to voicemail and call back",
+            job_value: null,
+            lead_status: "new"
+          });
+          trackEvent("voicemail_lead_created", { call_id: callSid, tenant_id: call.tenant_id });
+
+          const ownerTenant = call.tenant_id ? getTenantById(db, call.tenant_id) : null;
+          notifyOwnerSmsIfNeeded(
+            callSid,
+            "voicemail",
+            ownerTenant?.owner_phone,
+            ownerTenant?.owner_email ?? undefined
+          ).catch((err) => log.warn({ err }, "voicemail owner SMS failed"));
+        }
+      }
     }
     res.sendStatus(200);
   });
@@ -594,7 +989,7 @@ async function main() {
     res.send(adminLoginPage());
   });
 
-  app.post("/admin/login", express.urlencoded({ extended: false }), (req, res) => {
+  app.post("/admin/login", express.urlencoded({ extended: false }), rateLimit({ maxRequests: 5, windowMs: 60_000, message: "Too many login attempts. Please wait a minute." }), (req, res) => {
     const { token } = req.body ?? {};
     if (!env.ADMIN_TOKEN || token === env.ADMIN_TOKEN) {
       res.setHeader("Set-Cookie", `admin_session=${env.ADMIN_TOKEN ?? "open"}; HttpOnly; Path=/admin; SameSite=Strict; Max-Age=86400`);
@@ -612,7 +1007,15 @@ async function main() {
   app.get("/admin", adminHtmlAuth, (_req, res) => {
     const stats = getOverviewStats(db);
     const recent = listTenantsWithStats(db).slice(0, 10);
-    res.send(adminOverviewPage(stats, recent));
+    const foundingCount = getFoundingCustomerCount(db);
+    res.send(adminOverviewPage(stats, recent, foundingCount));
+  });
+
+  app.get("/admin/funnel", adminHtmlAuth, (req, res) => {
+    const daysRaw = typeof req.query.days === "string" ? Number(req.query.days) : 7;
+    const days = Number.isFinite(daysRaw) ? Math.max(1, Math.min(30, Math.floor(daysRaw))) : 7;
+    const rows = getDailyFunnelStats(db, days);
+    res.send(adminFunnelPage(rows, days));
   });
 
   // Users list
@@ -765,6 +1168,166 @@ async function main() {
   });
 
   // Config (HTML)
+  // ── Admin Prospects (marketing lead management) ──────────────────────────
+
+  app.get("/admin/prospects", adminHtmlAuth, (req, res) => {
+    const flash = req.query.flash as string | undefined;
+    const filters = {
+      status: (req.query.status as string) || undefined,
+      trade_type: (req.query.trade_type as string) || undefined,
+      suburb: (req.query.suburb as string) || undefined
+    };
+    const prospects = listProspects(db, filters);
+    const stats = getProspectStats(db);
+    res.send(adminProspectsPage(prospects, stats, filters, flash));
+  });
+
+  app.get("/admin/prospects/import-form", adminHtmlAuth, (req, res) => {
+    res.send(adminProspectImportPage(req.query.flash as string | undefined));
+  });
+
+  app.get("/admin/prospects/bulk-sms-form", adminHtmlAuth, (req, res) => {
+    const flash = req.query.flash as string | undefined;
+    const filters = {
+      status: (req.query.status as string) || undefined,
+      trade_type: (req.query.trade_type as string) || undefined
+    };
+    const allProspects = listProspects(db, filters);
+    const sendable = allProspects.filter(p =>
+      p.phone && p.status !== "do_not_contact" && p.status !== "not_interested"
+    );
+    res.send(adminBulkSmsPage(sendable.length, filters, flash));
+  });
+
+  app.post("/admin/prospects/import", adminHtmlAuth, express.urlencoded({ extended: false, limit: "5mb" }), (req, res) => {
+    const csvText = req.body?.csv_text?.trim();
+    if (!csvText) return res.redirect("/admin/prospects/import-form?flash=⚠ No CSV data provided");
+
+    const lines = csvText.split("\n").map((l: string) => l.trim()).filter(Boolean);
+    if (lines.length < 2) return res.redirect("/admin/prospects/import-form?flash=⚠ CSV must have a header row and at least one data row");
+
+    const headers = lines[0].split(",").map((h: string) => h.trim().toLowerCase().replace(/"/g, ""));
+    const rows: Array<any> = [];
+    for (let i = 1; i < lines.length; i++) {
+      const vals = lines[i].split(",").map((v: string) => v.trim().replace(/^"|"$/g, ""));
+      const row: Record<string, string> = {};
+      headers.forEach((h: string, idx: number) => { row[h] = vals[idx] ?? ""; });
+      if (!row.business_name) continue;
+      rows.push({
+        business_name: row.business_name,
+        owner_name: row.owner_name || null,
+        phone: row.phone || null,
+        email: row.email || null,
+        website: row.website || null,
+        trade_type: row.trade_type || null,
+        suburb: row.suburb || null,
+        state: row.state || "NSW",
+        source: row.source || "csv_import",
+        google_rating: row.google_rating ? parseFloat(row.google_rating) : null,
+        review_count: row.review_count ? parseInt(row.review_count) : null,
+        notes: null,
+        last_contacted_at: null,
+        next_followup_at: null
+      });
+    }
+
+    const result = importProspects(db, rows);
+    res.redirect(`/admin/prospects?flash=✓ Imported ${result.imported} prospects (${result.skipped} duplicates skipped)`);
+  });
+
+  app.post("/admin/prospects/bulk-sms", adminHtmlAuth, express.urlencoded({ extended: false }), async (req, res) => {
+    const message = req.body?.message?.trim();
+    const statusFilter = req.body?.status || undefined;
+    const tradeFilter = req.body?.trade_type || undefined;
+    if (!message) return res.redirect("/admin/prospects/bulk-sms-form?flash=⚠ Message is required");
+
+    const all = listProspects(db, { status: statusFilter, trade_type: tradeFilter });
+    const targets = all.filter(p =>
+      p.phone && p.status !== "do_not_contact" && p.status !== "not_interested"
+    );
+
+    let sent = 0;
+    let failed = 0;
+    const failureReasons: string[] = [];
+    for (const p of targets) {
+      const body = message
+        .replace(/\{name\}/gi, p.business_name)
+        + (message.toLowerCase().includes("stop") ? "" : "\nReply STOP to opt out");
+      try {
+        const sms = await sendOwnerSms(db, body, p.phone!);
+        if (sms.status === "sent") {
+          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: "sent" });
+          updateProspect(db, p.prospect_id, { status: p.status === "new" ? "contacted" : p.status, last_contacted_at: new Date().toISOString() });
+          sent++;
+          // Rate limiting: 1 SMS per second
+          await new Promise(r => setTimeout(r, 1000));
+        } else {
+          createOutreachLog(db, {
+            prospect_id: p.prospect_id,
+            channel: "sms",
+            message: body,
+            status: `skipped:${sms.reason}`
+          });
+          failed++;
+          failureReasons.push(`${p.phone}:${sms.reason}`);
+        }
+      } catch (e: any) {
+        createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: "failed" });
+        failed++;
+        failureReasons.push(`${p.phone}:error`);
+        log.warn({ e, phone: p.phone }, "Bulk SMS failed for prospect");
+      }
+    }
+    const failSummary = failureReasons.length
+      ? ` (${failureReasons.slice(0, 3).join(", ")}${failureReasons.length > 3 ? ", ..." : ""})`
+      : "";
+    res.redirect(`/admin/prospects?flash=✓ Bulk SMS complete: ${sent} sent, ${failed} failed${failSummary}`);
+  });
+
+  app.get("/admin/prospects/:id", adminHtmlAuth, (req, res) => {
+    const p = getProspectById(db, req.params.id);
+    if (!p) return res.redirect("/admin/prospects?flash=⚠ Prospect not found");
+    const flash = req.query.flash as string | undefined;
+    const log = listOutreachForProspect(db, p.prospect_id);
+    res.send(adminProspectDetailPage(p, log, flash));
+  });
+
+  app.post("/admin/prospects/:id", adminHtmlAuth, express.urlencoded({ extended: false }), (req, res) => {
+    const { business_name, owner_name, phone, email, website, trade_type, suburb, status, notes } = req.body ?? {};
+    updateProspect(db, req.params.id, { business_name, owner_name, phone, email, website, trade_type, suburb, status, notes });
+    res.redirect(`/admin/prospects/${req.params.id}?flash=✓ Prospect updated`);
+  });
+
+  app.post("/admin/prospects/:id/sms", adminHtmlAuth, express.urlencoded({ extended: false }), async (req, res) => {
+    const p = getProspectById(db, req.params.id);
+    if (!p || !p.phone) return res.redirect(`/admin/prospects/${req.params.id}?flash=⚠ No phone number`);
+    const message = req.body?.message?.trim();
+    if (!message) return res.redirect(`/admin/prospects/${req.params.id}?flash=⚠ Message is required`);
+
+    try {
+      const sms = await sendOwnerSms(db, message, p.phone);
+      if (sms.status === "sent") {
+        createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message, status: "sent" });
+        updateProspect(db, p.prospect_id, { last_contacted_at: new Date().toISOString() });
+        if (p.status === "new") updateProspect(db, p.prospect_id, { status: "contacted" });
+        res.redirect(`/admin/prospects/${p.prospect_id}?flash=✓ SMS sent`);
+      } else {
+        createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message, status: `skipped:${sms.reason}` });
+        res.redirect(`/admin/prospects/${p.prospect_id}?flash=⚠ SMS skipped (${sms.reason})`);
+      }
+    } catch (e) {
+      createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message, status: "failed" });
+      res.redirect(`/admin/prospects/${p.prospect_id}?flash=⚠ SMS failed — check Twilio`);
+    }
+  });
+
+  app.post("/admin/prospects/:id/delete", adminHtmlAuth, (req, res) => {
+    deleteProspect(db, req.params.id);
+    res.redirect("/admin/prospects?flash=✓ Prospect deleted");
+  });
+
+  // ── Admin Config ────────────────────────────────────────────────────────
+
   app.get("/admin/config", adminHtmlAuth, (req, res) => {
     const configs = listSystemConfig(db);
     const flash = (req.query.flash as string | undefined) ?? undefined;
@@ -788,10 +1351,11 @@ async function main() {
     if (cookies.dash_session && getTenantBySessionToken(db, cookies.dash_session)) {
       return res.redirect("/dashboard/leads");
     }
-    res.send(loginPage());
+    const flash = typeof req.query.flash === "string" ? req.query.flash : undefined;
+    res.send(loginPage(undefined, flash));
   });
 
-  app.post("/dashboard/login", express.urlencoded({ extended: false }), (req, res) => {
+  app.post("/dashboard/login", express.urlencoded({ extended: false }), rateLimit({ maxRequests: 10, windowMs: 60_000, message: "Too many login attempts. Please wait a minute and try again." }), (req, res) => {
     const { email, password } = req.body ?? {};
     if (!email || !password) return res.send(loginPage("Email and password are required."));
     const tenant = tenantLogin(db, email as string, password as string);
@@ -815,6 +1379,75 @@ async function main() {
     res.redirect("/dashboard/login");
   });
 
+  // ── Self-service password reset (step 1: request code via SMS) ─────────────
+  app.get("/dashboard/forgot-password", (req, res) => {
+    const flash = typeof req.query.flash === "string" ? req.query.flash : undefined;
+    res.send(forgotPasswordPage(flash));
+  });
+
+  app.post(
+    "/dashboard/forgot-password",
+    express.urlencoded({ extended: false }),
+    rateLimit({ maxRequests: 3, windowMs: 5 * 60_000, message: "Too many reset requests. Please wait 5 minutes." }),
+    async (req, res) => {
+      const { email } = req.body ?? {};
+      if (!email) return res.redirect("/dashboard/forgot-password?flash=⚠ Email is required");
+      const tenants = listTenants(db);
+      const tenant = tenants.find((t) => t.owner_email?.toLowerCase() === (email as string).toLowerCase());
+      // Always show success to avoid email enumeration
+      const successMsg = "If that email is registered, a 6-digit code has been sent by SMS to the phone on file.";
+      if (!tenant) return res.redirect(`/dashboard/forgot-password?flash=${encodeURIComponent(successMsg)}`);
+      const code = createPasswordResetToken(db, tenant.tenant_id);
+      try {
+        await sendOwnerSms(
+          db,
+          `PickupAI password reset: Your 6-digit code is ${code}. Valid for 15 minutes. If you didn't request this, ignore this message.`,
+          tenant.owner_phone
+        );
+      } catch (e) {
+        log.warn({ e }, "password reset SMS failed");
+      }
+      res.redirect(`/dashboard/reset-password?email=${encodeURIComponent(email)}&flash=${encodeURIComponent(successMsg)}`);
+    }
+  );
+
+  // Step 2: enter code + new password
+  app.get("/dashboard/reset-password", (req, res) => {
+    const email = typeof req.query.email === "string" ? req.query.email : "";
+    const flash = typeof req.query.flash === "string" ? req.query.flash : undefined;
+    res.send(resetPasswordPage(email, flash));
+  });
+
+  app.post(
+    "/dashboard/reset-password",
+    express.urlencoded({ extended: false }),
+    rateLimit({ maxRequests: 10, windowMs: 15 * 60_000, message: "Too many attempts. Please wait." }),
+    (req, res) => {
+      const { email, code, password, confirm_password } = req.body ?? {};
+      if (!email || !code || !password) {
+        return res.send(resetPasswordPage(email ?? "", "All fields are required."));
+      }
+      if (password !== confirm_password) {
+        return res.send(resetPasswordPage(email, "Passwords do not match."));
+      }
+      if (typeof password === "string" && password.length < 8) {
+        return res.send(resetPasswordPage(email, "Password must be at least 8 characters."));
+      }
+      const tenants = listTenants(db);
+      const tenant = tenants.find((t) => t.owner_email?.toLowerCase() === (email as string).toLowerCase());
+      if (!tenant) {
+        return res.send(resetPasswordPage(email, "Invalid reset request."));
+      }
+      const valid = verifyPasswordResetToken(db, tenant.tenant_id, code as string);
+      if (!valid) {
+        return res.send(resetPasswordPage(email, "Invalid or expired code. Please request a new one."));
+      }
+      updateTenant(db, tenant.tenant_id, { password: password as string });
+      trackEvent("password_reset_completed", { tenant_id: tenant.tenant_id });
+      res.redirect("/dashboard/login?flash=" + encodeURIComponent("✓ Password updated. Please sign in with your new password."));
+    }
+  );
+
   app.get("/dashboard/signup", (req, res) => {
     const cookies = parseCookies(req);
     if (cookies.dash_session && getTenantBySessionToken(db, cookies.dash_session)) {
@@ -823,24 +1456,32 @@ async function main() {
     res.send(signupPage());
   });
 
-  app.post("/dashboard/signup", express.urlencoded({ extended: false }), async (req, res) => {
+  app.post("/dashboard/signup", express.urlencoded({ extended: false }), rateLimit({ maxRequests: 5, windowMs: 60_000, message: "Too many signup attempts. Please wait a minute." }), async (req, res) => {
     const { name, trade_type, ai_name, owner_phone, email, password } = req.body ?? {};
     const prefill = { name, trade_type, ai_name, owner_phone, email };
 
     if (!name || !trade_type || !owner_phone || !email || !password) {
+      trackEvent("signup_validation_failed", { payload: { reason: "missing_required_fields" } });
       return res.send(signupPage("All required fields must be filled in.", prefill));
     }
+    if (!req.body.terms_accepted) {
+      trackEvent("signup_validation_failed", { payload: { reason: "terms_not_accepted" } });
+      return res.send(signupPage("You must accept the Terms of Service to create an account.", prefill));
+    }
     if (typeof password === "string" && password.length < 8) {
+      trackEvent("signup_validation_failed", { payload: { reason: "password_too_short" } });
       return res.send(signupPage("Password must be at least 8 characters.", prefill));
     }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
+      trackEvent("signup_validation_failed", { payload: { reason: "invalid_email" } });
       return res.send(signupPage("Please enter a valid email address.", prefill));
     }
 
     // Check if email already in use
     const existing = listTenants(db).find(t => t.owner_email?.toLowerCase() === (email as string).toLowerCase());
     if (existing) {
+      trackEvent("signup_validation_failed", { payload: { reason: "duplicate_email" } });
       return res.send(signupPage("An account with that email already exists. Please sign in.", prefill));
     }
 
@@ -853,6 +1494,10 @@ async function main() {
       owner_phone: owner_phone as string,
       owner_email: email as string,
       password: password as string,
+    });
+    trackEvent("signup_completed", {
+      tenant_id: tenant.tenant_id,
+      payload: { trade_type, hasStripeConfig: !!env.STRIPE_SECRET_KEY && !!env.STRIPE_PRICE_ID }
     });
 
     // Mark account as pending until Stripe checkout is completed.
@@ -868,18 +1513,20 @@ async function main() {
 
     // Welcome SMS to new user
     try {
-      await sendOwnerSms(db,
+      const sms = await sendOwnerSms(db,
         `Welcome to PickupAI, ${name}! Your 14-day free trial has started. Set up your demo at: ${env.PUBLIC_BASE_URL}/dashboard/welcome`,
         owner_phone as string
       );
+      if (sms.status === "skipped") log.warn({ reason: sms.reason }, "Welcome SMS skipped");
     } catch (e) { log.warn({ e }, "Welcome SMS failed"); }
 
     // Notify founder of new signup
     if (env.OWNER_PHONE_NUMBER) {
       try {
-        await sendOwnerSms(db,
+        const sms = await sendOwnerSms(db,
           `PickupAI: New trial signup — ${name} (${trade_type}, ${owner_phone}). Admin: ${env.PUBLIC_BASE_URL}/admin/users/${tenant.tenant_id}`
         );
+        if (sms.status === "skipped") log.warn({ reason: sms.reason }, "Founder signup notification SMS skipped");
       } catch (e) { log.warn({ e }, "Founder signup notification SMS failed"); }
     }
 
@@ -918,18 +1565,39 @@ async function main() {
 
   app.post("/dashboard/request-demo", dashAuth, express.urlencoded({ extended: false }), (req, res) => {
     const tenant: TenantRow = (req as any).dashTenant;
+    trackEvent("demo_requested", { tenant_id: tenant.tenant_id });
     const poolNumbers = env.DEMO_POOL_NUMBERS
       ? env.DEMO_POOL_NUMBERS.split(",").map((n) => n.trim()).filter(Boolean)
       : [];
 
     if (poolNumbers.length === 0) {
-      return res.send(welcomePage(tenant, { error: "Demo numbers are not configured yet. Please contact support." }));
+      trackEvent("demo_unavailable_not_configured", { tenant_id: tenant.tenant_id, level: "warn" });
+      return res.send(welcomePage(tenant, {
+        error: "Demo numbers are not configured yet. Please contact support to enable instant demos, or try Option A hands-free demo."
+      }));
     }
 
     const claimed = claimDemoNumber(db, tenant.tenant_id, poolNumbers);
     if (!claimed) {
-      return res.send(welcomePage(tenant, { error: "All demo slots are busy right now — please try again in a few minutes." }));
+      const nextExpiry = listDemoSessions(db)
+        .map((s) => new Date(s.expires_at).getTime())
+        .filter((t) => Number.isFinite(t) && t > Date.now())
+        .sort((a, b) => a - b)[0];
+      const waitMinutes = nextExpiry ? Math.max(1, Math.ceil((nextExpiry - Date.now()) / 60000)) : null;
+      const suffix = waitMinutes ? ` Estimated wait: ~${waitMinutes} min.` : "";
+      trackEvent("demo_slot_busy", {
+        tenant_id: tenant.tenant_id,
+        level: "warn",
+        payload: { waitMinutes }
+      });
+      return res.send(welcomePage(tenant, {
+        error: `All demo slots are currently busy.${suffix} You can still run Option A hands-free demo right now.`
+      }));
     }
+    trackEvent("demo_slot_assigned", {
+      tenant_id: tenant.tenant_id,
+      payload: { demoNumber: claimed }
+    });
 
     const session = getActiveDemoSession(db, tenant.tenant_id);
     res.send(welcomePage(tenant, {
@@ -940,12 +1608,16 @@ async function main() {
 
   app.post("/dashboard/simulate-demo-call", dashAuth, express.urlencoded({ extended: false }), async (req, res) => {
     const tenant: TenantRow = (req as any).dashTenant;
+    trackEvent("simulate_demo_requested", { tenant_id: tenant.tenant_id });
     const poolNumbers = env.DEMO_POOL_NUMBERS
       ? env.DEMO_POOL_NUMBERS.split(",").map((n) => n.trim()).filter(Boolean)
       : [];
 
     if (poolNumbers.length === 0) {
-      return res.send(welcomePage(tenant, { error: "Demo numbers are not configured yet. Please contact support." }));
+      trackEvent("simulate_demo_unavailable_not_configured", { tenant_id: tenant.tenant_id, level: "warn" });
+      return res.send(welcomePage(tenant, {
+        error: "Demo simulation is temporarily unavailable because demo numbers are not configured yet. Please contact support."
+      }));
     }
 
     // Option A: pick the first pool number without claiming a DB slot.
@@ -986,9 +1658,18 @@ async function main() {
         statusCallback: `${env.PUBLIC_BASE_URL}/twilio/voice/status`,
         statusCallbackMethod: "POST",
       });
+      trackEvent("simulate_demo_started", {
+        tenant_id: tenant.tenant_id,
+        payload: { demoTarget, from: demoCallerFrom }
+      });
     } catch (err) {
       log.error({ err }, "Failed to place simulated demo call");
       simulationRoutingMap.delete(demoTarget); // rollback map entry on failure
+      trackEvent("simulate_demo_failed", {
+        tenant_id: tenant.tenant_id,
+        level: "error",
+        payload: { demoTarget, message: (err as Error)?.message ?? String(err) }
+      });
       return res.send(welcomePage(tenant, { error: "Could not place the demo call. Please try again or call the number yourself." }));
     }
 
@@ -1009,6 +1690,7 @@ async function main() {
     if (latest?.recording_url) {
       // Return a proxy URL so the browser can play it without Twilio credentials
       const proxyUrl = `/dashboard/recording-proxy?url=${encodeURIComponent(latest.recording_url)}`;
+      trackEvent("demo_recording_ready", { tenant_id: tenant.tenant_id, call_id: latest.call_id });
       res.json({ status: "ready", recordingUrl: proxyUrl });
     } else {
       res.json({ status: "pending", recordingUrl: null });
@@ -1113,7 +1795,8 @@ async function main() {
   // Upgrade / trial-expired page (no trialGuard — it IS the gate)
   app.get("/dashboard/upgrade", dashAuth, (req, res) => {
     const tenant: TenantRow = (req as any).dashTenant;
-    res.send(upgradePage(tenant, !!env.STRIPE_SECRET_KEY));
+    const reason = typeof req.query.reason === "string" ? req.query.reason : undefined;
+    res.send(upgradePage(tenant, !!env.STRIPE_SECRET_KEY, reason));
   });
 
   // Stripe Checkout — create session and redirect to Stripe's hosted page
@@ -1136,7 +1819,11 @@ async function main() {
         subscription_data: {
           trial_period_days: 14,
           metadata: { tenant_id: tenant.tenant_id }
-        }
+        },
+        discounts: env.STRIPE_FOUNDING_COUPON_ID
+          ? [{ coupon: env.STRIPE_FOUNDING_COUPON_ID }]
+          : undefined,
+        allow_promotion_codes: !env.STRIPE_FOUNDING_COUPON_ID,
       });
       res.redirect(303, session.url!);
     } catch (err: any) {
@@ -1173,97 +1860,23 @@ async function main() {
     res.redirect("/dashboard/welcome");
   });
 
-  // Stripe webhook — handles ongoing subscription events
-  app.post("/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+  // Stripe Customer Billing Portal — lets users cancel / update card themselves
+  app.post("/dashboard/billing-portal", dashAuth, async (req, res) => {
+    const tenant: TenantRow = (req as any).dashTenant;
     const stripe = getStripe();
-    if (!stripe || !env.STRIPE_WEBHOOK_SECRET) {
-      return res.sendStatus(200); // silently ignore if not configured
+    if (!stripe || !tenant.stripe_customer_id) {
+      return res.redirect("/dashboard/settings?flash=" + encodeURIComponent("⚠ No active subscription found"));
     }
-    const sig = req.headers["stripe-signature"] as string;
-    let event: Stripe.Event;
     try {
-      event = stripe.webhooks.constructEvent(req.body, sig, env.STRIPE_WEBHOOK_SECRET);
+      const session = await stripe.billingPortal.sessions.create({
+        customer: tenant.stripe_customer_id,
+        return_url: `${env.PUBLIC_BASE_URL}/dashboard/settings`
+      });
+      res.redirect(303, session.url);
     } catch (err: any) {
-      log.warn({ err }, "Stripe webhook signature verification failed");
-      return res.status(400).send(`Webhook Error: ${err.message}`);
+      log.error({ err }, "Stripe billing portal session creation failed");
+      res.redirect("/dashboard/settings?flash=" + encodeURIComponent("⚠ Could not open billing portal. Please try again."));
     }
-
-    try {
-      if (event.type === "checkout.session.completed") {
-        // Card collected, trial has started — NOT yet charged
-        const session = event.data.object as Stripe.Checkout.Session;
-        const tenantId = session.metadata?.tenant_id;
-        if (tenantId) {
-          const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
-          updateTenant(db, tenantId, {
-            payment_status: "trial",
-            trial_ends_at: trialEndsAt,
-            stripe_customer_id: session.customer as string
-          });
-          const t = getTenantById(db, tenantId);
-          if (t) {
-            // Notify founder of new card-on-file signup
-            if (env.OWNER_PHONE_NUMBER) {
-              try {
-                await sendOwnerSms(db,
-                  `PickupAI: New trial signup (card on file) — ${t.name} (${t.owner_phone}). Trial ends in 14 days. Admin: ${env.PUBLIC_BASE_URL}/admin/users/${t.tenant_id}`
-                );
-              } catch (e) { log.warn({ e }, "founder trial notification SMS failed"); }
-            }
-          }
-        }
-      } else if (event.type === "invoice.payment_succeeded") {
-        // First real charge after trial ends (or any subsequent renewal) — activate account
-        const invoice = event.data.object as Stripe.Invoice;
-        if ((invoice as any).billing_reason === "subscription_create" && (invoice as any).amount_paid === 0) {
-          // This is the $0 invoice generated when the trial starts — not a real payment, skip
-          log.info("Stripe: trial start $0 invoice — skipping activation");
-        } else {
-          const customerId = typeof invoice.customer === "string" ? invoice.customer : (invoice.customer as any)?.id;
-          const tenants = listTenants(db);
-          const t = tenants.find(x => x.stripe_customer_id === customerId);
-          if (t) {
-            updateTenant(db, t.tenant_id, { payment_status: "active" });
-            log.info({ tenantId: t.tenant_id }, "Stripe payment succeeded — account activated");
-            // Notify customer
-            try {
-              await sendOwnerSms(db,
-                `Your PickupAI subscription is now active, ${t.name}! We'll assign your dedicated number and send setup instructions within 24 hours.`,
-                t.owner_phone
-              );
-            } catch (e) { log.warn({ e }, "customer activation SMS failed"); }
-            // Notify founder
-            if (env.OWNER_PHONE_NUMBER) {
-              try {
-                await sendOwnerSms(db,
-                  `PickupAI: New paying customer — ${t.name} (${t.owner_phone}). Log in to assign their number: ${env.PUBLIC_BASE_URL}/admin/users/${t.tenant_id}`
-                );
-              } catch (e) { log.warn({ e }, "founder notification SMS failed"); }
-            }
-          }
-        }
-      } else if (event.type === "customer.subscription.deleted") {
-        const sub = event.data.object as Stripe.Subscription;
-        const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
-        const tenants = listTenants(db);
-        const t = tenants.find(x => x.stripe_customer_id === customerId);
-        if (t) {
-          updateTenant(db, t.tenant_id, { payment_status: "expired" });
-          log.info({ tenantId: t.tenant_id }, "Stripe subscription cancelled — account expired");
-        }
-      } else if (event.type === "invoice.payment_failed") {
-        const invoice = event.data.object as Stripe.Invoice;
-        const customerId = typeof invoice.customer === "string" ? invoice.customer : (invoice.customer as any)?.id;
-        const tenants = listTenants(db);
-        const t = tenants.find(x => x.stripe_customer_id === customerId);
-        if (t) {
-          log.warn({ tenantId: t.tenant_id }, "Stripe payment failed — manual follow-up needed");
-        }
-      }
-    } catch (err: any) {
-      log.error({ err }, "Stripe webhook handler error");
-    }
-    res.sendStatus(200);
   });
 
   // User self-service settings
@@ -1285,6 +1898,9 @@ async function main() {
       ai_name: b.ai_name || tenant.ai_name,
       owner_phone: b.owner_phone,
       service_area: b.service_area || null,
+      custom_instructions: b.custom_instructions || null,
+      vacation_mode: b.vacation_mode ? 1 : 0,
+      vacation_message: b.vacation_message || null,
       business_hours_start: b.business_hours_start || tenant.business_hours_start,
       business_hours_end: b.business_hours_end || tenant.business_hours_end,
     });
@@ -1306,8 +1922,10 @@ async function main() {
     const tenant: TenantRow = (req as any).dashTenant;
     const urgency = typeof req.query.urgency === "string" && req.query.urgency ? req.query.urgency : undefined;
     const status = typeof req.query.status === "string" && req.query.status ? req.query.status : undefined;
-    const leads = listLeadsForTenant(db, tenant.tenant_id, { urgency, status });
-    res.send(leadsPage(tenant, leads, { urgency, status }));
+    const search = typeof req.query.search === "string" && req.query.search ? req.query.search : undefined;
+    const leads = listLeadsForTenant(db, tenant.tenant_id, { urgency, status, search });
+    const stats = getTenantLeadStats(db, tenant.tenant_id);
+    res.send(leadsPage(tenant, leads, { urgency, status, search }, stats));
   });
 
   app.get("/dashboard/leads/:id", dashAuth, trialGuard, (req, res) => {
@@ -1315,7 +1933,25 @@ async function main() {
     const lead = getLeadWithCall(db, req.params.id, tenant.tenant_id);
     if (!lead) return res.status(404).send("Lead not found");
     const flash = typeof req.query.flash === "string" ? req.query.flash : undefined;
-    res.send(leadDetailPage(tenant, lead, flash));
+
+    // Check for duplicate leads from the same caller in the last 7 days
+    let duplicateWarning: string | undefined;
+    const callerPhone = lead.phone || lead.from_number;
+    if (callerPhone) {
+      const dupes = db.all<{ lead_id: string; created_at: string }>(
+        `SELECT l.lead_id, l.created_at FROM leads l
+         JOIN calls c ON l.call_id = c.call_id
+         WHERE c.from_number = ? AND l.tenant_id = ? AND l.lead_id != ? AND l.created_at >= ?
+         ORDER BY l.created_at DESC LIMIT 5`,
+        [callerPhone, tenant.tenant_id, req.params.id,
+         new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()]
+      );
+      if (dupes.length > 0) {
+        duplicateWarning = `This caller has ${dupes.length} other lead(s) in the past 7 days. <a href="/dashboard/leads?search=${encodeURIComponent(callerPhone)}">View all →</a>`;
+      }
+    }
+
+    res.send(leadDetailPage(tenant, lead, flash, duplicateWarning));
   });
 
   app.post("/dashboard/leads/:id/status", dashAuth, trialGuard,
@@ -1329,6 +1965,28 @@ async function main() {
       if (!allowed.includes(newStatus)) return res.status(400).send("Invalid status");
       updateLeadStatus(db, req.params.id, newStatus);
       res.redirect(`/dashboard/leads/${req.params.id}?flash=Status+updated`);
+    }
+  );
+
+  // Update job value (ROI tracking)
+  app.post("/dashboard/leads/:id/job-value", dashAuth, trialGuard,
+    express.urlencoded({ extended: false }),
+    (req, res) => {
+      const tenant: TenantRow = (req as any).dashTenant;
+      const lead = getLeadWithCall(db, req.params.id, tenant.tenant_id);
+      if (!lead) return res.status(404).send("Lead not found");
+      const rawValue = req.body?.job_value;
+      const jobValue = rawValue ? parseFloat(rawValue) : null;
+      if (jobValue !== null && (isNaN(jobValue) || jobValue < 0)) {
+        return res.redirect(`/dashboard/leads/${req.params.id}?flash=Invalid+job+value`);
+      }
+      db.run("UPDATE leads SET job_value = ? WHERE lead_id = ? AND tenant_id = ?", [jobValue, req.params.id, tenant.tenant_id]);
+      trackEvent("job_value_updated", {
+        tenant_id: tenant.tenant_id,
+        call_id: lead.call_id,
+        payload: { job_value: jobValue }
+      });
+      res.redirect(`/dashboard/leads/${req.params.id}?flash=Job+value+saved`);
     }
   );
 
@@ -1346,6 +2004,14 @@ async function main() {
   app.get("/debug/notifications/:callId", (req, res) => {
     const notifications = listNotificationsForCall(db, req.params.callId);
     res.json({ notifications });
+  });
+
+  app.get("/debug/analytics", (req, res) => {
+    const tenantId = typeof req.query.tenant_id === "string" ? req.query.tenant_id : undefined;
+    const callId = typeof req.query.call_id === "string" ? req.query.call_id : undefined;
+    const limit = typeof req.query.limit === "string" ? Number(req.query.limit) : undefined;
+    const events = listAnalyticsEvents(db, { tenant_id: tenantId, call_id: callId, limit });
+    res.json({ events });
   });
 
   app.get("/debug/tenants", (req, res) => {
@@ -1389,6 +2055,7 @@ async function main() {
           const fromNumber = state.lead.phone ?? null;
           const tenantId = (state as any).tenantId ?? null;
           const ownerPhone: string | undefined = (state as any).tenantOwnerPhone ?? undefined;
+          const ownerEmail: string | undefined = (state as any).tenantOwnerEmail ?? undefined;
           const isDemo: boolean = (state as any).isDemo === true;
 
           // Resolve the tenant for this call
@@ -1427,6 +2094,7 @@ async function main() {
                   notes: s.lead.notes ?? null,
                   confidence: s.lead.confidence ?? null,
                   next_action: s.lead.next_action ?? null,
+                  job_value: null,
                   lead_status: null
                 });
 
@@ -1444,9 +2112,31 @@ async function main() {
                   status: "completed",
                   ended_at: new Date().toISOString()
                 });
-                notifyOwnerSmsIfNeeded(callSid!, s.callerIntent, ownerPhone).catch((err) =>
+                notifyOwnerSmsIfNeeded(callSid!, s.callerIntent, ownerPhone, ownerEmail).catch((err) =>
                   log.warn({ err }, "owner sms on end_call failed")
                 );
+
+                // Send confirmation SMS to caller if we captured their number
+                // Skip for noise intents (wrong number, spam, silent, abusive)
+                const callerPhone = s.lead.phone ?? null;
+                const shouldConfirmCaller = callerPhone
+                  && callerPhone.trim()
+                  && !callerPhone.startsWith("+PENDING_")
+                  && s.callerIntent
+                  && !NO_SMS_INTENTS.has(s.callerIntent);
+                if (shouldConfirmCaller && callerPhone) {
+                  sendOwnerSms(
+                    db,
+                    `Thanks for calling ${tenant.name}! We've received your enquiry and the team will be in touch shortly.`,
+                    callerPhone
+                  ).catch((err) => log.warn({ err }, "caller confirmation SMS failed"));
+                }
+
+                trackEvent("call_ended_ai_end_call", {
+                  tenant_id: tenant.tenant_id !== "default" ? tenant.tenant_id : null,
+                  call_id: callSid!,
+                  payload: { reason, callerIntent: s.callerIntent }
+                });
                 log.info({ callSid, reason }, "AI requested end_call");
 
                 // Signal the SSE stream to close (demo calls only).
@@ -1463,6 +2153,30 @@ async function main() {
 
               onError: (err) => {
                 log.error({ callSid, err }, "RealtimeSession error");
+                trackEvent("realtime_session_error", {
+                  tenant_id: tenant.tenant_id !== "default" ? tenant.tenant_id : null,
+                  call_id: callSid!,
+                  level: "error",
+                  payload: { message: err?.message ?? String(err) }
+                });
+              },
+
+              onLifecycleEvent: (event, payload) => {
+                const isWarning = event === "end_call_missing_timeout" || event === "end_call_fallback_timeout";
+                if (isWarning) {
+                  log.warn({ callSid, event, ...payload }, "realtime session lifecycle warning");
+                } else {
+                  log.info({ callSid, event, ...payload }, "realtime session lifecycle event");
+                }
+                trackEvent(event, {
+                  tenant_id: tenant.tenant_id !== "default" ? tenant.tenant_id : null,
+                  call_id: callSid!,
+                  level: isWarning ? "warn" : "info",
+                  payload
+                });
+                if (env.STORE_FULL_TRANSCRIPT) {
+                  appendTranscript(db, callSid!, `[event] ${event} ${JSON.stringify(payload ?? {})}`);
+                }
               },
 
               // Live-stream AI audio to the dashboard browser for demo calls.

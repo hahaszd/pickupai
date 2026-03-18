@@ -19,6 +19,9 @@ export type TenantRow = {
   timezone: string;
   enable_warm_transfer: number;
   service_area: string | null;
+  custom_instructions: string | null;
+  vacation_mode: number;
+  vacation_message: string | null;
   active: number;
   created_at: string;
   last_login_at: string | null;
@@ -55,6 +58,7 @@ export type LeadRow = {
   confidence: number | null;
   next_action: string | null;
   lead_status: string | null;
+  job_value: number | null;
   created_at: string;
 };
 
@@ -273,8 +277,8 @@ export function upsertLead(
   db.run(
     `INSERT INTO leads (
       lead_id, tenant_id, call_id, name, phone, address, issue_type, issue_summary,
-      urgency_level, preferred_time, notes, confidence, next_action, lead_status, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      urgency_level, preferred_time, notes, confidence, next_action, lead_status, job_value, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       lead.lead_id,
       lead.tenant_id ?? null,
@@ -290,6 +294,7 @@ export function upsertLead(
       lead.confidence ?? null,
       lead.next_action ?? null,
       lead.lead_status ?? "new",
+      lead.job_value ?? null,
       created_at
     ]
   );
@@ -304,7 +309,7 @@ export function updateLeadStatus(db: Db, leadId: string, status: string) {
 export function listLeadsForTenant(
   db: Db,
   tenantId: string,
-  opts: { limit?: number; urgency?: string; status?: string } = {}
+  opts: { limit?: number; urgency?: string; status?: string; search?: string } = {}
 ): (LeadRow & { recording_url: string | null })[] {
   const conditions = ["l.tenant_id = ?"];
   const params: any[] = [tenantId];
@@ -316,6 +321,11 @@ export function listLeadsForTenant(
   if (opts.status) {
     conditions.push("l.lead_status = ?");
     params.push(opts.status);
+  }
+  if (opts.search) {
+    conditions.push("(LOWER(l.name) LIKE LOWER(?) OR LOWER(l.phone) LIKE LOWER(?) OR LOWER(l.issue_summary) LIKE LOWER(?) OR LOWER(l.address) LIKE LOWER(?))");
+    const s = `%${opts.search}%`;
+    params.push(s, s, s, s);
   }
 
   params.push(opts.limit ?? 100);
@@ -447,6 +457,75 @@ export function newLeadId() {
   return randomUUID();
 }
 
+/**
+ * Find leads from the same caller (by phone) within the last N days for a tenant.
+ * Used for duplicate detection in the admin and dashboard.
+ */
+export function findDuplicateLeads(
+  db: Db,
+  phone: string,
+  tenantId: string,
+  withinDays = 7
+): LeadRow[] {
+  const since = new Date(Date.now() - withinDays * 24 * 60 * 60 * 1000).toISOString();
+  return db.all<LeadRow>(
+    `SELECT l.* FROM leads l
+     JOIN calls c ON l.call_id = c.call_id
+     WHERE c.from_number = ? AND l.tenant_id = ? AND l.created_at >= ?
+     ORDER BY l.created_at DESC`,
+    [phone, tenantId, since]
+  );
+}
+
+/** Get per-tenant lead statistics for the dashboard analytics section. */
+export type TenantLeadStats = {
+  total: number;
+  this_week: number;
+  emergency: number;
+  urgent: number;
+  routine: number;
+  new_status: number;
+  handled: number;
+  booked: number;
+  called_back: number;
+};
+
+export function getTenantLeadStats(db: Db, tenantId: string): TenantLeadStats {
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const totals = db.get<{ total: number; emergency: number; urgent: number; routine: number }>(
+    `SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN urgency_level='emergency' THEN 1 ELSE 0 END) AS emergency,
+      SUM(CASE WHEN urgency_level='urgent' THEN 1 ELSE 0 END) AS urgent,
+      SUM(CASE WHEN urgency_level='routine' OR urgency_level IS NULL THEN 1 ELSE 0 END) AS routine
+    FROM leads WHERE tenant_id = ?`,
+    [tenantId]
+  ) ?? { total: 0, emergency: 0, urgent: 0, routine: 0 };
+
+  const weekCount = db.get<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM leads WHERE tenant_id = ? AND created_at >= ?",
+    [tenantId, weekAgo]
+  )?.n ?? 0;
+
+  const statusCounts = db.all<{ lead_status: string; n: number }>(
+    "SELECT COALESCE(lead_status,'new') AS lead_status, COUNT(*) AS n FROM leads WHERE tenant_id = ? GROUP BY lead_status",
+    [tenantId]
+  );
+  const statusMap = new Map(statusCounts.map(r => [r.lead_status, r.n]));
+
+  return {
+    total: totals.total,
+    this_week: weekCount,
+    emergency: totals.emergency,
+    urgent: totals.urgent,
+    routine: totals.routine,
+    new_status: statusMap.get("new") ?? 0,
+    handled: statusMap.get("handled") ?? 0,
+    booked: statusMap.get("booked") ?? 0,
+    called_back: statusMap.get("called_back") ?? 0
+  };
+}
+
 // ─── Admin stats ──────────────────────────────────────────────────────────────
 
 export type TenantWithStats = Omit<TenantRow, "password_hash" | "session_token"> & {
@@ -484,6 +563,161 @@ export type OverviewStats = {
   sms_today: number;
 };
 
+export type DailyFunnelStats = {
+  day: string;
+  calls_started: number;
+  leads_captured: number;
+  complete_captures: number;
+  sms_total: number;
+  sms_sent: number;
+  demos_started: number;
+  demo_recordings_ready: number;
+};
+
+export function getDailyFunnelStats(db: Db, days = 7): DailyFunnelStats[] {
+  const safeDays = Math.max(1, Math.min(90, Math.floor(days)));
+  const sinceIso = new Date(Date.now() - (safeDays - 1) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  const callsByDay = db.all<{ day: string; n: number }>(
+    `SELECT substr(started_at,1,10) AS day, COUNT(*) AS n
+     FROM calls
+     WHERE started_at IS NOT NULL AND substr(started_at,1,10) >= ?
+     GROUP BY day`,
+    [sinceIso]
+  );
+  const leadsByDay = db.all<{ day: string; n: number }>(
+    `SELECT substr(created_at,1,10) AS day, COUNT(*) AS n
+     FROM leads
+     WHERE created_at IS NOT NULL AND substr(created_at,1,10) >= ?
+     GROUP BY day`,
+    [sinceIso]
+  );
+  const completeByDay = db.all<{ day: string; n: number }>(
+    `SELECT substr(created_at,1,10) AS day, COUNT(*) AS n
+     FROM leads
+     WHERE created_at IS NOT NULL
+       AND substr(created_at,1,10) >= ?
+       AND COALESCE(TRIM(name), '') <> ''
+       AND COALESCE(TRIM(phone), '') <> ''
+       AND COALESCE(TRIM(issue_summary), '') <> ''
+       AND COALESCE(TRIM(urgency_level), '') <> ''
+     GROUP BY day`,
+    [sinceIso]
+  );
+  const smsByDay = db.all<{ day: string; total: number; sent: number }>(
+    `SELECT substr(COALESCE(sent_at,''),1,10) AS day,
+            COUNT(*) AS total,
+            SUM(CASE WHEN status='sent' THEN 1 ELSE 0 END) AS sent
+     FROM notifications
+     WHERE channel='sms'
+       AND sent_at IS NOT NULL
+       AND substr(sent_at,1,10) >= ?
+     GROUP BY day`,
+    [sinceIso]
+  );
+  const demosStartedByDay = db.all<{ day: string; n: number }>(
+    `SELECT substr(created_at,1,10) AS day, COUNT(*) AS n
+     FROM analytics_events
+     WHERE event_name='simulate_demo_started'
+       AND created_at IS NOT NULL
+       AND substr(created_at,1,10) >= ?
+     GROUP BY day`,
+    [sinceIso]
+  );
+  const demosReadyByDay = db.all<{ day: string; n: number }>(
+    `SELECT substr(created_at,1,10) AS day, COUNT(*) AS n
+     FROM analytics_events
+     WHERE event_name='demo_recording_ready'
+       AND created_at IS NOT NULL
+       AND substr(created_at,1,10) >= ?
+     GROUP BY day`,
+    [sinceIso]
+  );
+
+  const callsMap = new Map(callsByDay.map((r) => [r.day, r.n]));
+  const leadsMap = new Map(leadsByDay.map((r) => [r.day, r.n]));
+  const completeMap = new Map(completeByDay.map((r) => [r.day, r.n]));
+  const smsMap = new Map(smsByDay.map((r) => [r.day, { total: r.total, sent: Number(r.sent ?? 0) }]));
+  const demosStartedMap = new Map(demosStartedByDay.map((r) => [r.day, r.n]));
+  const demosReadyMap = new Map(demosReadyByDay.map((r) => [r.day, r.n]));
+
+  const rows: DailyFunnelStats[] = [];
+  for (let i = safeDays - 1; i >= 0; i--) {
+    const day = new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const sms = smsMap.get(day) ?? { total: 0, sent: 0 };
+    rows.push({
+      day,
+      calls_started: callsMap.get(day) ?? 0,
+      leads_captured: leadsMap.get(day) ?? 0,
+      complete_captures: completeMap.get(day) ?? 0,
+      sms_total: sms.total,
+      sms_sent: sms.sent,
+      demos_started: demosStartedMap.get(day) ?? 0,
+      demo_recordings_ready: demosReadyMap.get(day) ?? 0
+    });
+  }
+  return rows;
+}
+
+export type AnalyticsEventRow = {
+  event_id: string;
+  event_name: string;
+  tenant_id: string | null;
+  call_id: string | null;
+  level: string | null;
+  payload_json: string | null;
+  created_at: string;
+};
+
+export function createAnalyticsEvent(
+  db: Db,
+  data: {
+    event_name: string;
+    tenant_id?: string | null;
+    call_id?: string | null;
+    level?: "info" | "warn" | "error";
+    payload_json?: string | null;
+  }
+) {
+  const eventId = randomUUID();
+  db.run(
+    `INSERT INTO analytics_events (event_id, event_name, tenant_id, call_id, level, payload_json, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      eventId,
+      data.event_name,
+      data.tenant_id ?? null,
+      data.call_id ?? null,
+      data.level ?? "info",
+      data.payload_json ?? null,
+      new Date().toISOString()
+    ]
+  );
+  return eventId;
+}
+
+export function listAnalyticsEvents(
+  db: Db,
+  opts: { tenant_id?: string; call_id?: string; limit?: number } = {}
+): AnalyticsEventRow[] {
+  const conditions: string[] = [];
+  const params: any[] = [];
+  if (opts.tenant_id) {
+    conditions.push("tenant_id = ?");
+    params.push(opts.tenant_id);
+  }
+  if (opts.call_id) {
+    conditions.push("call_id = ?");
+    params.push(opts.call_id);
+  }
+  params.push(opts.limit ?? 200);
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  return db.all<AnalyticsEventRow>(
+    `SELECT * FROM analytics_events ${where} ORDER BY created_at DESC LIMIT ?`,
+    params
+  );
+}
+
 export function getOverviewStats(db: Db): OverviewStats {
   const today = new Date().toISOString().slice(0, 10);
   const tenants = db.all<{ twilio_number: string; payment_status: string | null }>(
@@ -505,6 +739,12 @@ export function getOverviewStats(db: Db): OverviewStats {
   )?.n ?? 0;
 
   return { total_tenants, pending_setup, on_trial, active_paying, calls_today, leads_today, sms_today };
+}
+
+export function getFoundingCustomerCount(db: Db): number {
+  return db.get<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM tenants WHERE payment_status IN ('trial','active','cancelling') AND stripe_customer_id IS NOT NULL"
+  )?.n ?? 0;
 }
 
 export type TenantDetail = TenantWithStats & {
@@ -551,6 +791,26 @@ export function generateTempPassword(): string {
   let out = "";
   for (let i = 0; i < 10; i++) out += chars[Math.floor(Math.random() * chars.length)];
   return out;
+}
+
+/** Store a password-reset token (6-digit code) valid for 15 minutes. */
+export function createPasswordResetToken(db: Db, tenantId: string): string {
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  setSystemConfig(db, `pw_reset:${tenantId}`, `${code}:${expiresAt}`);
+  return code;
+}
+
+/** Verify and consume a password-reset token. Returns true if valid (and clears it). */
+export function verifyPasswordResetToken(db: Db, tenantId: string, code: string): boolean {
+  const stored = getSystemConfig(db, `pw_reset:${tenantId}`);
+  if (!stored) return false;
+  const [storedCode, expiresAt] = stored.split(":");
+  if (storedCode !== code) return false;
+  if (new Date(expiresAt) < new Date()) return false;
+  // Consume the token
+  db.run("DELETE FROM system_config WHERE key = ?", [`pw_reset:${tenantId}`]);
+  return true;
 }
 
 // ─── Demo sessions ────────────────────────────────────────────────────────────
@@ -663,4 +923,174 @@ export function setSystemConfig(db: Db, key: string, value: string): void {
 /** List all config entries. */
 export function listSystemConfig(db: Db): SystemConfigRow[] {
   return db.all<SystemConfigRow>("SELECT * FROM system_config ORDER BY key", []);
+}
+
+// ─── Prospects (marketing lead management) ───────────────────────────────────
+
+export type ProspectRow = {
+  prospect_id: string;
+  business_name: string;
+  owner_name: string | null;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  trade_type: string | null;
+  suburb: string | null;
+  state: string;
+  source: string;
+  status: string;
+  google_rating: number | null;
+  review_count: number | null;
+  notes: string | null;
+  last_contacted_at: string | null;
+  next_followup_at: string | null;
+  created_at: string;
+};
+
+export type OutreachLogRow = {
+  log_id: string;
+  prospect_id: string;
+  channel: string;
+  message: string | null;
+  status: string;
+  sent_at: string;
+};
+
+export function createProspect(
+  db: Db,
+  data: Omit<ProspectRow, "prospect_id" | "created_at" | "status"> & { status?: string }
+): ProspectRow {
+  const prospect_id = randomUUID();
+  const now = new Date().toISOString();
+  db.run(
+    `INSERT INTO prospects (
+      prospect_id, business_name, owner_name, phone, email, website,
+      trade_type, suburb, state, source, status, google_rating, review_count,
+      notes, last_contacted_at, next_followup_at, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      prospect_id, data.business_name, data.owner_name ?? null,
+      data.phone ?? null, data.email ?? null, data.website ?? null,
+      data.trade_type ?? null, data.suburb ?? null, data.state ?? "NSW",
+      data.source ?? "manual", data.status ?? "new",
+      data.google_rating ?? null, data.review_count ?? null,
+      data.notes ?? null, data.last_contacted_at ?? null,
+      data.next_followup_at ?? null, now
+    ]
+  );
+  return db.get<ProspectRow>("SELECT * FROM prospects WHERE prospect_id = ?", [prospect_id])!;
+}
+
+export function updateProspect(
+  db: Db,
+  prospectId: string,
+  patch: Partial<Omit<ProspectRow, "prospect_id" | "created_at">>
+) {
+  const keys = Object.keys(patch).filter(k => (patch as any)[k] !== undefined);
+  if (keys.length === 0) return;
+  const setClause = keys.map(k => `${k} = ?`).join(", ");
+  const params = [...keys.map(k => (patch as any)[k]), prospectId];
+  db.run(`UPDATE prospects SET ${setClause} WHERE prospect_id = ?`, params);
+}
+
+export function getProspectById(db: Db, id: string): ProspectRow | null {
+  return db.get<ProspectRow>("SELECT * FROM prospects WHERE prospect_id = ?", [id]) ?? null;
+}
+
+export function listProspects(
+  db: Db,
+  opts: { status?: string; trade_type?: string; suburb?: string; source?: string; limit?: number } = {}
+): ProspectRow[] {
+  const conditions: string[] = [];
+  const params: any[] = [];
+
+  if (opts.status) { conditions.push("status = ?"); params.push(opts.status); }
+  if (opts.trade_type) { conditions.push("trade_type = ?"); params.push(opts.trade_type); }
+  if (opts.suburb) { conditions.push("LOWER(suburb) LIKE LOWER(?)"); params.push(`%${opts.suburb}%`); }
+  if (opts.source) { conditions.push("source = ?"); params.push(opts.source); }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  params.push(opts.limit ?? 500);
+
+  return db.all<ProspectRow>(
+    `SELECT * FROM prospects ${where} ORDER BY created_at DESC LIMIT ?`,
+    params
+  );
+}
+
+export function deleteProspect(db: Db, id: string) {
+  db.run("DELETE FROM prospects WHERE prospect_id = ?", [id]);
+}
+
+export type ProspectStats = {
+  total: number;
+  new_count: number;
+  contacted: number;
+  replied: number;
+  demo_booked: number;
+  trial: number;
+  paying: number;
+  not_interested: number;
+  do_not_contact: number;
+};
+
+export function getProspectStats(db: Db): ProspectStats {
+  const rows = db.all<{ status: string; cnt: number }>(
+    "SELECT status, COUNT(*) AS cnt FROM prospects GROUP BY status", []
+  );
+  const m = new Map(rows.map(r => [r.status, r.cnt]));
+  return {
+    total: rows.reduce((s, r) => s + r.cnt, 0),
+    new_count: m.get("new") ?? 0,
+    contacted: m.get("contacted") ?? 0,
+    replied: m.get("replied") ?? 0,
+    demo_booked: m.get("demo_booked") ?? 0,
+    trial: m.get("trial") ?? 0,
+    paying: m.get("paying") ?? 0,
+    not_interested: m.get("not_interested") ?? 0,
+    do_not_contact: m.get("do_not_contact") ?? 0
+  };
+}
+
+/** Bulk-insert prospects from CSV rows, skipping duplicates by phone. */
+export function importProspects(
+  db: Db,
+  rows: Array<Omit<ProspectRow, "prospect_id" | "created_at" | "status">>
+): { imported: number; skipped: number } {
+  let imported = 0;
+  let skipped = 0;
+  for (const row of rows) {
+    if (row.phone) {
+      const existing = db.get<{ prospect_id: string }>(
+        "SELECT prospect_id FROM prospects WHERE phone = ?", [row.phone]
+      );
+      if (existing) { skipped++; continue; }
+    }
+    createProspect(db, row);
+    imported++;
+  }
+  return { imported, skipped };
+}
+
+// ─── Outreach log ─────────────────────────────────────────────────────────────
+
+export function createOutreachLog(
+  db: Db,
+  data: { prospect_id: string; channel: string; message?: string; status?: string }
+): OutreachLogRow {
+  const log_id = randomUUID();
+  const now = new Date().toISOString();
+  db.run(
+    `INSERT INTO outreach_log (log_id, prospect_id, channel, message, status, sent_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [log_id, data.prospect_id, data.channel, data.message ?? null, data.status ?? "sent", now]
+  );
+  return { log_id, prospect_id: data.prospect_id, channel: data.channel, message: data.message ?? null, status: data.status ?? "sent", sent_at: now };
+}
+
+export function listOutreachForProspect(db: Db, prospectId: string): OutreachLogRow[] {
+  return db.all<OutreachLogRow>(
+    "SELECT * FROM outreach_log WHERE prospect_id = ? ORDER BY sent_at DESC",
+    [prospectId]
+  );
 }

@@ -60,6 +60,16 @@ CREATE TABLE IF NOT EXISTS notifications (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_call_channel
   ON notifications(call_id, channel);
 
+CREATE TABLE IF NOT EXISTS analytics_events (
+  event_id     TEXT PRIMARY KEY,
+  event_name   TEXT NOT NULL,
+  tenant_id    TEXT,
+  call_id      TEXT,
+  level        TEXT DEFAULT 'info',
+  payload_json TEXT,
+  created_at   TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS system_config (
   key        TEXT PRIMARY KEY,
   value      TEXT NOT NULL,
@@ -80,6 +90,20 @@ export const migrationStatements = [
   `ALTER TABLE tenants ADD COLUMN payment_status TEXT DEFAULT 'none'`,
   `ALTER TABLE tenants ADD COLUMN trial_ends_at TEXT`,
   `ALTER TABLE tenants ADD COLUMN stripe_customer_id TEXT`,
+  `ALTER TABLE tenants ADD COLUMN custom_instructions TEXT`,
+  `ALTER TABLE leads ADD COLUMN job_value REAL`,
+  `ALTER TABLE tenants ADD COLUMN vacation_mode INTEGER DEFAULT 0`,
+  `ALTER TABLE tenants ADD COLUMN vacation_message TEXT`,
+  // Multi-user support: additional dashboard users per tenant (read-only or admin)
+  `CREATE TABLE IF NOT EXISTS tenant_users (
+    user_id      TEXT PRIMARY KEY,
+    tenant_id    TEXT NOT NULL REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+    email        TEXT NOT NULL,
+    password_hash TEXT,
+    role         TEXT NOT NULL DEFAULT 'viewer',
+    session_token TEXT,
+    created_at   TEXT NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS demo_sessions (
     demo_number   TEXT NOT NULL PRIMARY KEY,
     tenant_id     TEXT NOT NULL REFERENCES tenants(tenant_id) ON DELETE CASCADE,
@@ -90,5 +114,41 @@ export const migrationStatements = [
     key        TEXT PRIMARY KEY,
     value      TEXT NOT NULL,
     updated_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS prospects (
+    prospect_id       TEXT PRIMARY KEY,
+    business_name     TEXT NOT NULL,
+    owner_name        TEXT,
+    phone             TEXT,
+    email             TEXT,
+    website           TEXT,
+    trade_type        TEXT,
+    suburb            TEXT,
+    state             TEXT DEFAULT 'NSW',
+    source            TEXT DEFAULT 'manual',
+    status            TEXT DEFAULT 'new',
+    google_rating     REAL,
+    review_count      INTEGER,
+    notes             TEXT,
+    last_contacted_at TEXT,
+    next_followup_at  TEXT,
+    created_at        TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS outreach_log (
+    log_id      TEXT PRIMARY KEY,
+    prospect_id TEXT NOT NULL REFERENCES prospects(prospect_id) ON DELETE CASCADE,
+    channel     TEXT NOT NULL,
+    message     TEXT,
+    status      TEXT DEFAULT 'sent',
+    sent_at     TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS analytics_events (
+    event_id     TEXT PRIMARY KEY,
+    event_name   TEXT NOT NULL,
+    tenant_id    TEXT,
+    call_id      TEXT,
+    level        TEXT DEFAULT 'info',
+    payload_json TEXT,
+    created_at   TEXT NOT NULL
   )`
 ];

@@ -6,6 +6,9 @@ secrets/
 # Runtime data
 data/
 
+# Scraped lead CSV files (contain business contact data)
+leads-*.csv
+
 # Build output
 dist/
 

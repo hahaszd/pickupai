@@ -4,6 +4,11 @@ import pino from "pino";
 import { env } from "../env.js";
 import type { LeadRow, TenantRow } from "../db/repo.js";
 import type { LeadDraft } from "../twilio/state.js";
+import {
+  safeParseFunctionArgs,
+  sanitizeEndCallReason,
+  sanitizeSaveLeadArgs
+} from "./tool-call-guards.js";
 
 const log = pino({ level: "info" });
 
@@ -327,6 +332,29 @@ Greet them warmly as a returning customer. You may reference their history to be
 
   const demoSection = isDemo ? buildDemoSection(tenant) : "";
 
+  // Vacation/holiday mode — override normal intake with "away" messaging
+  const vacationSection = tenant.vacation_mode
+    ? `
+# Holiday / Vacation Mode — IMPORTANT
+The business is currently ON HOLIDAY or AWAY and not taking new bookings.
+${tenant.vacation_message?.trim() ? `The owner has provided this message: "${tenant.vacation_message.trim()}"` : ""}
+When a caller contacts you:
+- Tell them politely that the business is currently on holiday/away.
+${tenant.vacation_message?.trim() ? `- Share the owner's message if relevant.` : ""}
+- Still take their name, phone number, and a brief description of what they need.
+- Reassure them that the team will get back to them when they return.
+- Set next_action to "HOLIDAY MODE - call back on return"
+- Still call save_lead() and end_call() as normal.`
+    : "";
+
+  // Owner-provided custom instructions (business-specific rules, pricing notes, etc.)
+  const customSection = tenant.custom_instructions?.trim()
+    ? `
+# Owner Instructions
+The business owner has provided the following specific instructions — follow them carefully:
+${tenant.custom_instructions.trim()}`
+    : "";
+
   return `${demoSection}# Role & Objective
 You are ${aiName}, the friendly receptionist for ${businessName}, an Australian ${tradeLabel} business. You answer calls 24/7.
 Your goal: collect enough information about the caller's job so the business owner can follow up.
@@ -424,6 +452,8 @@ The farewell MUST contain two parts: (a) a brief honest note that you're an AI a
 - If there is any risk to life: treat as emergency, set urgency=emergency, end call quickly with save_lead.
 - After 2+ turns with no response at all: end_call with reason="silent caller".
 - After abusive language persists after one warning: end_call with reason="abusive caller".
+${vacationSection}
+${customSection}
 ${historySection}`;
 }
 
@@ -436,6 +466,8 @@ export type SessionCallbacks = {
   onEndCall: (reason: string) => void;
   /** Called when the OpenAI session errors unrecoverably */
   onError: (err: Error) => void;
+  /** Lifecycle telemetry hooks for observability and alerting. */
+  onLifecycleEvent?: (event: string, payload?: Record<string, unknown>) => void;
   /**
    * Called for every audio chunk the AI sends back (base64 PCMU 8kHz).
    * Used to live-stream demo calls to the dashboard browser client via SSE.
@@ -462,6 +494,8 @@ export class RealtimeSession {
   private ended = false;
   /** Set when end_call fires; consumed by the response.done handler. */
   private pendingEndReason: string | null = null;
+  private maxCallTimer: NodeJS.Timeout | null = null;
+  private endCallFallbackTimer: NodeJS.Timeout | null = null;
 
   constructor(opts: {
     twilioWs: TwilioWs;
@@ -484,6 +518,7 @@ export class RealtimeSession {
 
     this.openAiWs.on("open", () => {
       log.info({ callSid: opts.callSid }, "OpenAI Realtime connected");
+      this.scheduleMaxCallWatchdog();
       this.initSession(instructions);
     });
 
@@ -619,17 +654,14 @@ export class RealtimeSession {
 
   private handleFunctionCall(event: any) {
     const name: string = event.name;
-    let args: Record<string, any> = {};
-    try {
-      args = JSON.parse(event.arguments ?? "{}");
-    } catch {
-      log.warn({ callSid: this.callSid, raw: event.arguments }, "Failed to parse function args");
-    }
+    const args = safeParseFunctionArgs(event.arguments);
 
     const callId = event.call_id;
 
     if (name === "save_lead") {
-      this.callbacks.onLeadUpdate(args);
+      const patch = sanitizeSaveLeadArgs(args);
+      this.callbacks.onLeadUpdate(patch);
+      this.callbacks.onLifecycleEvent?.("save_lead_invoked", { callSid: this.callSid });
       // Acknowledge the function call so the model can continue speaking.
       this.send({
         type: "conversation.item.create",
@@ -643,6 +675,7 @@ export class RealtimeSession {
     } else if (name === "end_call") {
       if (this.ended) return;
       this.ended = true;
+      this.callbacks.onLifecycleEvent?.("end_call_invoked", { callSid: this.callSid });
       // Acknowledge so the model can speak its farewell.
       this.send({
         type: "conversation.item.create",
@@ -655,16 +688,34 @@ export class RealtimeSession {
       this.send({ type: "response.create" });
       // Store the reason — hangup is triggered by waitForMarksDrained() once
       // response.done fires and Twilio has played all buffered audio.
-      this.pendingEndReason = args.reason ?? "conversation complete";
+      this.pendingEndReason = sanitizeEndCallReason(args);
       // Hard safety fallback: if response.done never arrives within 15 s, hang up anyway.
-      setTimeout(() => {
+      this.endCallFallbackTimer = setTimeout(() => {
         if (this.pendingEndReason !== null) {
           const r = this.pendingEndReason;
           this.pendingEndReason = null;
+          this.callbacks.onLifecycleEvent?.("end_call_fallback_timeout", {
+            callSid: this.callSid,
+            reason: r
+          });
           this.callbacks.onEndCall(r);
         }
       }, 15_000);
     }
+  }
+
+  private scheduleMaxCallWatchdog() {
+    const maxMs = env.MAX_CALL_DURATION_MS;
+    this.maxCallTimer = setTimeout(() => {
+      if (this.ended) return;
+      this.ended = true;
+      this.pendingEndReason = null;
+      this.callbacks.onLifecycleEvent?.("end_call_missing_timeout", {
+        callSid: this.callSid,
+        maxCallDurationMs: maxMs
+      });
+      this.callbacks.onEndCall("safety timeout: end_call missing");
+    }, maxMs);
   }
 
   // ── Wait for Twilio to finish playing buffered audio before hanging up ────
@@ -734,6 +785,14 @@ export class RealtimeSession {
   // ── Cleanup ───────────────────────────────────────────────────────────────
 
   cleanup() {
+    if (this.maxCallTimer) {
+      clearTimeout(this.maxCallTimer);
+      this.maxCallTimer = null;
+    }
+    if (this.endCallFallbackTimer) {
+      clearTimeout(this.endCallFallbackTimer);
+      this.endCallFallbackTimer = null;
+    }
     if (this.openAiWs.readyState === WebSocket.OPEN) {
       this.openAiWs.close();
     }

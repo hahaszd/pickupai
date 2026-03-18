@@ -7,7 +7,7 @@
  *   TARGET=dev    → https://pickupai-dev.ai-builders.space (sig validation off, real Twilio calls)
  *   TARGET=prod   → https://pickupai.ai-builders.space (sig validation ON, safe subset only)
  *
- * Covers all 44 test cases across 10 groups:
+ * Covers all 53 test cases across 12 groups:
  *   Group 1  - Infrastructure
  *   Group 2  - Admin API
  *   Group 3  - Dashboard auth
@@ -18,10 +18,17 @@
  *   Group 8  - Self-serve signup
  *   Group 9  - Welcome page & demo flow (T40 runs real Twilio call in dev mode)
  *   Group 10 - Landing page CTA & setup guide
+ *   Group 11 - Inbound scenario matrix + dialog quality gates
+ *   Group 12 - Webhook resilience + idempotency checks
  */
 
 import { formatOwnerSms, NO_SMS_INTENTS } from "../src/twilio/sms.js";
 import { buildServiceAreaSection } from "../src/realtime/session.js";
+import {
+  INBOUND_SCENARIO_MATRIX,
+  evaluateCaptureQuality,
+  expectedSmsForIntent
+} from "../src/testing/inbound-scenarios.js";
 import type { LeadRow } from "../src/db/repo.js";
 import { execSync } from "node:child_process";
 
@@ -913,6 +920,147 @@ await check("T44", "GET /dashboard/setup-guide (authenticated) → 200 HTML with
     html.toLowerCase().includes("forward") || html.toLowerCase().includes("divert") || html.toLowerCase().includes("setup"),
     `setup guide should contain forwarding instructions`
   );
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GROUP 11 — Inbound scenario matrix + dialog quality gates
+// ═══════════════════════════════════════════════════════════════════════════════
+
+console.log("\n── Group 11: Inbound Scenario Matrix & Quality Gates ───────────");
+
+await check("T45", "Scenario matrix includes P0/P1/P2 and at least 8 P0 cases", async () => {
+  const priorities = new Set(INBOUND_SCENARIO_MATRIX.map((s) => s.priority));
+  assert(priorities.has("P0"), "scenario matrix missing P0");
+  assert(priorities.has("P1"), "scenario matrix missing P1");
+  assert(priorities.has("P2"), "scenario matrix missing P2");
+  const p0 = INBOUND_SCENARIO_MATRIX.filter((s) => s.priority === "P0");
+  assert(p0.length >= 8, `expected at least 8 P0 scenarios, got ${p0.length}`);
+});
+
+await check("T46", "Each scenario SMS expectation matches NO_SMS_INTENTS policy", async () => {
+  for (const scenario of INBOUND_SCENARIO_MATRIX) {
+    const expected = expectedSmsForIntent(scenario.intent);
+    assert(
+      scenario.assertions.shouldSendOwnerSms === expected,
+      `scenario ${scenario.id}: expected shouldSendOwnerSms=${expected}, got ${scenario.assertions.shouldSendOwnerSms}`
+    );
+    if (NO_SMS_INTENTS.has(scenario.intent)) {
+      assert(!scenario.assertions.shouldSendOwnerSms, `${scenario.id} should suppress SMS`);
+    }
+  }
+});
+
+await check("T47", "Dialog quality gate: full capture passes complete", async () => {
+  const quality = evaluateCaptureQuality({
+    name: "John Smith",
+    phone: "+61412345678",
+    issue_summary: "Burst pipe in kitchen",
+    urgency_level: "emergency",
+    caller_intent: "new_job",
+    address: "Parramatta 2150"
+  });
+  assert(quality.level === "pass_complete", `expected pass_complete, got ${quality.level}`);
+  assert(quality.missingCoreFields.length === 0, "should have no missing core fields");
+});
+
+await check("T48", "Dialog quality gate: partial capture still passes degraded", async () => {
+  const quality = evaluateCaptureQuality({
+    phone: "+61499999999",
+    issue_summary: "No power in half the house"
+  });
+  assert(quality.level === "pass_degraded", `expected pass_degraded, got ${quality.level}`);
+});
+
+await check("T49", "Dialog quality gate: missing phone + issue_summary fails", async () => {
+  const quality = evaluateCaptureQuality({
+    name: "No callback caller"
+  });
+  assert(quality.level === "fail", `expected fail, got ${quality.level}`);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GROUP 12 — Webhook resilience + idempotency checks
+// ═══════════════════════════════════════════════════════════════════════════════
+
+console.log("\n── Group 12: Webhook Resilience & Idempotency ──────────────────");
+
+await check("T50", PROD_MODE
+  ? "POST /twilio/voice/status duplicate completed (unsigned) → 403"
+  : "POST /twilio/voice/status duplicate completed events → 200 both times",
+async () => {
+  const first = await postTwiml("/twilio/voice/status", {
+    CallSid: TEST_CALL_SID,
+    CallStatus: "completed"
+  });
+  const second = await postTwiml("/twilio/voice/status", {
+    CallSid: TEST_CALL_SID,
+    CallStatus: "completed"
+  });
+  if (PROD_MODE) {
+    assert((first.status === 401 || first.status === 403), `expected 401/403, got ${first.status}`);
+    assert((second.status === 401 || second.status === 403), `expected 401/403, got ${second.status}`);
+  } else {
+    assert(first.status === 200, `expected first status 200, got ${first.status}`);
+    assert(second.status === 200, `expected second status 200, got ${second.status}`);
+  }
+});
+
+await check("T51", PROD_MODE
+  ? "POST /twilio/voice/recording without RecordingUrl (unsigned) → 403"
+  : "POST /twilio/voice/recording without RecordingUrl → 200 (graceful)",
+async () => {
+  const { status } = await postTwiml("/twilio/voice/recording", {
+    CallSid: TEST_CALL_SID,
+    RecordingSid: "RE_NO_URL_TEST"
+  });
+  if (PROD_MODE) {
+    assert(status === 401 || status === 403, `expected 401/403, got ${status}`);
+  } else {
+    assert(status === 200, `expected 200, got ${status}`);
+  }
+});
+
+await check("T52", PROD_MODE
+  ? "POST /twilio/voice/transfer-fallback (unsigned) → 403"
+  : "POST /twilio/voice/transfer-fallback → TwiML with <Connect><Stream>",
+async () => {
+  const { status, body } = await postTwiml("/twilio/voice/transfer-fallback", {
+    CallSid: "CA_TRANSFER_FALLBACK_TEST"
+  });
+  if (PROD_MODE) {
+    assert(status === 401 || status === 403, `expected 401/403, got ${status}`);
+  } else {
+    assert(status === 200, `expected 200, got ${status}`);
+    assert(body.includes("<Connect>"), `expected <Connect>, got: ${body.slice(0, 200)}`);
+    assert(body.includes("<Stream"), `expected <Stream>, got: ${body.slice(0, 200)}`);
+  }
+});
+
+await check("T53", PROD_MODE
+  ? "POST /twilio/voice/incoming retry (unsigned) → 403"
+  : "POST /twilio/voice/incoming retry on same CallSid → valid TwiML both times",
+async () => {
+  const first = await postTwiml("/twilio/voice/incoming", {
+    CallSid: "CA_INCOMING_RETRY_TEST",
+    From: "+61415550001",
+    To: SEED_TWILIO_NUMBER,
+    CallStatus: "ringing"
+  });
+  const second = await postTwiml("/twilio/voice/incoming", {
+    CallSid: "CA_INCOMING_RETRY_TEST",
+    From: "+61415550001",
+    To: SEED_TWILIO_NUMBER,
+    CallStatus: "ringing"
+  });
+  if (PROD_MODE) {
+    assert(first.status === 401 || first.status === 403, `expected 401/403, got ${first.status}`);
+    assert(second.status === 401 || second.status === 403, `expected 401/403, got ${second.status}`);
+  } else {
+    assert(first.status === 200, `expected first status 200, got ${first.status}`);
+    assert(second.status === 200, `expected second status 200, got ${second.status}`);
+    assert(first.body.includes("<Connect>"), "first retry response missing <Connect>");
+    assert(second.body.includes("<Connect>"), "second retry response missing <Connect>");
+  }
 });
 
 // ─── Cleanup: remove signup test tenant ──────────────────────────────────────

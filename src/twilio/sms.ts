@@ -1,8 +1,11 @@
+import pino from "pino";
 import { env } from "../env.js";
 import type { Db } from "../db/db.js";
 import type { LeadRow } from "../db/repo.js";
 import { getSystemConfig } from "../db/repo.js";
 import { twilioClient } from "./client.js";
+
+const log = pino({ level: "info" });
 
 let smsNumberIndex = 0;
 
@@ -35,6 +38,7 @@ const INTENT_HEADERS: Record<string, string> = {
   job_applicant: "JOB APPLICANT",
   supplier: "SUPPLIER CALL",
   trade_referral: "REFERRAL",
+  voicemail: "VOICEMAIL 📞",
   unknown: "CALL"
 };
 
@@ -46,6 +50,10 @@ export const NO_SMS_INTENTS = new Set([
   "silent",
   "abusive"
 ]);
+
+export type SendOwnerSmsResult =
+  | { status: "sent"; sid: string; to: string; from: string }
+  | { status: "skipped"; reason: "no_recipient" | "no_sender" };
 
 export function formatOwnerSms(opts: {
   lead: LeadRow;
@@ -76,16 +84,21 @@ export function formatOwnerSms(opts: {
   return lines.join("\n");
 }
 
-export async function sendOwnerSms(db: Db, body: string, ownerPhone?: string) {
+export async function sendOwnerSms(
+  db: Db,
+  body: string,
+  ownerPhone?: string
+): Promise<SendOwnerSmsResult> {
   const to = ownerPhone ?? env.OWNER_PHONE_NUMBER;
   if (!to) {
-    console.warn("[sms] skipping SMS — no recipient phone number");
-    return null;
+    log.warn("skipping SMS — no recipient phone number");
+    return { status: "skipped", reason: "no_recipient" };
   }
   const from = nextSmsNumber(db);
   if (!from) {
-    console.warn("[sms] skipping SMS — no sender numbers configured");
-    return null;
+    log.warn("skipping SMS — no sender numbers configured");
+    return { status: "skipped", reason: "no_sender" };
   }
-  return twilioClient.messages.create({ to, from, body });
+  const message = await twilioClient.messages.create({ to, from, body });
+  return { status: "sent", sid: message.sid, to, from };
 }

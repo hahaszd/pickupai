@@ -48,6 +48,9 @@ const envSchema = z.object({
 
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_VOICE: z.string().default("sage"),
+  // Hard guardrail: force-call completion if model never invokes end_call().
+  // Defaults to 5 minutes to avoid stuck media streams and leaked call resources.
+  MAX_CALL_DURATION_MS: z.coerce.number().int().positive().default(300000),
 
   AIRTABLE_API_TOKEN: z.string().optional(),
   AIRTABLE_BASE_ID: z.string().optional(),
@@ -94,7 +97,23 @@ const envSchema = z.object({
   // Price ID from Stripe dashboard (Product → Price → copy ID e.g. price_xxx)
   STRIPE_PRICE_ID:       z.string().optional(),
   // Signing secret from Stripe dashboard → Webhooks → your endpoint → Signing secret
-  STRIPE_WEBHOOK_SECRET: z.string().optional()
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  // Stripe coupon ID for the founding customer offer ($50/mo off for 3 months).
+  // Create the coupon in Stripe Dashboard → Coupons, then paste the ID here.
+  STRIPE_FOUNDING_COUPON_ID: z.string().optional(),
+
+  // ── Email (optional SMTP for owner lead notifications) ───────────────────────
+  // Supports any SMTP server: Resend, Postmark, SendGrid, Mailgun, etc.
+  // When set, lead notifications are sent by both SMS and email.
+  SMTP_HOST:   z.string().optional(),
+  SMTP_PORT:   z.coerce.number().optional().default(465),
+  SMTP_SECURE: z.enum(["true","false"]).optional().default("true").transform(v => v === "true"),
+  SMTP_USER:   z.string().optional(),
+  SMTP_PASS:   z.string().optional(),
+  SMTP_FROM:   z.string().optional().default("PickupAI <noreply@pickupai.com.au>"),
+
+  // Google Places API key for lead scraping (scripts/collect-leads.ts)
+  GOOGLE_PLACES_API_KEY: z.string().optional()
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -8,6 +8,18 @@ function trialDaysLeft(tenant: TenantRow): number | null {
 }
 
 function trialBannerHtml(tenant: TenantRow): string {
+  if (tenant.vacation_mode) {
+    return `<div style="background:#fef9c3;color:#854d0e;text-align:center;padding:.6rem 1rem;font-size:.85rem;font-weight:600">
+      ⛱️ Holiday mode is active — callers are being told you're away.
+      <a href="/dashboard/settings" style="color:#854d0e;text-decoration:underline">Turn it off →</a>
+    </div>`;
+  }
+  if (tenant.payment_status === "payment_failed") {
+    return `<div style="background:#fee2e2;color:#dc2626;text-align:center;padding:.6rem 1rem;font-size:.85rem;font-weight:600">
+      Payment failed — your subscription may be cancelled soon.
+      <a href="/dashboard/upgrade?reason=payment_failed" style="color:#dc2626;text-decoration:underline">Update payment method →</a>
+    </div>`;
+  }
   const days = trialDaysLeft(tenant);
   if (days === null || days > 7) return "";
   if (days <= 0) {
@@ -36,7 +48,7 @@ function shell(title: string, body: string, tenant?: TenantRow) {
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
       --brand: #2563eb; --brand-dark: #1d4ed8;
-      --red: #dc2626; --orange: #ea580c; --green: #16a34a;
+      --red: #dc2626; --orange: #ea580c; --amber: #d97706; --green: #16a34a;
       --gray-50: #f8fafc; --gray-100: #f1f5f9; --gray-200: #e2e8f0;
       --gray-400: #94a3b8; --gray-600: #475569; --gray-800: #1e293b;
       --radius: 8px; --shadow: 0 1px 3px rgba(0,0,0,.12);
@@ -161,11 +173,12 @@ function formatDate(iso: string | null) {
 
 // ─── Login page ───────────────────────────────────────────────────────────────
 
-export function loginPage(error?: string) {
+export function loginPage(error?: string, flash?: string) {
   const body = `
 <div style="max-width:400px;margin:4rem auto;">
   <div class="card">
     <h2 style="text-align:center;margin-bottom:1.5rem;">Sign in to Dashboard</h2>
+    ${flash ? `<div class="alert alert-success">${escape(flash)}</div>` : ""}
     ${error ? `<div class="alert alert-error">${escape(error)}</div>` : ""}
     <form method="POST" action="/dashboard/login">
       <div class="form-group">
@@ -178,7 +191,10 @@ export function loginPage(error?: string) {
       </div>
       <button type="submit" class="btn btn-primary" style="width:100%;margin-top:.5rem;">Sign in</button>
     </form>
-    <p style="text-align:center;margin-top:1.25rem;font-size:.85rem;color:var(--gray-600);">
+    <p style="text-align:center;margin-top:1rem;font-size:.85rem;color:var(--gray-600);">
+      <a href="/dashboard/forgot-password">Forgot your password?</a>
+    </p>
+    <p style="text-align:center;margin-top:.5rem;font-size:.85rem;color:var(--gray-600);">
       No account? <a href="/dashboard/signup">Start your free 14-day trial →</a>
     </p>
   </div>
@@ -189,7 +205,7 @@ export function loginPage(error?: string) {
 // ─── Sign up page ─────────────────────────────────────────────────────────────
 
 export function signupPage(error?: string, prefill: Record<string, string> = {}) {
-  const trades = ["plumber","electrician","roofer","painter","carpenter","tiler","handyman"];
+  const trades = ["plumber","electrician","roofer","handyman","painter","carpenter","tiler","builder","other"];
   const tradeOptions = trades.map(t =>
     `<option value="${t}"${prefill.trade_type === t ? " selected" : ""}>${t.charAt(0).toUpperCase() + t.slice(1)}</option>`
   ).join("");
@@ -229,6 +245,15 @@ export function signupPage(error?: string, prefill: Record<string, string> = {})
       <div class="form-group">
         <label for="password">Password <span style="font-size:.8rem;font-weight:400;color:var(--gray-600);">(min 8 characters)</span></label>
         <input type="password" id="password" name="password" required minlength="8" />
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:flex-start;gap:.65rem;cursor:pointer;font-weight:400;">
+          <input type="checkbox" name="terms_accepted" required style="width:auto;margin-top:.2rem;" />
+          <span style="font-size:.85rem;">I agree to the
+            <a href="/terms" target="_blank">Terms of Service</a> and
+            <a href="/privacy" target="_blank">Privacy Policy</a>
+          </span>
+        </label>
       </div>
       <button type="submit" class="btn btn-primary" style="width:100%;margin-top:.5rem;padding:.65rem;">
         Create account &amp; start trial →
@@ -366,6 +391,9 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
           Your AI receptionist is taking a call from a simulated customer right now.
           Click below to listen live — you'll hear everything the AI says in real-time.
         </p>
+        <p style="font-size:.78rem;color:var(--gray-400);margin-bottom:.9rem;">
+          If audio does not start within 1-2 minutes, keep this page open and check back — the recording will appear automatically once ready.
+        </p>
         <div id="live-audio-area">
           <button id="listen-btn" class="btn btn-primary" style="width:100%;margin-bottom:.6rem;">
             🎧 Listen Live
@@ -432,31 +460,70 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
               nextPlayTime += buf.duration;
             }
 
-            var evtSource = new EventSource('/dashboard/demo-audio-stream');
+            var evtSource = null;
+            var reconnectAttempts = 0;
+            var maxReconnectAttempts = 2;
+            var demoStatusPoll = null;
 
-            evtSource.onopen = function() {
-              status.innerHTML = '<span style="color:#dc2626;font-size:1rem;">●</span> Live — listening to your AI receptionist…';
-            };
+            function openStream() {
+              evtSource = new EventSource('/dashboard/demo-audio-stream');
+              evtSource.onopen = function() {
+                reconnectAttempts = 0;
+                status.innerHTML = '<span style="color:#dc2626;font-size:1rem;">●</span> Live — listening to your AI receptionist…';
+              };
 
-            evtSource.onmessage = function(e) {
-              if (ctx.state === 'suspended') ctx.resume();
-              playChunk(e.data);
-            };
+              evtSource.onmessage = function(e) {
+                if (ctx.state === 'suspended') ctx.resume();
+                playChunk(e.data);
+              };
 
-            evtSource.addEventListener('end', function() {
-              evtSource.close();
-              ctx.close();
-              status.innerHTML = '✓ Call finished. Check your phone (<strong>${escape(tenant.owner_phone)}</strong>) for the lead SMS!';
-              btn.style.display = 'none';
+              evtSource.addEventListener('end', function() {
+                if (evtSource) evtSource.close();
+                if (demoStatusPoll) clearInterval(demoStatusPoll);
+                ctx.close();
+                status.innerHTML = '✓ Call finished. Check your phone (<strong>${escape(tenant.owner_phone)}</strong>) for the lead SMS!';
+                btn.style.display = 'none';
+              });
+
+              evtSource.onerror = function() {
+                if (!evtSource) return;
+                if (evtSource.readyState === EventSource.CLOSED) {
+                  if (reconnectAttempts < maxReconnectAttempts) {
+                    reconnectAttempts += 1;
+                    status.textContent = 'Connection dropped — reconnecting...';
+                    setTimeout(openStream, 1500);
+                    return;
+                  }
+                  status.textContent = 'Live stream ended. Demo may still be processing — recording will appear once ready.';
+                } else {
+                  status.textContent = 'Connection issue — retrying stream...';
+                }
+              };
+            }
+
+            // Poll demo status so users get a clear completion signal even when SSE drops.
+            demoStatusPoll = setInterval(function() {
+              fetch('/dashboard/demo-status')
+                .then(function(r) { return r.json(); })
+                .then(function(body) {
+                  if (body && body.status === 'ready') {
+                    if (evtSource) evtSource.close();
+                    if (demoStatusPoll) clearInterval(demoStatusPoll);
+                    status.innerHTML = '✓ Demo recording is ready. You can refresh this page or open your Leads dashboard.';
+                  }
+                })
+                .catch(function() {
+                  // Keep polling silently; transient network errors are expected.
+                });
+            }, 8000);
+
+            openStream();
+
+            window.addEventListener('beforeunload', function() {
+              if (evtSource) evtSource.close();
+              if (demoStatusPoll) clearInterval(demoStatusPoll);
+              if (ctx && ctx.state !== 'closed') ctx.close();
             });
-
-            evtSource.onerror = function() {
-              if (evtSource.readyState === EventSource.CLOSED) {
-                status.textContent = '✓ Call completed.';
-              } else {
-                status.textContent = 'Connection issue — the call may still be in progress.';
-              }
-            };
           });
 
           // Auto-click the listen button after a short delay so the user sees it
@@ -575,7 +642,8 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
 export function leadsPage(
   tenant: TenantRow,
   leads: (LeadRow & { recording_url: string | null })[],
-  filters: { urgency?: string; status?: string }
+  filters: { urgency?: string; status?: string; search?: string },
+  stats?: { total: number; this_week: number; emergency: number; urgent: number; routine: number; new_status: number; handled: number; booked: number; called_back: number }
 ) {
   const urgencyOpts = [
     { v: "", label: "All urgencies" },
@@ -591,23 +659,48 @@ export function leadsPage(
     { v: "called_back", label: "Called back" }
   ];
 
-  const qs = (u?: string, s?: string) => {
+  const qs = (u?: string, s?: string, q?: string) => {
     const p = new URLSearchParams();
     if (u) p.set("urgency", u);
     if (s) p.set("status", s);
+    if (q) p.set("search", q);
     const str = p.toString();
     return str ? `?${str}` : "";
   };
 
   const urgencyFilters = urgencyOpts.map(o => {
     const active = (filters.urgency ?? "") === o.v ? " active" : "";
-    return `<a href="/dashboard/leads${qs(o.v, filters.status)}" class="filter-chip${active}">${o.label}</a>`;
+    return `<a href="/dashboard/leads${qs(o.v, filters.status, filters.search)}" class="filter-chip${active}">${o.label}</a>`;
   }).join("");
 
   const statusFilters = statusOpts.map(o => {
     const active = (filters.status ?? "") === o.v ? " active" : "";
-    return `<a href="/dashboard/leads${qs(filters.urgency, o.v)}" class="filter-chip${active}">${o.label}</a>`;
+    return `<a href="/dashboard/leads${qs(filters.urgency, o.v, filters.search)}" class="filter-chip${active}">${o.label}</a>`;
   }).join("");
+
+  const statsBar = stats ? `
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.75rem;margin-bottom:1.25rem;">
+  <div class="card" style="padding:.85rem;text-align:center;">
+    <div style="font-size:1.6rem;font-weight:700;color:var(--brand)">${stats.total}</div>
+    <div style="font-size:.75rem;color:var(--gray-600);text-transform:uppercase;letter-spacing:.4px">Total</div>
+  </div>
+  <div class="card" style="padding:.85rem;text-align:center;">
+    <div style="font-size:1.6rem;font-weight:700;color:var(--brand)">${stats.this_week}</div>
+    <div style="font-size:.75rem;color:var(--gray-600);text-transform:uppercase;letter-spacing:.4px">This week</div>
+  </div>
+  <div class="card" style="padding:.85rem;text-align:center;border-left:3px solid var(--red)">
+    <div style="font-size:1.6rem;font-weight:700;color:var(--red)">${stats.emergency}</div>
+    <div style="font-size:.75rem;color:var(--gray-600);text-transform:uppercase;letter-spacing:.4px">Emergency</div>
+  </div>
+  <div class="card" style="padding:.85rem;text-align:center;border-left:3px solid var(--orange)">
+    <div style="font-size:1.6rem;font-weight:700;color:var(--orange)">${stats.urgent}</div>
+    <div style="font-size:.75rem;color:var(--gray-600);text-transform:uppercase;letter-spacing:.4px">Urgent</div>
+  </div>
+  <div class="card" style="padding:.85rem;text-align:center;border-left:3px solid var(--green)">
+    <div style="font-size:1.6rem;font-weight:700;color:var(--green)">${stats.booked + stats.handled + stats.called_back}</div>
+    <div style="font-size:.75rem;color:var(--gray-600);text-transform:uppercase;letter-spacing:.4px">Handled</div>
+  </div>
+</div>` : "";
 
   const rows = leads.length === 0
     ? `<tr><td colspan="7"><div class="empty">No leads found. Calls will appear here automatically.</div></td></tr>`
@@ -624,7 +717,37 @@ export function leadsPage(
 
   const csvQs = qs(filters.urgency, filters.status);
   const isPending = !tenant.twilio_number || tenant.twilio_number.startsWith("+PENDING_");
-  const setupBanner = isPending ? `
+  const hasLeads = leads.length > 0;
+
+  // Onboarding progress checklist for new accounts that don't have leads yet
+  const onboardingChecklist = isPending && !hasLeads ? `
+<div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:var(--radius);padding:1.25rem;margin-bottom:1.25rem;">
+  <p style="font-weight:700;margin-bottom:.85rem;color:var(--brand);">📋 Getting started checklist</p>
+  <div style="display:flex;flex-direction:column;gap:.6rem;font-size:.9rem;">
+    <div style="display:flex;align-items:center;gap:.65rem;">
+      <span style="color:#16a34a;font-weight:700;font-size:1.1rem;">✓</span>
+      <span style="text-decoration:line-through;color:var(--gray-400);">Create your account</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:.65rem;">
+      <span style="color:var(--gray-400);font-weight:700;font-size:1.1rem;">○</span>
+      <span><a href="/dashboard/welcome">Try the demo</a> — hear your AI receptionist in action</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:.65rem;">
+      <span style="color:var(--gray-400);font-weight:700;font-size:1.1rem;">○</span>
+      <span><a href="/dashboard/settings">Complete your settings</a> — set your service area and business hours</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:.65rem;">
+      <span style="color:var(--gray-400);font-weight:700;font-size:1.1rem;">○</span>
+      <span><a href="/dashboard/setup-guide">Set up call forwarding</a> — activate your AI receptionist</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:.65rem;">
+      <span style="color:var(--gray-400);font-weight:700;font-size:1.1rem;">○</span>
+      <span>Receive your first lead — calls appear here automatically</span>
+    </div>
+  </div>
+</div>` : "";
+
+  const setupBanner = isPending && hasLeads ? `
 <div style="background:#fffbeb;border:1.5px solid #fcd34d;border-radius:var(--radius);padding:1rem 1.25rem;margin-bottom:1.25rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem;">
   <div>
     <p style="font-weight:600;margin:0 0 .2rem;">⚙️ Your AI receptionist isn't active yet</p>
@@ -634,15 +757,26 @@ export function leadsPage(
     <a href="/dashboard/welcome" class="btn btn-outline btn-sm">Try Demo</a>
     <a href="/dashboard/setup-guide" class="btn btn-primary btn-sm">Set Up Now →</a>
   </div>
-</div>` : "";
+</div>` : isPending ? "" : "";
 
   const body = `
+${onboardingChecklist}
 ${setupBanner}
+${statsBar}
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;flex-wrap:wrap;gap:.75rem;">
   <h1 style="margin:0">Leads</h1>
   <a href="/dashboard/leads/export.csv${csvQs}" class="btn btn-outline btn-sm">Export CSV</a>
 </div>
 <div class="card">
+  <form method="GET" action="/dashboard/leads" style="margin-bottom:.75rem;">
+    <div style="display:flex;gap:.5rem;">
+      <input type="text" name="search" value="${escape(filters.search ?? "")}" placeholder="Search by name, phone, address, or issue…" style="flex:1;" />
+      ${filters.urgency ? `<input type="hidden" name="urgency" value="${escape(filters.urgency)}" />` : ""}
+      ${filters.status ? `<input type="hidden" name="status" value="${escape(filters.status)}" />` : ""}
+      <button type="submit" class="btn btn-primary btn-sm">Search</button>
+      ${filters.search ? `<a href="/dashboard/leads${qs(filters.urgency, filters.status)}" class="btn btn-ghost btn-sm">Clear</a>` : ""}
+    </div>
+  </form>
   <div class="filters" style="margin-bottom:.5rem;">
     <span style="font-size:.8rem;color:var(--gray-600);line-height:2;">Urgency:</span>
     ${urgencyFilters}
@@ -671,7 +805,8 @@ ${setupBanner}
 export function leadDetailPage(
   tenant: TenantRow,
   lead: LeadRow & { recording_url: string | null; transcript: string | null; from_number: string | null },
-  flash?: string
+  flash?: string,
+  duplicateWarning?: string
 ) {
   const statusOptions = ["new", "handled", "booked", "called_back"];
 
@@ -707,6 +842,7 @@ export function leadDetailPage(
   <a href="/dashboard/leads" style="color:var(--gray-600);font-size:.9rem;">← Back to leads</a>
 </div>
 ${flash ? `<div class="alert" style="background:#dcfce7;color:var(--green);">${escape(flash)}</div>` : ""}
+${duplicateWarning ? `<div class="alert" style="background:#fef3c7;color:#92400e;border:1px solid #fde68a;">${duplicateWarning}</div>` : ""}
 <div class="card">
   <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:.75rem;margin-bottom:1.25rem;">
     <div>
@@ -737,6 +873,17 @@ ${flash ? `<div class="alert" style="background:#dcfce7;color:var(--green);">${e
     <label>Notes</label>
     <p style="margin-top:.25rem;line-height:1.6;color:var(--gray-600);">${escape(lead.notes)}</p>
   </div>` : ""}
+
+  <div style="border-top:1px solid var(--gray-200);margin-top:1.25rem;padding-top:1.25rem;">
+    <h2 style="margin-bottom:.75rem;font-size:1rem;">Job value (for ROI tracking)</h2>
+    <form method="POST" action="/dashboard/leads/${lead.lead_id}/job-value" style="display:flex;gap:.5rem;align-items:center;">
+      <span style="font-size:1rem;color:var(--gray-600)">$</span>
+      <input type="number" name="job_value" value="${lead.job_value != null ? lead.job_value : ""}" min="0" step="1" placeholder="e.g. 850"
+        style="width:140px;" />
+      <button type="submit" class="btn btn-outline btn-sm">Save</button>
+    </form>
+    ${lead.job_value != null ? `<p style="font-size:.8rem;color:var(--gray-400);margin-top:.35rem">Job value: <strong>$${lead.job_value.toLocaleString()}</strong></p>` : ""}
+  </div>
 </div>
 ${recordingSection}
 ${transcriptSection}`;
@@ -746,7 +893,7 @@ ${transcriptSection}`;
 // ─── Settings page ────────────────────────────────────────────────────────────
 
 export function settingsPage(tenant: TenantRow, flash?: string): string {
-  const tradeOptions = ["plumber","electrician","handyman","roofer","painter","carpenter","builder","other"];
+  const tradeOptions = ["plumber","electrician","roofer","handyman","painter","carpenter","tiler","builder","other"];
   const tradeSelect = tradeOptions.map(o =>
     `<option value="${o}"${tenant.trade_type === o ? " selected" : ""}>${o.charAt(0).toUpperCase() + o.slice(1)}</option>`
   ).join("");
@@ -796,6 +943,27 @@ ${flashHtml}
         Example: "All suburbs within 40km of Parramatta, including the Hills District and Inner West."
       </p>
     </div>
+    <div class="form-group">
+      <label for="custom_instructions">Custom AI instructions <span style="font-weight:400;color:var(--gray-600);">(optional)</span></label>
+      <textarea id="custom_instructions" name="custom_instructions" rows="4" placeholder="e.g. We have a $120 call-out fee for after-hours jobs. We don't take on jobs in high-rise apartments. Always ask if the customer has a preferred time in the morning or afternoon.">${escape(tenant.custom_instructions ?? "")}</textarea>
+      <p style="font-size:.8rem;color:var(--gray-400);margin-top:.25rem">
+        Add any business-specific rules, pricing notes, or special handling instructions for the AI.
+      </p>
+    </div>
+
+    <div style="border-top:1px solid var(--gray-200);margin-top:.75rem;padding-top:1rem;">
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:.65rem;cursor:pointer;">
+          <input type="checkbox" name="vacation_mode" value="1"${tenant.vacation_mode ? " checked" : ""} style="width:auto;accent-color:var(--brand);" />
+          <span>Holiday / vacation mode — tell callers the business is away</span>
+        </label>
+      </div>
+      <div class="form-group">
+        <label for="vacation_message">Vacation message <span style="font-weight:400;color:var(--gray-600);">(optional)</span></label>
+        <input type="text" id="vacation_message" name="vacation_message" value="${escape(tenant.vacation_message ?? "")}"
+          placeholder="e.g. Back on Monday 7 April. Will return all calls then." />
+      </div>
+    </div>
     <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;margin-top:.5rem">
       <button type="submit" class="btn btn-primary">Save changes</button>
       <a href="/dashboard/leads" class="btn btn-ghost">Cancel</a>
@@ -820,16 +988,121 @@ ${flashHtml}
     </div>` : ""}
   </div>
   <p style="font-size:.82rem;color:var(--gray-400);margin-top:1rem">
-    To change your email or password, contact us at
-    <a href="mailto:hello@pickupai.com.au">hello@pickupai.com.au</a>
+    To change your email, contact us at
+    <a href="mailto:hello@pickupai.com.au">hello@pickupai.com.au</a> ·
+    <a href="/dashboard/forgot-password">Change password</a>
+  </p>
+</div>
+
+<div class="card" style="margin-top:1.25rem">
+  <h2>Subscription</h2>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;font-size:.9rem;margin-bottom:1rem">
+    <div>
+      <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.2rem">Status</p>
+      <p>${tenant.payment_status === "active" ? '<span style="color:var(--green);font-weight:700;">✓ Active</span>'
+          : tenant.payment_status === "cancelling" ? '<span style="color:var(--amber);font-weight:700;">⏳ Cancelling at period end</span>'
+          : tenant.payment_status === "trial" ? '<span style="color:var(--brand);font-weight:700;">Free trial</span>'
+          : tenant.payment_status === "payment_failed" ? '<span style="color:var(--red);font-weight:700;">⚠ Payment failed</span>'
+          : tenant.payment_status === "expired" ? '<span style="color:var(--gray-600);">Expired</span>'
+          : tenant.payment_status === "cancelled" ? '<span style="color:var(--gray-600);">Cancelled</span>'
+          : '<span style="color:var(--gray-600);">—</span>'}</p>
+    </div>
+    ${tenant.trial_ends_at ? `<div>
+      <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.2rem">Trial ends</p>
+      <p>${new Date(tenant.trial_ends_at).toLocaleDateString("en-AU", { dateStyle: "long" })}</p>
+    </div>` : ""}
+    <div>
+      <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.2rem">Plan</p>
+      <p>${tenant.payment_status === "active" ? "Active subscription"
+          : tenant.payment_status === "cancelling" ? "Cancelling — active until period end"
+          : "Free trial (14 days)"}</p>
+    </div>
+  </div>
+  ${(tenant.payment_status !== "active" && tenant.payment_status !== "cancelling") ? `<a href="/dashboard/upgrade" class="btn btn-primary btn-sm">Upgrade plan</a>` : ""}
+  ${(tenant.payment_status === "active" || tenant.payment_status === "cancelling") && tenant.stripe_customer_id
+    ? `<form method="POST" action="/dashboard/billing-portal" style="display:inline">
+        <button type="submit" class="btn btn-outline btn-sm">Manage subscription (cancel / update card)</button>
+      </form>`
+    : ""}
+  <p style="font-size:.75rem;color:var(--gray-400);margin-top:.75rem;">
+    All prices include 10% GST ·
+    <a href="/terms" target="_blank">Terms</a> · <a href="/privacy" target="_blank">Privacy</a>
   </p>
 </div>`;
   return shell("Settings", body, tenant);
 }
 
+// ─── Forgot password page ─────────────────────────────────────────────────────
+
+export function forgotPasswordPage(flash?: string): string {
+  const isSuccess = flash && !flash.startsWith("⚠");
+  const body = `
+<div style="max-width:420px;margin:4rem auto;">
+  <div class="card">
+    <h2 style="text-align:center;margin-bottom:1.5rem;">Reset your password</h2>
+    ${flash ? `<div class="alert ${isSuccess ? "alert-success" : "alert-error"}">${escape(flash)}</div>` : ""}
+    <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:1.25rem;text-align:center;">
+      Enter the email address you registered with and we'll send a reset code to your phone.
+    </p>
+    <form method="POST" action="/dashboard/forgot-password">
+      <div class="form-group">
+        <label for="email">Email address</label>
+        <input type="email" id="email" name="email" required placeholder="owner@example.com" autofocus />
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%;margin-top:.5rem;">Send reset code</button>
+    </form>
+    <p style="text-align:center;margin-top:1.25rem;font-size:.85rem;color:var(--gray-600);">
+      <a href="/dashboard/login">← Back to sign in</a>
+    </p>
+  </div>
+</div>`;
+  return shell("Forgot password", body);
+}
+
+// ─── Reset password page ──────────────────────────────────────────────────────
+
+export function resetPasswordPage(email: string, error?: string): string {
+  const body = `
+<div style="max-width:420px;margin:4rem auto;">
+  <div class="card">
+    <h2 style="text-align:center;margin-bottom:1.5rem;">Set a new password</h2>
+    ${error ? `<div class="alert alert-error">${escape(error)}</div>` : ""}
+    <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:1.25rem;text-align:center;">
+      Enter the 6-digit code sent to your phone, then choose a new password.
+    </p>
+    <form method="POST" action="/dashboard/reset-password">
+      <input type="hidden" name="email" value="${escape(email)}" />
+      <div class="form-group">
+        <label for="code">6-digit SMS code</label>
+        <input type="text" id="code" name="code" required maxlength="6" pattern="[0-9]{6}" inputmode="numeric" placeholder="123456" autofocus />
+      </div>
+      <div class="form-group">
+        <label for="password">New password</label>
+        <input type="password" id="password" name="password" required minlength="8" />
+      </div>
+      <div class="form-group">
+        <label for="confirm_password">Confirm new password</label>
+        <input type="password" id="confirm_password" name="confirm_password" required minlength="8" />
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%;margin-top:.5rem;">Update password</button>
+    </form>
+    <p style="text-align:center;margin-top:1.25rem;font-size:.85rem;color:var(--gray-600);">
+      Didn't get a code? <a href="/dashboard/forgot-password">Request a new one</a>
+    </p>
+  </div>
+</div>`;
+  return shell("Reset password", body);
+}
+
 // ─── Upgrade / trial-expired page ─────────────────────────────────────────────
 
-export function upgradePage(tenant?: TenantRow, stripeEnabled?: boolean): string {
+export function upgradePage(tenant?: TenantRow, stripeEnabled?: boolean, reason?: string): string {
+  const paymentFailedBanner = reason === "payment_failed"
+    ? `<div class="alert alert-error" style="margin-bottom:1.5rem;font-size:.95rem;">
+        <strong>Payment failed.</strong> Your last payment couldn't be processed.
+        Please update your payment method below to keep your AI receptionist active.
+       </div>`
+    : "";
   const ctaHtml = stripeEnabled
     ? `<form method="POST" action="/dashboard/create-checkout-session">
         <button type="submit" class="btn btn-primary" style="font-size:1rem;padding:.8rem 2.25rem;cursor:pointer">
@@ -849,6 +1122,7 @@ export function upgradePage(tenant?: TenantRow, stripeEnabled?: boolean): string
 
   const body = `
 <div style="max-width:560px;margin:4rem auto;text-align:center">
+  ${paymentFailedBanner}
   <div style="font-size:3rem;margin-bottom:1rem">⏰</div>
   <h1 style="font-size:1.75rem;margin-bottom:.75rem">Your free trial has ended</h1>
   <p style="color:var(--gray-600);font-size:1rem;line-height:1.6;margin-bottom:2rem">
@@ -884,6 +1158,11 @@ export function upgradePage(tenant?: TenantRow, stripeEnabled?: boolean): string
     </p>
   </div>
   ${ctaHtml}
+  <p style="font-size:.75rem;color:var(--gray-400);margin-top:.75rem;">
+    All prices include 10% GST ·
+    <a href="/terms" target="_blank" style="color:var(--gray-400)">Terms</a> ·
+    <a href="/privacy" target="_blank" style="color:var(--gray-400)">Privacy</a>
+  </p>
   <p style="margin-top:1.5rem">
     <a href="/dashboard/logout" style="font-size:.85rem;color:var(--gray-400)">Sign out</a>
   </p>

@@ -19,3 +19,29 @@ export function connectStreamTwiml(wsUrl: string, callSid: string): string {
   return vr.toString();
 }
 
+/**
+ * Fallback TwiML used when the AI system is unavailable (OpenAI down, no API key, etc.).
+ * Plays a friendly voicemail message and records up to 3 minutes.
+ * The recording webhook posts to /twilio/voice/recording.
+ */
+export function voicemailFallbackTwiml(businessName: string, recordingCallbackUrl: string): string {
+  const vr = newVoiceResponse();
+  vr.pause({ length: 1 });
+  vr.say(
+    { voice: "Polly.Amy" },
+    `Thanks for calling ${businessName}. We're sorry, but our automated receptionist is temporarily unavailable. ` +
+    `Please leave your name, phone number, and a brief message after the tone, and we'll call you back as soon as possible.`
+  );
+  vr.record({
+    maxLength: 180,
+    playBeep: true,
+    transcribe: false,
+    action: recordingCallbackUrl,
+    recordingStatusCallback: recordingCallbackUrl,
+    recordingStatusCallbackMethod: "POST"
+  });
+  vr.say({ voice: "Polly.Amy" }, "Thank you for your message. Goodbye.");
+  vr.hangup();
+  return vr.toString();
+}
+
