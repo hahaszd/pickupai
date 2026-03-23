@@ -5,7 +5,7 @@
  * TARGET env var controls which server is tested:
  *   TARGET=local  → http://localhost:3000 (sig validation off, no real calls)
  *   TARGET=dev    → https://pickupai-dev.ai-builders.space (sig validation off, real Twilio calls)
- *   TARGET=prod   → https://pickupai.ai-builders.space (sig validation ON, safe subset only)
+ *   TARGET=prod   → https://getpickupai.com.au (sig validation ON, safe subset only)
  *
  * Covers all 53 test cases across 12 groups:
  *   Group 1  - Infrastructure
@@ -42,7 +42,7 @@ const TWILIO_AUTH_TOKEN    = process.env.TWILIO_AUTH_TOKEN     ?? "";
 // Twilio phone number SID for the demo pool number (+61280000796).
 // Find it in the Twilio console under "Phone Numbers → Manage → Active Numbers".
 const DEMO_POOL_NUMBER_SID = process.env.DEMO_POOL_NUMBER_SID ?? "";
-const PROD_WEBHOOK = "https://pickupai.ai-builders.space/twilio/voice/incoming";
+const PROD_WEBHOOK = "https://getpickupai.com.au/twilio/voice/incoming";
 const DEV_WEBHOOK  = "https://pickupai-dev.ai-builders.space/twilio/voice/incoming";
 
 function twilioAuthHeader() {
@@ -65,13 +65,13 @@ async function setDemoWebhook(url: string) {
 // TARGET controls which server to test against.
 //   local  → localhost:3000, sig validation off, no real Twilio calls placed
 //   dev    → pickupai-dev.ai-builders.space, sig validation off, REAL Twilio calls (plumber demo)
-//   prod   → pickupai.ai-builders.space, sig validation ON, safe subset only
+//   prod   → getpickupai.com.au, sig validation ON, safe subset only
 const TARGET = process.env.TARGET ?? "prod";
 
 const BASE =
   TARGET === "local" ? "http://localhost:3000" :
   TARGET === "dev"   ? "https://pickupai-dev.ai-builders.space" :
-                       "https://pickupai.ai-builders.space";
+                       "https://getpickupai.com.au";
 
 // Admin token — same value deployed to both dev and prod
 const ADMIN_TOKEN = TARGET === "local"

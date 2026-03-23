@@ -1172,9 +1172,9 @@ export function adminBulkSmsPage(
   ).join("");
 
   const templates = [
-    { label: "First touch", text: "Hey {name} — I built an AI receptionist for NSW tradies. It answers missed calls 24/7, captures the job details, and texts you a lead summary. 14-day free trial. Want to hear a demo? pickupai.com.au Reply STOP to opt out" },
-    { label: "Follow-up", text: "Quick follow-up {name} — do you miss calls on the tools? PickupAI picks up when you can't, captures the lead, and texts it to you. 14-day free trial, cancel anytime. pickupai.com.au Reply STOP to opt out" },
-    { label: "Final touch", text: "Last one {name} — we're offering founding pricing ($149/mo locked) to our first 20 customers. After that it's $199/mo. If missed calls cost you jobs, worth a look: pickupai.com.au Reply STOP to opt out" }
+    { label: "First touch", text: "Hey {name} — I built an AI receptionist for NSW tradies. It answers missed calls 24/7, captures the job details, and texts you a lead summary. 14-day free trial. Want to hear a demo? getpickupai.com.au Reply STOP to opt out" },
+    { label: "Follow-up", text: "Quick follow-up {name} — do you miss calls on the tools? PickupAI picks up when you can't, captures the lead, and texts it to you. 14-day free trial, cancel anytime. getpickupai.com.au Reply STOP to opt out" },
+    { label: "Final touch", text: "Last one {name} — we're offering founding pricing ($149/mo locked) to our first 20 customers. After that it's $199/mo. If missed calls cost you jobs, worth a look: getpickupai.com.au Reply STOP to opt out" }
   ];
 
   const templateButtons = templates.map((t, i) =>

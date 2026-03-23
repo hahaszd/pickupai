@@ -20,7 +20,7 @@ within seconds. No app needed.
 
 14-day free trial, no lock-in.
 
-Quick demo: pickupai.com.au
+Quick demo: getpickupai.com.au
 
 Reply STOP to opt out
 ```
@@ -40,7 +40,7 @@ A plumber in Penrith said he was losing 3-4 leads a week to voicemail.
 PickupAI picks up when you can't, captures the lead, and texts it
 straight to you.
 
-14-day free trial, cancel anytime: pickupai.com.au
+14-day free trial, cancel anytime: getpickupai.com.au
 
 Reply STOP to opt out
 ```
@@ -59,7 +59,7 @@ Last one {name} — we're offering founding pricing ($149/mo locked in)
 to our first 20 customers. After that it's $199/mo.
 
 If missed calls are costing you jobs, it's worth a 2-min look:
-pickupai.com.au
+getpickupai.com.au
 
 No hard feelings if it's not for you. Reply STOP to opt out
 ```
@@ -86,14 +86,14 @@ calls 24/7, has a natural Aussie accent, captures the caller's details
 No app to install — it works through call forwarding on your existing number.
 
 We're offering a 14-day free trial to NSW tradies right now:
-https://pickupai.com.au
+https://getpickupai.com.au
 
 Happy to jump on a quick call or you can hear a live demo on the website.
 
 Cheers,
 [Your name]
 PickupAI
-https://pickupai.com.au
+https://getpickupai.com.au
 ```
 
 ---
@@ -112,7 +112,7 @@ he'd captured 11 after-hours leads he would have missed.
 The AI sounds natural (not robotic), asks the right questions, and even handles
 complaints and follow-up calls differently.
 
-Worth a 2-minute look? https://pickupai.com.au
+Worth a 2-minute look? https://getpickupai.com.au
 
 If it's not a fit, no worries at all.
 

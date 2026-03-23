@@ -516,7 +516,7 @@ async function main() {
           log.warn({ tenantId: t.tenant_id }, "Stripe payment failed — marking account, notifying customer");
           try {
             const sms = await sendOwnerSms(db,
-              `PickupAI: Your payment failed. Your AI receptionist may stop answering calls soon. Please update your payment method at ${env.PUBLIC_BASE_URL}/dashboard/upgrade or contact us at hello@pickupai.com.au`,
+              `PickupAI: Your payment failed. Your AI receptionist may stop answering calls soon. Please update your payment method at ${env.PUBLIC_BASE_URL}/dashboard/upgrade or contact us at hello@getpickupai.com.au`,
               t.owner_phone
             );
             if (sms.status === "skipped") log.warn({ reason: sms.reason }, "payment failed notification SMS skipped");

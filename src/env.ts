@@ -110,7 +110,7 @@ const envSchema = z.object({
   SMTP_SECURE: z.enum(["true","false"]).optional().default("true").transform(v => v === "true"),
   SMTP_USER:   z.string().optional(),
   SMTP_PASS:   z.string().optional(),
-  SMTP_FROM:   z.string().optional().default("PickupAI <noreply@pickupai.com.au>"),
+  SMTP_FROM:   z.string().optional().default("PickupAI <noreply@getpickupai.com.au>"),
 
   // Google Places API key for lead scraping (scripts/collect-leads.ts)
   GOOGLE_PLACES_API_KEY: z.string().optional()

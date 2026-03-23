@@ -1,4 +1,4 @@
-# PickupAI — Product Workflow & Architecture Overview
+# PickupAI �?Product Workflow & Architecture Overview
 
 A detailed walkthrough of how the product works end-to-end, from onboarding a new tradie to how they access their lead information after every call.
 
@@ -7,30 +7,30 @@ A detailed walkthrough of how the product works end-to-end, from onboarding a ne
 ## High-Level Flow
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        TRADIE ONBOARDING                            │
-│  Admin creates account → Tradie sets up call forwarding →           │
-│  AI persona configured → Twilio number assigned                     │
-└────────────────────────────────┬────────────────────────────────────┘
-                                 │
-                                 ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                         LIVE CALL HANDLING                          │
-│  Client calls → Forwarded to PickupAI → AI answers via Realtime →  │
-│  Lead data collected → Stored in DB → SMS sent to tradie            │
-└────────────────────────────────┬────────────────────────────────────┘
-                                 │
-                                 ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                        TRADIE FOLLOW-UP                             │
-│  Tradie reads SMS → Logs in to dashboard → Reviews leads →          │
-│  Marks job status → Calls client back                               │
-└─────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────�?
+�?                       TRADIE ONBOARDING                            �?
+�? Admin creates account �?Tradie sets up call forwarding �?          �?
+�? AI persona configured �?Twilio number assigned                     �?
+└────────────────────────────────┬────────────────────────────────────�?
+                                 �?
+                                 �?
+┌─────────────────────────────────────────────────────────────────────�?
+�?                        LIVE CALL HANDLING                          �?
+�? Client calls �?Forwarded to PickupAI �?AI answers via Realtime �? �?
+�? Lead data collected �?Stored in DB �?SMS sent to tradie            �?
+└────────────────────────────────┬────────────────────────────────────�?
+                                 �?
+                                 �?
+┌─────────────────────────────────────────────────────────────────────�?
+�?                       TRADIE FOLLOW-UP                             �?
+�? Tradie reads SMS �?Logs in to dashboard �?Reviews leads �?         �?
+�? Marks job status �?Calls client back                               �?
+└─────────────────────────────────────────────────────────────────────�?
 ```
 
 ---
 
-## Phase 1 — Tradie Onboarding & Setup
+## Phase 1 �?Tradie Onboarding & Setup
 
 ### 1.1 Information Collected from the Tradie
 
@@ -44,7 +44,7 @@ Before setting up an account, we need the following from the tradie:
 | **Service area** | "Sydney metro, within 50km of Parramatta" | AI declines out-of-area calls softly |
 | **Mobile number** (for SMS alerts) | `+61 412 000 000` | Receives lead SMS after every call |
 | **Twilio number** (assigned to this tradie) | `+61 468 000 835` | The number clients call / forward to |
-| **Email + Password** | — | Dashboard login credentials |
+| **Email + Password** | �?| Dashboard login credentials |
 
 ### 1.2 Admin Creates the Tenant Account
 
@@ -57,8 +57,8 @@ Authorization: Bearer <ADMIN_TOKEN>
 {
   "name": "Mike's Plumbing",
   "ai_name": "Olivia",
-  "phone_number": "+61468000835",   ← Twilio number assigned to this tradie
-  "owner_phone": "+61412000000",    ← Tradie's personal mobile (for SMS)
+  "phone_number": "+61468000835",   �?Twilio number assigned to this tradie
+  "owner_phone": "+61412000000",    �?Tradie's personal mobile (for SMS)
   "trade_type": "plumber,gasfitter",
   "service_area": "Sydney metro, within 50km of Parramatta"
 }
@@ -76,7 +76,7 @@ The tradie keeps their existing business number. They configure **conditional ca
 **How it works:**
 - Client dials the tradie's regular number
 - Phone rings normally for 20 seconds
-- If unanswered → the carrier silently redirects to the Twilio number
+- If unanswered �?the carrier silently redirects to the Twilio number
 - PickupAI answers on the tradie's behalf
 
 **Setup method (Australian mobile):**
@@ -87,7 +87,7 @@ Dial: **61*+61XXXXXXXXX*11*20#
 
 ---
 
-## Phase 2 — Inbound Call Handling
+## Phase 2 �?Inbound Call Handling
 
 ### 2.1 Call Arrives at Twilio
 
@@ -106,7 +106,7 @@ The server:
 ```xml
 <Response>
   <Connect>
-    <Stream url="wss://pickupai.ai-builders.space/media-stream?callSid=CA..."/>
+    <Stream url="wss://getpickupai.com.au/media-stream?callSid=CA..."/>
   </Connect>
 </Response>
 ```
@@ -116,13 +116,13 @@ The server:
 Once the Media Stream is open, the server acts as a **bridge** between Twilio and OpenAI:
 
 ```
-Twilio (caller audio) ←──WebSocket──→ PickupAI Server ←──WebSocket──→ OpenAI Realtime API
+Twilio (caller audio) ←──WebSocket──�?PickupAI Server ←──WebSocket──�?OpenAI Realtime API
        μ-law 8kHz                                                         PCM 24kHz
 ```
 
 Audio packets flow in both directions in real time:
-- Caller's voice → encoded → sent to OpenAI
-- OpenAI's AI voice response → decoded → sent back to caller
+- Caller's voice �?encoded �?sent to OpenAI
+- OpenAI's AI voice response �?decoded �?sent back to caller
 
 ### 2.3 System Prompt Construction
 
@@ -152,7 +152,7 @@ For multi-trade (e.g. "plumber, electrician"), relevant questions from all trade
 If the caller has called before, the prompt includes:
 ```
 This caller has contacted us before. Previous calls:
-- 2025-06-01: Leaking tap repair – booked and completed
+- 2025-06-01: Leaking tap repair �?booked and completed
 ```
 The AI can greet returning customers warmly without re-asking basic details already on file.
 
@@ -184,7 +184,7 @@ The OpenAI Realtime API (`gpt-realtime-mini-2025-12-15`) handles:
 - **Language understanding** (intent, sentiment, urgency)
 - **Response generation** (natural, conversational Australian-accented English)
 - **Text-to-speech** (voice: `marin`, low-latency)
-- **Semantic VAD** (detects when the caller has finished speaking — supports barge-in)
+- **Semantic VAD** (detects when the caller has finished speaking �?supports barge-in)
 
 During the call, when enough information is collected, the AI calls a **function tool**:
 
@@ -213,21 +213,21 @@ On `save_lead`, the server:
 Within seconds of the call ending, an SMS is sent to the tradie's mobile:
 
 ```
-📞 New lead – Mike's Plumbing
+📞 New lead �?Mike's Plumbing
 
 Caller: Sarah (+61400123456)
 Address: 12 Main St, Parramatta NSW 2150
-Issue: Burst pipe under kitchen sink – URGENT
+Issue: Burst pipe under kitchen sink �?URGENT
 Preferred time: ASAP
 
-Log in to review: https://pickupai.ai-builders.space/dashboard
+Log in to review: https://getpickupai.com.au/dashboard
 ```
 
 Emergency calls are flagged clearly so the tradie knows to call back immediately.
 
 ---
 
-## Phase 3 — Tradie Reviews Leads
+## Phase 3 �?Tradie Reviews Leads
 
 ### 3.1 SMS Notification
 
@@ -238,7 +238,7 @@ The tradie receives the SMS immediately after each call. This gives them:
 
 ### 3.2 Dashboard Login
 
-**URL:** `https://pickupai.ai-builders.space/dashboard/login`
+**URL:** `https://getpickupai.com.au/dashboard/login`
 
 The tradie logs in with their email and password. A secure HTTP-only session cookie keeps them logged in.
 
@@ -250,7 +250,7 @@ The dashboard displays all leads for this tradie's account, sorted newest first:
 |---|---|---|---|---|---|
 | 🔴 URGENT | Sarah | 12 Main St, Parramatta | Burst pipe | New | Just now |
 | 🟡 | John | 45 Oak Ave, Penrith | Slow drain | New | 2h ago |
-| ✅ | Maria | 8 Hill Rd, Blacktown | Hot water | Booked | Yesterday |
+| �?| Maria | 8 Hill Rd, Blacktown | Hot water | Booked | Yesterday |
 
 ### 3.4 Lead Detail View
 
@@ -291,7 +291,7 @@ tenants
 
 calls
   └── call_sid (Twilio identifier)
-  └── tenant_id (foreign key → tenants)
+  └── tenant_id (foreign key �?tenants)
   └── from_number, to_number
   └── transcript (full conversation text)
   └── recording_url
@@ -299,8 +299,8 @@ calls
 
 leads
   └── lead_id
-  └── call_sid (foreign key → calls)
-  └── tenant_id (foreign key → tenants)
+  └── call_sid (foreign key �?calls)
+  └── tenant_id (foreign key �?tenants)
   └── caller_name, address, issue_description
   └── urgency, caller_intent, preferred_time
   └── lead_status (new / called_back / booked / handled)
@@ -335,7 +335,7 @@ notifications
 | **Database** | SQLite via `sql.js` (WASM, zero native dependencies) |
 | **SMS** | Twilio Programmable Messaging |
 | **Dashboard** | Server-side rendered HTML (built into Express) |
-| **Deployment** | Docker / AI Builder Space (Koyeb) — live at `https://pickupai.ai-builders.space` |
+| **Deployment** | Docker / AI Builder Space (Koyeb) �?live at `https://getpickupai.com.au` |
 | **Dev tunnelling** | ngrok |
 
 ---
@@ -346,12 +346,12 @@ A typical call interaction:
 
 | Stage | Time |
 |---|---|
-| Caller speaks → audio reaches OpenAI | ~100–200ms (Twilio + network) |
-| OpenAI processes and begins responding | ~300–700ms (Realtime API) |
+| Caller speaks �?audio reaches OpenAI | ~100�?00ms (Twilio + network) |
+| OpenAI processes and begins responding | ~300�?00ms (Realtime API) |
 | First audio packet back to caller | ~200ms |
-| **Total perceived response delay** | **~600ms–1s** |
+| **Total perceived response delay** | **~600ms�?s** |
 
-This is comparable to a real human receptionist and a significant improvement over the previous HTTP Chat Completions approach which took 5–15 seconds per turn.
+This is comparable to a real human receptionist and a significant improvement over the previous HTTP Chat Completions approach which took 5�?5 seconds per turn.
 
 ---
 
@@ -360,7 +360,7 @@ This is comparable to a real human receptionist and a significant improvement ov
 The server can be run:
 
 - **Locally** (development): `npm run dev` + ngrok tunnel for Twilio webhooks
-- **Production**: Docker container deployed on AI Builder Space (Koyeb) — currently live at `https://pickupai.ai-builders.space`
+- **Production**: Docker container deployed on AI Builder Space (Koyeb) �?currently live at `https://getpickupai.com.au`
 
 Environment variables required:
 
@@ -370,7 +370,7 @@ TWILIO_AUTH_TOKEN=...
 OPENAI_API_KEY=...
 OPENAI_VOICE=marin
 ADMIN_TOKEN=...
-PUBLIC_BASE_URL=https://pickupai.ai-builders.space
+PUBLIC_BASE_URL=https://getpickupai.com.au
 PORT=3000
 ```
 

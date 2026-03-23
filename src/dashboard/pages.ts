@@ -342,7 +342,7 @@ export function setupGuidePage(tenant: TenantRow) {
       Go to Dashboard →
     </a>
     <p style="margin-top:.75rem;font-size:.8rem;color:var(--gray-600);">
-      Need help? Email <a href="mailto:hello@pickupai.com.au">hello@pickupai.com.au</a>
+      Need help? Email <a href="mailto:hello@getpickupai.com.au">hello@getpickupai.com.au</a>
     </p>
   </div>
 
@@ -989,7 +989,7 @@ ${flashHtml}
   </div>
   <p style="font-size:.82rem;color:var(--gray-400);margin-top:1rem">
     To change your email, contact us at
-    <a href="mailto:hello@pickupai.com.au">hello@pickupai.com.au</a> ·
+    <a href="mailto:hello@getpickupai.com.au">hello@getpickupai.com.au</a> ·
     <a href="/dashboard/forgot-password">Change password</a>
   </p>
 </div>
@@ -1112,12 +1112,12 @@ export function upgradePage(tenant?: TenantRow, stripeEnabled?: boolean, reason?
       <p style="margin-top:.65rem;font-size:.82rem;color:var(--gray-400)">
         Secure payment via Stripe · Cancel anytime · No lock-in
       </p>`
-    : `<a href="mailto:hello@pickupai.com.au?subject=I'd like to upgrade PickupAI&body=Hi, I'd like to continue my PickupAI subscription for ${escape(tenant?.name ?? "my business")}."
+    : `<a href="mailto:hello@getpickupai.com.au?subject=I'd like to upgrade PickupAI&body=Hi, I'd like to continue my PickupAI subscription for ${escape(tenant?.name ?? "my business")}."
          class="btn btn-primary" style="font-size:1rem;padding:.8rem 2rem;display:inline-block">
         Email us to activate →
       </a>
       <p style="margin-top:1rem;font-size:.85rem;color:var(--gray-400)">
-        Or email <a href="mailto:hello@pickupai.com.au" style="color:var(--gray-400)">hello@pickupai.com.au</a> — we'll respond same day
+        Or email <a href="mailto:hello@getpickupai.com.au" style="color:var(--gray-400)">hello@getpickupai.com.au</a> — we'll respond same day
       </p>`;
 
   const body = `
