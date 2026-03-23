@@ -104,11 +104,13 @@ function pct(num: number, den: number): string {
 
 function paymentBadge(status: string | null | undefined): string {
   switch (status) {
-    case "active":    return `<span class="badge badge-active">Active</span>`;
-    case "trial":     return `<span class="badge badge-trial">Trial</span>`;
-    case "expired":   return `<span class="badge badge-expired">Expired</span>`;
-    case "cancelled": return `<span class="badge badge-expired">Cancelled</span>`;
-    default:          return `<span class="badge badge-none">None</span>`;
+    case "active":         return `<span class="badge badge-active">Active</span>`;
+    case "trial":          return `<span class="badge badge-trial">Trial</span>`;
+    case "cancelling":     return `<span class="badge badge-trial" style="border-color:var(--amber,#d97706);color:var(--amber,#d97706)">Cancelling</span>`;
+    case "payment_failed": return `<span class="badge badge-expired" style="border-color:#dc2626;color:#dc2626">Payment Failed</span>`;
+    case "expired":        return `<span class="badge badge-expired">Expired</span>`;
+    case "cancelled":      return `<span class="badge badge-expired">Cancelled</span>`;
+    default:               return `<span class="badge badge-none">None</span>`;
   }
 }
 
@@ -577,7 +579,7 @@ export function adminUserDetailPage(detail: TenantDetail, publicBaseUrl: string,
     ? `<span class="badge badge-pending">Pending setup</span>`
     : `<span class="badge badge-setup">&#10003; Active number</span>`;
 
-  const tradeOptions = ["plumber","electrician","handyman","roofer","painter","carpenter","builder","other"];
+  const tradeOptions = ["plumber","electrician","roofer","handyman","painter","carpenter","tiler","builder","other"];
   const tradeSelect = tradeOptions.map(o =>
     `<option value="${o}"${t.trade_type === o ? " selected" : ""}>${o.charAt(0).toUpperCase()+o.slice(1)}</option>`
   ).join("");

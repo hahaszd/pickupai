@@ -1,4 +1,5 @@
 import pino from "pino";
+import nodemailer from "nodemailer";
 import { env } from "../env.js";
 import type { LeadRow } from "../db/repo.js";
 
@@ -9,13 +10,7 @@ export function isEmailConfigured(): boolean {
   return !!(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS);
 }
 
-/**
- * Send an email via SMTP using Node's built-in net/tls — no external deps.
- * Supports TLS on port 465 (implicit TLS) and STARTTLS on port 587.
- *
- * For MVP simplicity this is a hand-rolled SMTP client.
- * Replace with nodemailer if you want full RFC compliance and HTML emails.
- */
+/** Send an email via SMTP using nodemailer. */
 export async function sendEmail(opts: {
   to: string;
   subject: string;
@@ -27,13 +22,7 @@ export async function sendEmail(opts: {
   const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS, SMTP_FROM } = env;
 
   try {
-    const nodemailer = await import("nodemailer" as any).catch(() => null);
-    if (!nodemailer) {
-      log.warn("nodemailer not installed — install it to enable email notifications: npm install nodemailer");
-      return { status: "skipped", reason: "nodemailer_not_installed" };
-    }
-
-    const transporter = nodemailer.default.createTransport({
+    const transporter = nodemailer.createTransport({
       host: SMTP_HOST,
       port: SMTP_PORT,
       secure: SMTP_SECURE,
@@ -58,12 +47,11 @@ export async function sendEmail(opts: {
 /** Format a lead notification email body. */
 export function formatLeadEmail(opts: {
   lead: LeadRow;
-  callId: string;
   callerIntent?: string | null;
   businessName: string;
   dashboardUrl: string;
 }): { subject: string; text: string } {
-  const { lead, callId, callerIntent, businessName, dashboardUrl } = opts;
+  const { lead, callerIntent, businessName, dashboardUrl } = opts;
   const intent = callerIntent ?? "unknown";
   const urgency = lead.urgency_level ?? "routine";
 
@@ -91,7 +79,7 @@ export function formatLeadEmail(opts: {
     lead.preferred_time ? `Preferred time: ${lead.preferred_time}` : null,
     lead.next_action   ? `Next action:    ${lead.next_action}` : null,
     "",
-    `View full details: ${dashboardUrl}/dashboard/leads/${callId}`,
+    `View full details: ${dashboardUrl}/dashboard/leads/${lead.lead_id}`,
     "",
     `—`,
     `PickupAI · Your 24/7 AI Receptionist`,

@@ -166,7 +166,7 @@ function parseCookies(req: Request): Record<string, string> {
 function setSessionCookie(res: Response, token: string) {
   res.setHeader(
     "Set-Cookie",
-    `dash_session=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/dashboard; Max-Age=${60 * 60 * 24 * 30}`
+    `dash_session=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Lax; Path=/dashboard; Max-Age=${60 * 60 * 24 * 30}`
   );
 }
 
@@ -350,7 +350,7 @@ async function main() {
     if (recipientEmail && isEmailConfigured()) {
       const emailId = createNotification(db, callId, "email");
       const { subject, text } = formatLeadEmail({
-        lead, callId, callerIntent, businessName,
+        lead, callerIntent, businessName,
         dashboardUrl: env.PUBLIC_BASE_URL
       });
       sendEmail({ to: recipientEmail, subject, text })
@@ -377,7 +377,7 @@ async function main() {
           try {
             await sendOwnerSms(
               db,
-              `⚠️ EMERGENCY FOLLOW-UP: ${lead.name ?? "A caller"} reported an emergency${lead.address ? ` at ${lead.address}` : ""}. Have you called them back? ${lead.phone ? `Their number: ${lead.phone}` : ""} View lead: ${env.PUBLIC_BASE_URL}/dashboard/leads/${callId}`,
+              `⚠️ EMERGENCY FOLLOW-UP: ${lead.name ?? "A caller"} reported an emergency${lead.address ? ` at ${lead.address}` : ""}. Have you called them back? ${lead.phone ? `Their number: ${lead.phone}` : ""} View lead: ${env.PUBLIC_BASE_URL}/dashboard/leads/${lead.lead_id}`,
               ownerSmsNumber
             );
             trackEvent("emergency_followup_sms_sent", { call_id: callId, tenant_id: lead.tenant_id });
@@ -490,11 +490,11 @@ async function main() {
         }
       } else if (event.type === "customer.subscription.updated") {
         const sub = event.data.object as Stripe.Subscription;
-        if (sub.cancel_at_period_end) {
-          const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
-          const tenants = listTenants(db);
-          const t = tenants.find(x => x.stripe_customer_id === customerId);
-          if (t) {
+        const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
+        const tenants = listTenants(db);
+        const t = tenants.find(x => x.stripe_customer_id === customerId);
+        if (t) {
+          if (sub.cancel_at_period_end) {
             updateTenant(db, t.tenant_id, { payment_status: "cancelling" });
             const periodEnd = new Date((sub as any).current_period_end * 1000).toLocaleDateString("en-AU");
             try {
@@ -504,6 +504,9 @@ async function main() {
               );
             } catch (e) { log.warn({ e }, "cancelling notification SMS failed"); }
             log.info({ tenantId: t.tenant_id, periodEnd }, "Subscription cancelling at period end");
+          } else if (t.payment_status === "cancelling") {
+            updateTenant(db, t.tenant_id, { payment_status: "active" });
+            log.info({ tenantId: t.tenant_id }, "Subscription reactivated — cancellation reversed");
           }
         }
       } else if (event.type === "invoice.payment_failed") {
@@ -638,7 +641,7 @@ async function main() {
       [today + "T00:00:00.000Z"]
     );
     const aiFailures = db.get<{ n: number }>(
-      `SELECT COUNT(*) AS n FROM analytics_events WHERE event_name LIKE '%fail%' OR event_name LIKE '%error%' OR event_name LIKE '%timeout%' AND created_at >= ?`,
+      `SELECT COUNT(*) AS n FROM analytics_events WHERE (event_name LIKE '%fail%' OR event_name LIKE '%error%' OR event_name LIKE '%timeout%') AND created_at >= ?`,
       [today + "T00:00:00.000Z"]
     )?.n ?? 0;
     const smsFailed = db.get<{ n: number }>(
@@ -929,7 +932,17 @@ async function main() {
   app.patch("/admin/tenants/:id", adminGuard, (req, res) => {
     const tenant = getTenantById(db, req.params.id);
     if (!tenant) return res.status(404).json({ error: "not found" });
-    updateTenant(db, req.params.id, req.body ?? {});
+    const ALLOWED_FIELDS = new Set([
+      "name", "trade_type", "ai_name", "twilio_number", "owner_phone", "owner_email",
+      "business_hours_start", "business_hours_end", "timezone", "enable_warm_transfer",
+      "service_area", "custom_instructions", "vacation_mode", "vacation_message",
+      "active", "payment_status", "trial_ends_at"
+    ]);
+    const sanitized: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(req.body ?? {})) {
+      if (ALLOWED_FIELDS.has(k)) sanitized[k] = v;
+    }
+    updateTenant(db, req.params.id, sanitized);
     const updated = getTenantById(db, req.params.id)!;
     const { password_hash, session_token, ...safe } = updated;
     res.json({ tenant: safe });
@@ -950,12 +963,12 @@ async function main() {
   //   default_voice_number – number used as "from" for demo simulation calls
   //                          (overrides TWILIO_DEFAULT_VOICE_NUMBER env var)
 
-  app.get("/admin/config", adminGuard, (_req, res) => {
+  app.get("/api/admin/config", adminGuard, (_req, res) => {
     const rows = listSystemConfig(db);
     res.json({ config: rows });
   });
 
-  app.put("/admin/config/:key", adminGuard, (req, res) => {
+  app.put("/api/admin/config/:key", adminGuard, (req, res) => {
     const { key } = req.params;
     const { value } = req.body ?? {};
     if (typeof value !== "string" || !value.trim()) {
@@ -965,14 +978,14 @@ async function main() {
     res.json({ ok: true, key, value: value.trim() });
   });
 
-  // ── Demo sessions (admin management) ─────────────────────────────────────
+  // ── Demo sessions (admin JSON API) ───────────────────────────────────────
 
-  app.get("/admin/demo-sessions", adminGuard, (_req, res) => {
+  app.get("/api/admin/demo-sessions", adminGuard, (_req, res) => {
     const sessions = listDemoSessions(db);
     res.json({ sessions, count: sessions.length });
   });
 
-  app.delete("/admin/demo-sessions", adminGuard, (_req, res) => {
+  app.delete("/api/admin/demo-sessions", adminGuard, (_req, res) => {
     clearDemoSessions(db);
     res.json({ ok: true, message: "All demo sessions cleared" });
   });
@@ -1844,8 +1857,11 @@ async function main() {
 
     try {
       const session = await stripe.checkout.sessions.retrieve(sessionId);
+      if (session.metadata?.tenant_id !== tenant.tenant_id) {
+        log.warn({ expected: tenant.tenant_id, got: session.metadata?.tenant_id }, "Stripe success tenant_id mismatch — ignoring");
+        return res.redirect("/dashboard/welcome");
+      }
       if (session.status === "complete" || session.payment_status === "paid" || session.payment_status === "no_payment_required") {
-        // "no_payment_required" is the status when a trial is active (no charge yet)
         const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
         updateTenant(db, tenant.tenant_id, {
           payment_status: "trial",

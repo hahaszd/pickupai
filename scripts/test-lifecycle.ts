@@ -73,10 +73,8 @@ const BASE =
   TARGET === "dev"   ? "https://pickupai-dev.ai-builders.space" :
                        "https://getpickupai.com.au";
 
-// Admin token — same value deployed to both dev and prod
-const ADMIN_TOKEN = TARGET === "local"
-  ? "local-admin-token-2026"
-  : "f9cef66726d425b2b9253fe48c60b7451686e4c8c515eeab2c9d148d69729441";
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN
+  ?? (TARGET === "local" ? "local-admin-token-2026" : "");
 
 const SEED_EMAIL =
   TARGET === "local" ? "owner@example.com" :

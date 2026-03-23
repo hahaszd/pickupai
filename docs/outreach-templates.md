@@ -147,9 +147,9 @@ What happens to those — voicemail?"
 ### Bridge to demo
 
 ```
-"What if I set you up with a 14-day free trial — no credit card needed to
-hear a demo. You can call a number right now and hear what it sounds like.
-Takes about 90 seconds. Want to try it?"
+"What if I set you up with a 14-day free trial — you can call a demo number
+right now and hear what it sounds like. Takes about 90 seconds. If you like it,
+sign up takes 10 minutes. No charge for 14 days. Want to try it?"
 ```
 
 ### Objection handling

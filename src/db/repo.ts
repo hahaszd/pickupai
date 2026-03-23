@@ -254,7 +254,8 @@ export function upsertLead(
     db.run(
       `UPDATE leads SET
         tenant_id=?, name=?, phone=?, address=?, issue_type=?, issue_summary=?,
-        urgency_level=?, preferred_time=?, notes=?, confidence=?, next_action=?
+        urgency_level=?, preferred_time=?, notes=?, confidence=?, next_action=?,
+        lead_status=?, job_value=?
       WHERE lead_id=?`,
       [
         lead.tenant_id ?? null,
@@ -268,6 +269,8 @@ export function upsertLead(
         lead.notes ?? null,
         lead.confidence ?? null,
         lead.next_action ?? null,
+        lead.lead_status ?? null,
+        lead.job_value ?? null,
         lead.lead_id
       ]
     );

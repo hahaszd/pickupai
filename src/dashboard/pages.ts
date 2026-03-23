@@ -215,7 +215,7 @@ export function signupPage(error?: string, prefill: Record<string, string> = {})
   <div class="card">
     <div style="text-align:center;margin-bottom:1.75rem;">
       <h2 style="font-size:1.3rem;margin-bottom:.35rem;">Start your free 14-day trial</h2>
-      <p style="font-size:.85rem;color:var(--gray-600);">No credit card required. Set up in 10 minutes.</p>
+      <p style="font-size:.85rem;color:var(--gray-600);">14-day free trial. Credit card required, cancel anytime before day 14.</p>
     </div>
     ${error ? `<div class="alert alert-error">${escape(error)}</div>` : ""}
     <form method="POST" action="/dashboard/signup">
