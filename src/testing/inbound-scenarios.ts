@@ -6,6 +6,7 @@ export type InboundIntent =
   | "complaint"
   | "reschedule"
   | "quote_only"
+  | "cancellation"
   | "wrong_number"
   | "spam"
   | "telemarketer"
@@ -171,7 +172,7 @@ export const INBOUND_SCENARIO_MATRIX: InboundScenario[] = [
     category: "noise",
     label: "Wrong number call",
     assertions: {
-      shouldSaveLead: false,
+      shouldSaveLead: true,
       shouldEndCall: true,
       shouldSendOwnerSms: false,
       captureTarget: "none"
@@ -184,7 +185,7 @@ export const INBOUND_SCENARIO_MATRIX: InboundScenario[] = [
     category: "noise",
     label: "Spam or telemarketing call",
     assertions: {
-      shouldSaveLead: false,
+      shouldSaveLead: true,
       shouldEndCall: true,
       shouldSendOwnerSms: false,
       captureTarget: "none"
@@ -279,7 +280,7 @@ export const INBOUND_SCENARIO_MATRIX: InboundScenario[] = [
     category: "noise",
     label: "Job applicant call",
     assertions: {
-      shouldSaveLead: false,
+      shouldSaveLead: true,
       shouldEndCall: true,
       shouldSendOwnerSms: true,
       captureTarget: "none"
@@ -291,6 +292,149 @@ export const INBOUND_SCENARIO_MATRIX: InboundScenario[] = [
     intent: "unknown",
     category: "core",
     label: "Unknown intent fallback with minimal details",
+    assertions: {
+      shouldSaveLead: true,
+      shouldEndCall: true,
+      shouldSendOwnerSms: true,
+      captureTarget: "degraded",
+      expectedLeadStatus: "new"
+    }
+  },
+  {
+    id: "p0_afterhours_new_job",
+    priority: "P0",
+    intent: "new_job",
+    category: "core",
+    label: "After-hours new job enquiry with time-aware callback",
+    assertions: {
+      shouldSaveLead: true,
+      shouldEndCall: true,
+      shouldSendOwnerSms: true,
+      captureTarget: "complete",
+      expectedLeadStatus: "new"
+    }
+  },
+  {
+    id: "p1_non_english_speaker",
+    priority: "P1",
+    intent: "new_job",
+    category: "core",
+    label: "Caller speaks another language — partial capture",
+    assertions: {
+      shouldSaveLead: true,
+      shouldEndCall: true,
+      shouldSendOwnerSms: true,
+      captureTarget: "degraded",
+      expectedLeadStatus: "new"
+    }
+  },
+  {
+    id: "p0_returning_customer_emergency",
+    priority: "P0",
+    intent: "new_job",
+    category: "core",
+    label: "Returning customer with a new emergency",
+    overlays: ["returning_customer", "emergency"],
+    assertions: {
+      shouldSaveLead: true,
+      shouldEndCall: true,
+      shouldSendOwnerSms: true,
+      captureTarget: "complete",
+      expectedLeadStatus: "new"
+    }
+  },
+  {
+    id: "p1_returning_customer_fast_confirm",
+    priority: "P1",
+    intent: "new_job",
+    category: "core",
+    label: "Returning customer with known details — confirm rather than re-ask",
+    overlays: ["returning_customer"],
+    assertions: {
+      shouldSaveLead: true,
+      shouldEndCall: true,
+      shouldSendOwnerSms: true,
+      captureTarget: "complete",
+      expectedLeadStatus: "new"
+    }
+  },
+  {
+    id: "p1_spam_fast_exit",
+    priority: "P1",
+    intent: "telemarketer",
+    category: "noise",
+    label: "Spam caller detected within two exchanges — fast exit",
+    assertions: {
+      shouldSaveLead: true,
+      shouldEndCall: true,
+      shouldSendOwnerSms: false,
+      captureTarget: "none"
+    }
+  },
+  {
+    id: "p1_distressed_caller",
+    priority: "P1",
+    intent: "new_job",
+    category: "core",
+    label: "Distressed caller — empathy-first before collecting details",
+    assertions: {
+      shouldSaveLead: true,
+      shouldEndCall: true,
+      shouldSendOwnerSms: true,
+      captureTarget: "complete",
+      expectedLeadStatus: "new"
+    }
+  },
+  {
+    id: "p2_poor_connection",
+    priority: "P2",
+    intent: "new_job",
+    category: "risk-overlay",
+    label: "Poor audio connection — partial capture with audio quality notes",
+    overlays: ["partial_info"],
+    assertions: {
+      shouldSaveLead: true,
+      shouldEndCall: true,
+      shouldSendOwnerSms: true,
+      captureTarget: "degraded",
+      expectedLeadStatus: "new"
+    }
+  },
+  {
+    id: "p1_specific_callback_time",
+    priority: "P1",
+    intent: "new_job",
+    category: "core",
+    label: "Caller requests specific callback time — captured in preferred_time and next_action",
+    assertions: {
+      shouldSaveLead: true,
+      shouldEndCall: true,
+      shouldSendOwnerSms: true,
+      captureTarget: "complete",
+      expectedLeadStatus: "new"
+    }
+  },
+  {
+    id: "p2_small_talk_caller",
+    priority: "P2",
+    intent: "new_job",
+    category: "core",
+    label: "Caller chats before getting to the point — AI matches briefly then guides to purpose",
+    assertions: {
+      shouldSaveLead: true,
+      shouldEndCall: true,
+      shouldSendOwnerSms: true,
+      captureTarget: "complete",
+      expectedLeadStatus: "new"
+    }
+  },
+  {
+    id: "p2_caller_on_hold",
+    priority: "P2",
+    intent: "new_job",
+    category: "risk-overlay",
+    label: "Caller puts AI on hold mid-conversation — AI waits patiently",
+    overlays: ["partial_info"],
     assertions: {
       shouldSaveLead: true,
       shouldEndCall: true,

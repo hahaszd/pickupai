@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual, randomInt } from "node:crypto";
 import { pbkdf2Sync, randomBytes } from "node:crypto";
 import type { Db } from "./db.js";
 
@@ -41,6 +41,7 @@ export type CallRow = {
   recording_url: string | null;
   recording_sid: string | null;
   transcript: string | null;
+  is_demo: number;
 };
 
 export type LeadRow = {
@@ -59,6 +60,8 @@ export type LeadRow = {
   next_action: string | null;
   lead_status: string | null;
   job_value: number | null;
+  property_type: string | null;
+  caller_sentiment: string | null;
   created_at: string;
 };
 
@@ -74,7 +77,8 @@ export function verifyPassword(password: string, stored: string): boolean {
   const [salt, hash] = stored.split(":");
   if (!salt || !hash) return false;
   const check = pbkdf2Sync(password, salt, 100_000, 64, "sha512").toString("hex");
-  return check === hash;
+  if (check.length !== hash.length) return false;
+  return timingSafeEqual(Buffer.from(check, "hex"), Buffer.from(hash, "hex"));
 }
 
 // ─── Tenant CRUD ──────────────────────────────────────────────────────────────
@@ -127,6 +131,14 @@ export function createTenant(
   return db.get<TenantRow>("SELECT * FROM tenants WHERE tenant_id = ?", [tenant_id])!;
 }
 
+const TENANT_UPDATABLE_COLUMNS = new Set([
+  "name", "trade_type", "ai_name", "twilio_number", "owner_phone", "owner_email",
+  "password_hash", "session_token", "business_hours_start", "business_hours_end",
+  "timezone", "enable_warm_transfer", "service_area", "custom_instructions",
+  "vacation_mode", "vacation_message", "active", "last_login_at",
+  "payment_status", "trial_ends_at", "stripe_customer_id"
+]);
+
 export function updateTenant(
   db: Db,
   tenantId: string,
@@ -134,7 +146,7 @@ export function updateTenant(
 ) {
   const { password, ...rest } = patch as any;
   if (password) rest.password_hash = hashPassword(password);
-  const keys = Object.keys(rest).filter((k) => rest[k] !== undefined);
+  const keys = Object.keys(rest).filter((k) => rest[k] !== undefined && TENANT_UPDATABLE_COLUMNS.has(k));
   if (keys.length === 0) return;
   const setClause = keys.map((k) => `${k} = ?`).join(", ");
   const params = [...keys.map((k) => rest[k]), tenantId];
@@ -142,6 +154,8 @@ export function updateTenant(
 }
 
 export function deleteTenant(db: Db, tenantId: string) {
+  db.run("UPDATE calls SET tenant_id = NULL WHERE tenant_id = ?", [tenantId]);
+  db.run("UPDATE leads SET tenant_id = NULL WHERE tenant_id = ?", [tenantId]);
   db.run("DELETE FROM tenants WHERE tenant_id = ?", [tenantId]);
 }
 
@@ -194,6 +208,11 @@ export function tenantLogout(db: Db, tenantId: string) {
 
 // ─── Call CRUD ────────────────────────────────────────────────────────────────
 
+const CALL_UPDATABLE_COLUMNS = new Set([
+  "tenant_id", "from_number", "to_number", "started_at", "ended_at",
+  "status", "recording_url", "recording_sid", "transcript", "is_demo"
+]);
+
 export function upsertCall(
   db: Db,
   row: Pick<CallRow, "call_id"> & Partial<Omit<CallRow, "call_id">>
@@ -202,7 +221,7 @@ export function upsertCall(
     row.call_id
   ]);
 
-  const patchKeys = Object.keys(row).filter((k) => k !== "call_id" && (row as any)[k] !== undefined);
+  const patchKeys = Object.keys(row).filter((k) => k !== "call_id" && (row as any)[k] !== undefined && CALL_UPDATABLE_COLUMNS.has(k));
   if (existing) {
     if (patchKeys.length === 0) return;
     const setClause = patchKeys.map((k) => `${k} = ?`).join(", ");
@@ -213,8 +232,8 @@ export function upsertCall(
   }
 
   db.run(
-    `INSERT INTO calls (call_id, tenant_id, from_number, to_number, started_at, ended_at, status, recording_url, recording_sid, transcript)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO calls (call_id, tenant_id, from_number, to_number, started_at, ended_at, status, recording_url, recording_sid, transcript, is_demo)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       row.call_id,
       row.tenant_id ?? null,
@@ -225,7 +244,8 @@ export function upsertCall(
       row.status ?? null,
       row.recording_url ?? null,
       row.recording_sid ?? null,
-      row.transcript ?? ""
+      row.transcript ?? "",
+      row.is_demo ?? 0
     ]
   );
 }
@@ -243,7 +263,13 @@ export function appendTranscript(db: Db, callId: string, text: string) {
 
 export function upsertLead(
   db: Db,
-  lead: Omit<LeadRow, "created_at"> & { created_at?: string }
+  lead: Omit<LeadRow, "created_at" | "lead_status" | "job_value" | "property_type" | "caller_sentiment"> & {
+    created_at?: string;
+    lead_status?: string | null;
+    job_value?: number | string | null;
+    property_type?: string | null;
+    caller_sentiment?: string | null;
+  }
 ) {
   const created_at = lead.created_at ?? new Date().toISOString();
   const existing = db.get<{ lead_id: string }>("SELECT lead_id FROM leads WHERE lead_id = ?", [
@@ -251,37 +277,37 @@ export function upsertLead(
   ]);
 
   if (existing) {
-    db.run(
-      `UPDATE leads SET
-        tenant_id=?, name=?, phone=?, address=?, issue_type=?, issue_summary=?,
-        urgency_level=?, preferred_time=?, notes=?, confidence=?, next_action=?,
-        lead_status=?, job_value=?
-      WHERE lead_id=?`,
-      [
-        lead.tenant_id ?? null,
-        lead.name ?? null,
-        lead.phone ?? null,
-        lead.address ?? null,
-        lead.issue_type ?? null,
-        lead.issue_summary ?? null,
-        lead.urgency_level ?? null,
-        lead.preferred_time ?? null,
-        lead.notes ?? null,
-        lead.confidence ?? null,
-        lead.next_action ?? null,
-        lead.lead_status ?? null,
-        lead.job_value ?? null,
-        lead.lead_id
-      ]
-    );
+    const allFields: Array<[string, unknown]> = [
+      ["tenant_id", lead.tenant_id],
+      ["name", lead.name],
+      ["phone", lead.phone],
+      ["address", lead.address],
+      ["issue_type", lead.issue_type],
+      ["issue_summary", lead.issue_summary],
+      ["urgency_level", lead.urgency_level],
+      ["preferred_time", lead.preferred_time],
+      ["notes", lead.notes],
+      ["confidence", lead.confidence],
+      ["next_action", lead.next_action],
+      ["lead_status", lead.lead_status],
+      ["job_value", lead.job_value],
+      ["property_type", lead.property_type],
+      ["caller_sentiment", lead.caller_sentiment],
+    ];
+    const updatableFields = allFields.filter(([, v]) => v !== undefined);
+    if (updatableFields.length === 0) return;
+    const setClause = updatableFields.map(([k]) => `${k}=?`).join(", ");
+    const params = [...updatableFields.map(([, v]) => v ?? null), lead.lead_id];
+    db.run(`UPDATE leads SET ${setClause} WHERE lead_id=?`, params);
     return;
   }
 
   db.run(
     `INSERT INTO leads (
       lead_id, tenant_id, call_id, name, phone, address, issue_type, issue_summary,
-      urgency_level, preferred_time, notes, confidence, next_action, lead_status, job_value, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      urgency_level, preferred_time, notes, confidence, next_action, lead_status,
+      job_value, property_type, caller_sentiment, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       lead.lead_id,
       lead.tenant_id ?? null,
@@ -298,6 +324,8 @@ export function upsertLead(
       lead.next_action ?? null,
       lead.lead_status ?? "new",
       lead.job_value ?? null,
+      lead.property_type ?? null,
+      lead.caller_sentiment ?? null,
       created_at
     ]
   );
@@ -326,8 +354,8 @@ export function listLeadsForTenant(
     params.push(opts.status);
   }
   if (opts.search) {
-    conditions.push("(LOWER(l.name) LIKE LOWER(?) OR LOWER(l.phone) LIKE LOWER(?) OR LOWER(l.issue_summary) LIKE LOWER(?) OR LOWER(l.address) LIKE LOWER(?))");
-    const s = `%${opts.search}%`;
+    conditions.push("(LOWER(l.name) LIKE LOWER(?) ESCAPE '\\' OR LOWER(l.phone) LIKE LOWER(?) ESCAPE '\\' OR LOWER(l.issue_summary) LIKE LOWER(?) ESCAPE '\\' OR LOWER(l.address) LIKE LOWER(?) ESCAPE '\\')");
+    const s = `%${escapeLike(opts.search)}%`;
     params.push(s, s, s, s);
   }
 
@@ -435,8 +463,8 @@ export function getLeadHistoryByPhone(db: Db, phone: string, tenantId?: string, 
   );
 }
 
-function escapeLike(s: string): string {
-  return s.replace(/%/g, "\\%").replace(/_/g, "\\_");
+export function escapeLike(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
 }
 
 export function getLeadHistoryByName(db: Db, name: string, tenantId?: string, limit = 5): LeadRow[] {
@@ -792,13 +820,13 @@ export function getAdminTenantDetail(db: Db, tenantId: string): TenantDetail | n
 export function generateTempPassword(): string {
   const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
   let out = "";
-  for (let i = 0; i < 10; i++) out += chars[Math.floor(Math.random() * chars.length)];
+  for (let i = 0; i < 10; i++) out += chars[randomInt(chars.length)];
   return out;
 }
 
 /** Store a password-reset token (6-digit code) valid for 15 minutes. */
 export function createPasswordResetToken(db: Db, tenantId: string): string {
-  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const code = String(randomInt(100000, 1000000));
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
   setSystemConfig(db, `pw_reset:${tenantId}`, `${code}:${expiresAt}`);
   return code;
@@ -808,10 +836,14 @@ export function createPasswordResetToken(db: Db, tenantId: string): string {
 export function verifyPasswordResetToken(db: Db, tenantId: string, code: string): boolean {
   const stored = getSystemConfig(db, `pw_reset:${tenantId}`);
   if (!stored) return false;
-  const [storedCode, expiresAt] = stored.split(":");
-  if (storedCode !== code) return false;
+  const sepIdx = stored.indexOf(":");
+  if (sepIdx === -1) return false;
+  const storedCode = stored.slice(0, sepIdx);
+  const expiresAt = stored.slice(sepIdx + 1);
+  if (storedCode.length !== code.length) return false;
+  const codeMatch = timingSafeEqual(Buffer.from(storedCode), Buffer.from(code));
+  if (!codeMatch) return false;
   if (new Date(expiresAt) < new Date()) return false;
-  // Consume the token
   db.run("DELETE FROM system_config WHERE key = ?", [`pw_reset:${tenantId}`]);
   return true;
 }
@@ -850,10 +882,10 @@ export function claimDemoNumber(
   // Clean expired sessions
   db.run("DELETE FROM demo_sessions WHERE expires_at < ?", [now]);
 
-  // If this tenant already has an active demo session, return that number
+  // If this tenant already has an active (non-expired) demo session, return that number
   const existing = db.get<DemoSessionRow>(
-    "SELECT * FROM demo_sessions WHERE tenant_id = ?",
-    [tenantId]
+    "SELECT * FROM demo_sessions WHERE tenant_id = ? AND expires_at >= ?",
+    [tenantId, now]
   );
   if (existing) return existing.demo_number;
 
@@ -891,10 +923,9 @@ export function listDemoSessions(db: Db): DemoSessionRow[] {
 
 /** Delete all demo sessions (useful for admin cleanup of stuck sessions). */
 export function clearDemoSessions(db: Db): number {
+  const count = db.get<{ cnt: number }>("SELECT COUNT(*) as cnt FROM demo_sessions", [])?.cnt ?? 0;
   db.run("DELETE FROM demo_sessions", []);
-  // Return count of rows deleted is not directly available in this wrapper,
-  // so we just return 0 as a placeholder.
-  return 0;
+  return count;
 }
 
 // ─── System config ────────────────────────────────────────────────────────────
@@ -984,12 +1015,19 @@ export function createProspect(
   return db.get<ProspectRow>("SELECT * FROM prospects WHERE prospect_id = ?", [prospect_id])!;
 }
 
+const PROSPECT_UPDATABLE_COLUMNS = new Set([
+  "business_name", "owner_name", "phone", "email", "website",
+  "trade_type", "suburb", "state", "source", "status",
+  "google_rating", "review_count", "notes",
+  "last_contacted_at", "next_followup_at"
+]);
+
 export function updateProspect(
   db: Db,
   prospectId: string,
   patch: Partial<Omit<ProspectRow, "prospect_id" | "created_at">>
 ) {
-  const keys = Object.keys(patch).filter(k => (patch as any)[k] !== undefined);
+  const keys = Object.keys(patch).filter(k => (patch as any)[k] !== undefined && PROSPECT_UPDATABLE_COLUMNS.has(k));
   if (keys.length === 0) return;
   const setClause = keys.map(k => `${k} = ?`).join(", ");
   const params = [...keys.map(k => (patch as any)[k]), prospectId];
@@ -1009,7 +1047,7 @@ export function listProspects(
 
   if (opts.status) { conditions.push("status = ?"); params.push(opts.status); }
   if (opts.trade_type) { conditions.push("trade_type = ?"); params.push(opts.trade_type); }
-  if (opts.suburb) { conditions.push("LOWER(suburb) LIKE LOWER(?)"); params.push(`%${opts.suburb}%`); }
+  if (opts.suburb) { conditions.push("LOWER(suburb) LIKE LOWER(?) ESCAPE '\\'"); params.push(`%${escapeLike(opts.suburb)}%`); }
   if (opts.source) { conditions.push("source = ?"); params.push(opts.source); }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -1089,6 +1127,49 @@ export function createOutreachLog(
     [log_id, data.prospect_id, data.channel, data.message ?? null, data.status ?? "sent", now]
   );
   return { log_id, prospect_id: data.prospect_id, channel: data.channel, message: data.message ?? null, status: data.status ?? "sent", sent_at: now };
+}
+
+// ─── Onboarding nudge helpers ─────────────────────────────────────────────────
+
+/**
+ * Find tenants who signed up, have a provisioned number, but haven't received
+ * any real calls yet. Used for automated onboarding nudge SMS.
+ */
+export function getTenantsNeedingNudge(
+  db: Db,
+  minAgeMs: number,
+  maxAgeMs: number
+): TenantRow[] {
+  const oldestCreated = new Date(Date.now() - maxAgeMs).toISOString();
+  const newestCreated = new Date(Date.now() - minAgeMs).toISOString();
+  return db.all<TenantRow>(
+    `SELECT t.* FROM tenants t
+     WHERE t.active = 1
+       AND t.twilio_number NOT LIKE '+PENDING%'
+       AND t.created_at >= ? AND t.created_at <= ?
+       AND t.payment_status IN ('trial', 'active')
+       AND NOT EXISTS (
+         SELECT 1 FROM calls c WHERE c.tenant_id = t.tenant_id AND c.status IS NOT NULL AND c.is_demo = 0
+       )`,
+    [oldestCreated, newestCreated]
+  );
+}
+
+/** Check if a tenant has received any real (non-demo) calls. */
+export function tenantHasCalls(db: Db, tenantId: string): boolean {
+  const row = db.get<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM calls WHERE tenant_id = ? AND status IS NOT NULL AND is_demo = 0",
+    [tenantId]
+  );
+  return (row?.n ?? 0) > 0;
+}
+
+/** Count total real (non-demo) calls for a tenant. */
+export function getTenantCallCount(db: Db, tenantId: string): number {
+  return db.get<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM calls WHERE tenant_id = ? AND status IS NOT NULL AND is_demo = 0",
+    [tenantId]
+  )?.n ?? 0;
 }
 
 export function listOutreachForProspect(db: Db, prospectId: string): OutreachLogRow[] {

@@ -9,13 +9,14 @@ export function sayFriendly(vr: { say: (...args: any[]) => any }, text: string) 
 }
 
 /** Returns TwiML that connects the call to a bidirectional media stream. */
-export function connectStreamTwiml(wsUrl: string, callSid: string): string {
+export function connectStreamTwiml(wsUrl: string, callSid: string, streamToken?: string): string {
   const vr = newVoiceResponse();
   // Brief pause so Twilio has time to set up the media stream before speaking.
   vr.pause({ length: 1 });
   const connect = vr.connect();
   const stream = connect.stream({ url: wsUrl });
   stream.parameter({ name: "callSid", value: callSid });
+  if (streamToken) stream.parameter({ name: "streamToken", value: streamToken });
   return vr.toString();
 }
 
@@ -29,8 +30,8 @@ export function voicemailFallbackTwiml(businessName: string, recordingCallbackUr
   vr.pause({ length: 1 });
   vr.say(
     { voice: "Polly.Amy" },
-    `Thanks for calling ${businessName}. We're sorry, but our automated receptionist is temporarily unavailable. ` +
-    `Please leave your name, phone number, and a brief message after the tone, and we'll call you back as soon as possible.`
+    `G'day, thanks for calling ${businessName}! Sorry we missed your call. ` +
+    `Please leave your name, number, and a quick message after the tone, and we'll get back to you as soon as we can. Cheers!`
   );
   vr.record({
     maxLength: 180,
@@ -40,7 +41,7 @@ export function voicemailFallbackTwiml(businessName: string, recordingCallbackUr
     recordingStatusCallback: recordingCallbackUrl,
     recordingStatusCallbackMethod: "POST"
   });
-  vr.say({ voice: "Polly.Amy" }, "Thank you for your message. Goodbye.");
+  vr.say({ voice: "Polly.Amy" }, "Thanks for that — we'll be in touch. Have a good one!");
   vr.hangup();
   return vr.toString();
 }

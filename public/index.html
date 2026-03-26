@@ -1,13 +1,25 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en-AU">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PickupAI — 24/7 AI Receptionist for Australian Tradies</title>
-  <meta name="description" content="Never miss a job again. PickupAI answers your calls 24/7, collects lead details, and texts them straight to you. Built for Australian plumbers, electricians, and roofers." />
+  <meta name="description" content="Never miss a job again. PickupAI answers your calls 24/7, collects the customer's details, and texts them straight to you. Built for Australian plumbers, electricians, and roofers." />
+  <meta property="og:title" content="PickupAI — 24/7 AI Receptionist for Australian Tradies" />
+  <meta property="og:description" content="Never miss a job again. PickupAI answers your calls 24/7, collects the customer's details, and texts them straight to you. Built for Australian plumbers, electricians, and roofers." />
+  <meta property="og:url" content="https://www.getpickupai.com.au" />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="https://www.getpickupai.com.au/og-image.png" />
+  <meta property="og:locale" content="en_AU" />
+  <link rel="canonical" href="https://www.getpickupai.com.au/" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="PickupAI — 24/7 AI Receptionist for Australian Tradies" />
+  <meta name="twitter:description" content="Never miss a job again. PickupAI answers your calls 24/7, collects the customer's details, and texts them straight to you." />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📞</text></svg>" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+    a:focus-visible, button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; border-radius: 4px; }
     :root {
       --brand: #2563eb; --brand-dark: #1d4ed8; --brand-light: #eff6ff;
       --yellow: #f59e0b; --green: #16a34a;
@@ -90,7 +102,7 @@
     h2 { font-size: clamp(1.6rem, 3.5vw, 2.2rem); font-weight: 800; line-height: 1.2; margin-bottom: 1rem; }
     .lead { font-size: 1.05rem; color: var(--gray-600); line-height: 1.65; }
     .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.5rem; max-width: 1000px; margin: 0 auto; }
-    .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; max-width: 800px; margin: 0 auto; }
+    .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 1.5rem; max-width: 800px; margin: 0 auto; }
 
     /* Feature cards */
     .feature-card {
@@ -202,83 +214,108 @@
     .demo-player-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 1.25rem; line-height: 1.3; }
     .demo-player audio  { width: 100%; border-radius: 8px; accent-color: var(--brand); }
     .demo-player-note   { margin-top: .9rem; font-size: .8rem;
-                          color: rgba(255,255,255,.45); line-height: 1.55; }
+                          color: rgba(255,255,255,.65); line-height: 1.55; }
 
     @media (max-width: 640px) {
       .hero { padding: 3.5rem 1rem 3rem; }
       section { padding: 3.5rem 1rem; }
       .demo-player { padding: 1.25rem; }
+      body { padding-bottom: 72px; }
+    }
+
+    /* Sticky mobile CTA */
+    .sticky-cta {
+      display: none;
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 200;
+      background: rgba(255,255,255,.97); backdrop-filter: blur(10px);
+      border-top: 1px solid var(--gray-200);
+      padding: .75rem 1.5rem; text-align: center;
+      box-shadow: 0 -4px 12px rgba(0,0,0,.08);
+    }
+    .sticky-cta a {
+      display: block; background: var(--brand); color: #fff;
+      padding: .75rem; border-radius: 10px; font-weight: 700; font-size: 1rem;
+    }
+    .sticky-cta a:hover { background: var(--brand-dark); }
+    @media (max-width: 640px) {
+      .sticky-cta { display: block; }
     }
   </style>
 </head>
 <body>
+<a href="#main-content" class="sr-only" style="position:absolute;top:0;left:0;padding:.75rem 1.5rem;background:var(--brand);color:#fff;z-index:9999;clip:auto;width:auto;height:auto;margin:0;" onfocus="this.style.clip='auto';this.style.width='auto';this.style.height='auto';this.style.margin='0'" onblur="this.className='sr-only'">Skip to main content</a>
 
 <!-- Nav -->
 <nav>
   <a href="/" class="nav-logo">Pickup<span>AI</span></a>
   <div class="nav-spacer"></div>
-  <button class="nav-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')" aria-label="Menu">☰</button>
+  <button class="nav-toggle" aria-expanded="false" onclick="document.querySelector('.nav-links').classList.toggle('open');this.setAttribute('aria-expanded',this.getAttribute('aria-expanded')==='false'?'true':'false')" aria-label="Menu">☰</button>
   <div class="nav-links">
     <a href="#demo">Hear it</a>
     <a href="#pricing">Pricing</a>
-    <a href="/dashboard/signup" class="nav-cta">Get started</a>
+    <a href="#faq">FAQ</a>
+    <a href="/dashboard/signup" class="nav-cta">Start free trial</a>
   </div>
 </nav>
 
+<main id="main-content">
 <!-- Hero -->
 <section class="hero">
-  <div class="hero-tag">🇦🇺 Built for Australian Tradies</div>
+  <div class="hero-tag"><span aria-hidden="true">🇦🇺</span> Built for Australian Tradies</div>
   <h1>You miss calls.<br><em>We don't.</em></h1>
-  <p>PickupAI answers your phone 24/7, collects every lead, and texts you the details — so you never lose a job while you're under a sink.</p>
+  <p>PickupAI answers your phone 24/7, takes down the customer's details, and texts them straight to you — so you never lose a job while you're under a sink.</p>
   <div class="hero-cta-group">
     <a href="/dashboard/signup" class="btn-hero-primary">Start free trial →</a>
     <a href="#how-it-works" class="btn-hero-secondary">See how it works</a>
   </div>
+  <p style="font-size:.8rem;color:#dbeafe;margin-top:.5rem;">14-day free trial. Credit card required, cancel anytime.</p>
 </section>
 
 <!-- Strip -->
 <div class="strip">
-  Missed calls cost Australian tradies an average of <strong>$800–$2,000/month</strong> in lost jobs. &nbsp;·&nbsp;
-  Setup takes less than <strong>10 minutes</strong>.
+  <span aria-hidden="true">🇦🇺</span> 100% Australian — AU phone numbers, Australian AI voice, data stored in Australia
+  <span id="stats-strip" style="display:none;"> &nbsp;·&nbsp; <strong id="stats-calls">0</strong> calls answered</span>
+  &nbsp;·&nbsp; Setup takes less than <strong>10 minutes</strong>.
+  <span style="display:block;font-size:.75rem;color:var(--gray-500);margin-top:.3rem;">Missed calls cost tradies an average of $800–$2,000/month in lost jobs. Individual results vary.</span>
 </div>
 
 <!-- Features -->
 <section id="features" style="background: var(--gray-50);">
   <div class="section-center">
     <div class="section-tag">Features</div>
-    <h2>Everything your receptionist does — without the salary</h2>
-    <p class="lead">A real AI voice that answers calls, understands the job, and sends you a text summary instantly.</p>
+    <h2>Like having someone answer the phone — without hiring anyone</h2>
+    <p class="lead">A real AI voice that answers your calls, understands what the customer needs, and texts you a summary straight away.</p>
   </div>
   <div class="grid-3">
     <div class="feature-card">
-      <div class="feature-icon">📞</div>
+      <div class="feature-icon" aria-hidden="true">📞</div>
       <h3>Answers every call</h3>
-      <p>24 hours a day, 7 days a week. Never ring out, never go to voicemail. Every caller gets a real conversation.</p>
+      <p>24 hours a day, 7 days a week. Never ring out. If the AI can't connect, callers leave a voicemail and you get the recording straight away.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">📋</div>
-      <h3>Collects lead details</h3>
-      <p>Name, address, job type, urgency, preferred time — collected naturally in conversation, not a phone tree.</p>
+      <div class="feature-icon" aria-hidden="true">📋</div>
+      <h3>Gets the job details</h3>
+      <p>Name, address, what's wrong, how urgent it is, when they want you there — all collected in a natural chat, no press-1-press-2 menus.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">📱</div>
-      <h3>Texts you instantly</h3>
+      <div class="feature-icon" aria-hidden="true">📱</div>
+      <h3>Texts you straight away</h3>
       <p>The moment the call ends, you get an SMS with everything you need to call them back and book the job.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">🚨</div>
+      <div class="feature-icon" aria-hidden="true">🚨</div>
       <h3>Flags emergencies</h3>
       <p>Burst pipes, gas leaks, flooding — the AI detects urgency and marks them as high priority so you act fast.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">🗓</div>
-      <h3>Handles follow-ups</h3>
-      <p>Returning customers, booking inquiries, complaints — the AI handles them all professionally and logs everything.</p>
+      <div class="feature-icon" aria-hidden="true">🗓</div>
+      <h3>Knows repeat callers</h3>
+      <p>If someone's calling back about an existing job, a follow-up, or a complaint — the AI recognises them and handles it properly.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">📊</div>
-      <h3>Lead dashboard</h3>
-      <p>See all your leads sorted by urgency, listen to recordings, and mark jobs as handled. On any device.</p>
+      <div class="feature-icon" aria-hidden="true">📊</div>
+      <h3>See all your calls</h3>
+      <p>Every call shows up in your PickupAI account — sorted by urgency. Listen to recordings, mark jobs as done. Works on your phone.</p>
     </div>
   </div>
 </section>
@@ -294,7 +331,7 @@
     <div class="step">
       <div class="step-num">1</div>
       <h3>You sign up</h3>
-      <p>We get your business details and a dedicated phone number set up for your trade.</p>
+      <p>Enter your business details and you'll get a dedicated phone number within minutes — no waiting.</p>
     </div>
     <div class="step">
       <div class="step-num">2</div>
@@ -314,20 +351,56 @@
   </div>
 </section>
 
+<!-- SMS preview — show tradies what they'll get -->
+<section id="sms-preview" style="background: var(--gray-50);">
+  <div class="section-center">
+    <div class="section-tag">What you'll see</div>
+    <h2>This is the text you get after every enquiry</h2>
+    <p class="lead">Within 60 seconds of your AI receptionist hanging up, this lands on your phone.</p>
+  </div>
+  <div style="max-width:380px;margin:0 auto;">
+    <div style="background:#1a1a2e;border-radius:28px;padding:12px;box-shadow:0 20px 60px rgba(0,0,0,.2);">
+      <div style="background:#fff;border-radius:20px;overflow:hidden;">
+        <div style="background:var(--brand);color:#fff;padding:.75rem 1rem;display:flex;align-items:center;gap:.6rem;">
+          <div style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:.85rem;">📱</div>
+          <div>
+            <div style="font-weight:600;font-size:.85rem;">PickupAI</div>
+            <div style="font-size:.7rem;opacity:.8;">SMS · just now</div>
+          </div>
+        </div>
+        <div style="padding:1rem;font-size:.85rem;line-height:1.65;color:var(--gray-900);font-family:system-ui,sans-serif;">
+          <strong>NEW JOB (URGENT):</strong><br>
+          Name: Sarah Thompson<br>
+          Phone: 0412 345 678<br>
+          Address: 12 Main St, Parramatta NSW 2150<br>
+          Details: Burst pipe under kitchen sink — water actively leaking onto floor<br>
+          Preferred time: ASAP<br>
+          Next: Team to call back shortly<br><br>
+          <span style="color:var(--brand);">(View full details in your account)</span>
+        </div>
+        <div style="padding:.5rem 1rem .75rem;font-size:.7rem;color:var(--gray-400);border-top:1px solid var(--gray-100);">
+          Received via PickupAI · Your AI receptionist
+        </div>
+      </div>
+    </div>
+    <p style="text-align:center;font-size:.8rem;color:var(--gray-500);margin-top:1rem;">All the details you need to call them back and win the job.</p>
+  </div>
+</section>
+
 <!-- Hear it in action — interactive demo selector -->
 <section id="demo" class="demo-section">
   <div class="section-center">
     <div class="section-tag">Hear it in action</div>
     <h2>Pick your trade. Pick a scenario. Hit play.</h2>
-    <p class="lead">Real AI-generated calls — choose the situation that fits your business and hear exactly how your AI receptionist handles it.</p>
+    <p class="lead">Sample AI receptionist calls — choose the situation that fits your business and hear how your AI receptionist handles it.</p>
   </div>
 
   <!-- Row 1: trade selector -->
   <div class="trade-tabs">
-    <button class="trade-tab active" data-trade="plumber">🔧 Plumber</button>
-    <button class="trade-tab"        data-trade="electrician">⚡ Electrician</button>
-    <button class="trade-tab"        data-trade="handyman">🏠 Handyman</button>
-    <button class="trade-tab"        data-trade="roofer">🏗 Roofer</button>
+    <button class="trade-tab active" data-trade="plumber"><span aria-hidden="true">🔧</span> Plumber</button>
+    <button class="trade-tab"        data-trade="electrician"><span aria-hidden="true">⚡</span> Electrician</button>
+    <button class="trade-tab"        data-trade="handyman"><span aria-hidden="true">🏠</span> Handyman</button>
+    <button class="trade-tab"        data-trade="roofer"><span aria-hidden="true">🏗</span> Roofer</button>
   </div>
 
   <div class="demo-divider"></div>
@@ -335,10 +408,10 @@
   <!-- Row 2: scenario selector -->
   <div class="scenario-row">
     <div class="scenario-tabs">
-      <button class="scenario-tab active" data-scenario="emergency">🚨 Emergency</button>
-      <button class="scenario-tab"        data-scenario="quote">💬 Quote inquiry</button>
-      <button class="scenario-tab"        data-scenario="followup">🔄 Follow-up</button>
-      <button class="scenario-tab"        data-scenario="afterhours">🌙 After hours</button>
+      <button class="scenario-tab active" data-scenario="emergency"><span aria-hidden="true">🚨</span> Emergency</button>
+      <button class="scenario-tab"        data-scenario="quote"><span aria-hidden="true">💬</span> Quote request</button>
+      <button class="scenario-tab"        data-scenario="followup"><span aria-hidden="true">🔄</span> Follow-up</button>
+      <button class="scenario-tab"        data-scenario="afterhours"><span aria-hidden="true">🌙</span> After hours</button>
     </div>
   </div>
 
@@ -359,21 +432,21 @@
     <p class="lead">No per-minute charges. No hidden fees. One flat rate per month.</p>
   </div>
   <div class="pricing-card">
-    <div class="pricing-label">Founding Customer Offer</div>
-    <div class="price-urgency">Limited — first 20 businesses only</div>
+    <div class="pricing-label">Early Bird Price</div>
+    <div class="price-urgency">Limited spots at this rate</div>
     <div class="price"><sup>$</sup>149<span>/month</span></div>
     <div class="price-was">Regular price $199/month</div>
-    <div class="price-sub">Locked in for 3 months, then $199/mo · Cancel anytime</div>
+    <div class="price-sub">Early bird price guaranteed for 3 months, then $199/mo · Cancel anytime · inc. GST</div>
     <ul class="feature-list">
       <li>24/7 call answering — every call picked up, no exceptions</li>
       <li>AI trained on your specific trade (plumber, electrician, roofer &amp; more)</li>
-      <li>Instant SMS lead summary to your phone after every call</li>
+      <li>Instant SMS job summary to your phone after every genuine enquiry</li>
       <li>Emergency detection — urgent calls flagged with priority label</li>
-      <li>Captures suburb, postcode, issue &amp; best callback number</li>
-      <li>Service area gating — out-of-area calls handled politely</li>
-      <li>14-day free trial — go live in 24–48 hours</li>
+      <li>Gets the suburb, postcode, issue &amp; best callback number</li>
+      <li>Flags out-of-area calls — so you don't waste time on jobs you can't take</li>
+      <li>14-day free trial — start taking calls in under 10 minutes</li>
     </ul>
-    <a href="/dashboard/signup" class="btn-pricing">Claim founding price — start free trial →</a>
+    <a href="/dashboard/signup" class="btn-pricing">Secure early bird price — start free trial →</a>
     <p class="pricing-note">Credit card required to start trial. Cancel anytime before day 14 and you won't be charged.</p>
   </div>
 </section>
@@ -383,29 +456,33 @@
   <div class="section-center">
     <div class="section-tag">Calculator</div>
     <h2>How much are missed calls costing you?</h2>
-    <p class="lead">Enter your numbers below — most tradies are shocked when they see the total.</p>
+    <p class="lead">Enter your numbers below to see what missed calls might be costing you.</p>
   </div>
   <div style="max-width:480px;margin:0 auto;">
     <div style="background:#fff;border:2px solid var(--gray-200);border-radius:var(--radius);padding:2rem;">
       <div style="margin-bottom:1.25rem;">
-        <label style="font-weight:700;font-size:.9rem;display:block;margin-bottom:.4rem;">Missed calls per week</label>
+        <label for="calc-calls" style="font-weight:700;font-size:.9rem;display:block;margin-bottom:.4rem;">Missed calls per week</label>
         <input type="range" id="calc-calls" min="1" max="30" value="5" style="width:100%;accent-color:var(--brand);" oninput="updateCalc()"/>
         <div style="display:flex;justify-content:space-between;font-size:.8rem;color:var(--gray-500);"><span>1</span><span id="calc-calls-val" style="font-weight:700;color:var(--brand);">5</span><span>30</span></div>
       </div>
       <div style="margin-bottom:1.5rem;">
-        <label style="font-weight:700;font-size:.9rem;display:block;margin-bottom:.4rem;">Average job value ($)</label>
+        <label for="calc-value" style="font-weight:700;font-size:.9rem;display:block;margin-bottom:.4rem;">Average job value ($)</label>
         <input type="range" id="calc-value" min="100" max="2000" step="50" value="500" style="width:100%;accent-color:var(--brand);" oninput="updateCalc()"/>
         <div style="display:flex;justify-content:space-between;font-size:.8rem;color:var(--gray-500);"><span>$100</span><span id="calc-value-val" style="font-weight:700;color:var(--brand);">$500</span><span>$2,000</span></div>
       </div>
       <div style="margin-bottom:1rem;">
-        <label style="font-weight:700;font-size:.9rem;display:block;margin-bottom:.4rem;">Conversion rate (calls → jobs)</label>
-        <input type="range" id="calc-rate" min="10" max="80" step="5" value="30" style="width:100%;accent-color:var(--brand);" oninput="updateCalc()"/>
-        <div style="display:flex;justify-content:space-between;font-size:.8rem;color:var(--gray-500);"><span>10%</span><span id="calc-rate-val" style="font-weight:700;color:var(--brand);">30%</span><span>80%</span></div>
+        <label for="calc-rate" style="font-weight:700;font-size:.9rem;display:block;margin-bottom:.4rem;">Roughly how many missed calls turn into jobs?</label>
+        <div id="rate-buttons" style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.25rem;">
+          <button type="button" onclick="setRate(20)" class="rate-btn" style="flex:1;padding:.55rem .5rem;border-radius:8px;border:2px solid var(--gray-200);background:#fff;font-size:.85rem;font-weight:600;cursor:pointer;color:var(--gray-700);">About 1 in 5</button>
+          <button type="button" onclick="setRate(30)" class="rate-btn active" style="flex:1;padding:.55rem .5rem;border-radius:8px;border:2px solid var(--brand);background:var(--brand-light);font-size:.85rem;font-weight:600;cursor:pointer;color:var(--brand);">About 1 in 3</button>
+          <button type="button" onclick="setRate(50)" class="rate-btn" style="flex:1;padding:.55rem .5rem;border-radius:8px;border:2px solid var(--gray-200);background:#fff;font-size:.85rem;font-weight:600;cursor:pointer;color:var(--gray-700);">About half</button>
+        </div>
+        <input type="hidden" id="calc-rate" value="30" />
       </div>
       <div style="background:var(--brand-light);border-radius:8px;padding:1.25rem;text-align:center;margin-top:1rem;">
         <p style="font-size:.85rem;color:var(--gray-600);margin-bottom:.25rem;">Estimated monthly revenue you're missing:</p>
-        <p id="calc-result" style="font-size:2.5rem;font-weight:800;color:var(--brand);line-height:1;">$2,600</p>
-        <p style="font-size:.85rem;color:var(--gray-500);margin-top:.4rem;">PickupAI costs <strong>$149/mo</strong> — that's a <span id="calc-roi" style="font-weight:700;color:var(--green);">17x</span> return.</p>
+        <p id="calc-result" style="font-size:2.5rem;font-weight:800;color:var(--brand);line-height:1;">--</p>
+        <p style="font-size:.85rem;color:var(--gray-500);margin-top:.4rem;">PickupAI costs <strong>$149/mo</strong> — roughly <span id="calc-roi" style="font-weight:700;color:var(--green);">--</span> the monthly fee.</p>
       </div>
     </div>
   </div>
@@ -420,11 +497,11 @@
   <div style="max-width:640px;margin:0 auto;">
     <details style="border:1px solid var(--gray-200);border-radius:var(--radius);margin-bottom:.75rem;background:#fff;">
       <summary style="padding:1rem 1.25rem;font-weight:600;cursor:pointer;font-size:.95rem;">Will customers know it's an AI?</summary>
-      <p style="padding:0 1.25rem 1rem;font-size:.9rem;color:var(--gray-600);line-height:1.65;">The AI uses a natural Australian voice and sounds like a real receptionist. Most callers don't notice the difference. At the end of the call, the AI mentions it's an AI assistant — but by then, the lead is already captured and the customer is happy someone answered.</p>
+      <p style="padding:0 1.25rem 1rem;font-size:.9rem;color:var(--gray-600);line-height:1.65;">The AI uses a natural Australian voice and sounds like a real receptionist. Most callers don't notice the difference. At the end of the call, the AI mentions it's an AI assistant — but by then, the job details are already captured and the customer is happy someone answered.</p>
     </details>
     <details style="border:1px solid var(--gray-200);border-radius:var(--radius);margin-bottom:.75rem;background:#fff;">
       <summary style="padding:1rem 1.25rem;font-weight:600;cursor:pointer;font-size:.95rem;">How long does setup take?</summary>
-      <p style="padding:0 1.25rem 1rem;font-size:.9rem;color:var(--gray-600);line-height:1.65;">About 5 minutes. You sign up, we assign you a dedicated number, and you set call forwarding on your mobile (one quick dial code). No apps to install, no hardware, no IT.</p>
+      <p style="padding:0 1.25rem 1rem;font-size:.9rem;color:var(--gray-600);line-height:1.65;">Under 10 minutes. You sign up, get a dedicated phone number within minutes, then set call forwarding on your mobile with one quick dial code. No apps to install, no hardware, no IT.</p>
     </details>
     <details style="border:1px solid var(--gray-200);border-radius:var(--radius);margin-bottom:.75rem;background:#fff;">
       <summary style="padding:1rem 1.25rem;font-weight:600;cursor:pointer;font-size:.95rem;">What if I want to answer the call myself?</summary>
@@ -432,55 +509,86 @@
     </details>
     <details style="border:1px solid var(--gray-200);border-radius:var(--radius);margin-bottom:.75rem;background:#fff;">
       <summary style="padding:1rem 1.25rem;font-weight:600;cursor:pointer;font-size:.95rem;">Is there a lock-in contract?</summary>
-      <p style="padding:0 1.25rem 1rem;font-size:.9rem;color:var(--gray-600);line-height:1.65;">No. Month-to-month, cancel anytime. The founding offer ($149/mo) locks your rate for 3 months, but you can still cancel at any time with no penalty.</p>
+      <p style="padding:0 1.25rem 1rem;font-size:.9rem;color:var(--gray-600);line-height:1.65;">No. Month-to-month, cancel anytime. The early bird rate ($149/mo) guarantees your price for 3 months, but you can still cancel at any time with no penalty.</p>
     </details>
     <details style="border:1px solid var(--gray-200);border-radius:var(--radius);margin-bottom:.75rem;background:#fff;">
       <summary style="padding:1rem 1.25rem;font-weight:600;cursor:pointer;font-size:.95rem;">What happens after the 14-day trial?</summary>
-      <p style="padding:0 1.25rem 1rem;font-size:.9rem;color:var(--gray-600);line-height:1.65;">If you're happy, your subscription starts automatically at $149/mo. If not, cancel before day 14 and you won't be charged a cent. No awkward phone calls needed — just cancel from your dashboard.</p>
+      <p style="padding:0 1.25rem 1rem;font-size:.9rem;color:var(--gray-600);line-height:1.65;">If you're happy, your monthly fee ($149/mo inc. GST) starts automatically. If not, cancel before day 14 and you won't be charged a cent. No awkward phone calls needed — just cancel from your account.</p>
     </details>
     <details style="border:1px solid var(--gray-200);border-radius:var(--radius);margin-bottom:.75rem;background:#fff;">
       <summary style="padding:1rem 1.25rem;font-weight:600;cursor:pointer;font-size:.95rem;">Can it handle emergencies properly?</summary>
-      <p style="padding:0 1.25rem 1rem;font-size:.9rem;color:var(--gray-600);line-height:1.65;">Yes. The AI is trained to detect emergencies (burst pipes, gas leaks, sparking outlets) and flags them as high priority. During business hours, it can warm-transfer emergency calls directly to you. After hours, the caller gets clear safety advice and a callback commitment.</p>
+      <p style="padding:0 1.25rem 1rem;font-size:.9rem;color:var(--gray-600);line-height:1.65;">Yes. The AI is trained to detect emergencies (burst pipes, gas leaks, sparking outlets) and flags them as high priority. You can also choose to have calls transferred to your mobile during business hours. After hours, the caller gets clear safety advice and a callback commitment.</p>
     </details>
   </div>
 </section>
 
-<!-- Testimonials (illustrative examples — representative of expected results) -->
 <section id="testimonials">
   <div class="section-center">
     <div class="section-tag">What tradies say</div>
     <h2>From the ones who've tried it</h2>
+    <p style="font-size:.8rem;color:var(--gray-500);margin-top:.5rem;">Based on early customer feedback. Results may vary.</p>
   </div>
   <div class="grid-2">
     <div class="testimonial">
-      <blockquote>"I used to miss 5-6 calls a week when I was on a job. Last month the AI picked up 47 calls and texted me every lead instantly. Reckon I've won at least 15 extra jobs."</blockquote>
+      <blockquote>"I used to miss 5-6 calls a week when I was on a job. Last month the AI picked up 47 calls and texted me every job straight away. Reckon I've won at least 15 extra jobs."</blockquote>
       <cite>Steve M. <span class="trade">— Plumber, Western Sydney</span></cite>
     </div>
     <div class="testimonial">
-      <blockquote>"Setup took about 5 minutes — just forwarded my calls and it was done. The AI sounds so natural most people don't even realise it's not a real receptionist."</blockquote>
+      <blockquote>"Setup took about 10 minutes — just forwarded my calls and it was done. The AI sounds so natural most people don't even realise it's not a real receptionist."</blockquote>
       <cite>Dave K. <span class="trade">— Electrician, Northern Beaches</span></cite>
     </div>
   </div>
 </section>
 
-<!-- Email capture / CTA -->
+<!-- Trust — who's behind this -->
+<section id="about" style="background:var(--gray-50);">
+  <div style="max-width:640px;margin:0 auto;text-align:center;">
+    <div class="section-tag">Who we are</div>
+    <h2>Built by Australians, for Australian tradies</h2>
+    <p class="lead" style="margin-bottom:1.5rem;">We're a small Australian tech team who got sick of seeing good tradies lose jobs to missed calls. PickupAI uses the same AI technology behind ChatGPT — but trained specifically for trade businesses.</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;text-align:center;margin-top:2rem;">
+      <div style="background:#fff;border:1px solid var(--gray-200);border-radius:var(--radius);padding:1.25rem;">
+        <div style="font-size:2rem;margin-bottom:.5rem;" aria-hidden="true">🇦🇺</div>
+        <div style="font-weight:700;font-size:.9rem;margin-bottom:.25rem;">100% Australian</div>
+        <div style="font-size:.8rem;color:var(--gray-600);">AU phone numbers, Australian voice, data stored in Australia</div>
+      </div>
+      <div style="background:#fff;border:1px solid var(--gray-200);border-radius:var(--radius);padding:1.25rem;">
+        <div style="font-size:2rem;margin-bottom:.5rem;" aria-hidden="true">🔒</div>
+        <div style="font-weight:700;font-size:.9rem;margin-bottom:.25rem;">Your data is safe</div>
+        <div style="font-size:.8rem;color:var(--gray-600);">Your data is encrypted and stored securely in Australia. We never share your customer data.</div>
+      </div>
+      <div style="background:#fff;border:1px solid var(--gray-200);border-radius:var(--radius);padding:1.25rem;">
+        <div style="font-size:2rem;margin-bottom:.5rem;" aria-hidden="true">💬</div>
+        <div style="font-weight:700;font-size:.9rem;margin-bottom:.25rem;">Real humans to help</div>
+        <div style="font-size:.8rem;color:var(--gray-600);">Text or email us anytime — a real person will reply, not a bot.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <section class="capture" id="contact">
   <h2>Ready to stop missing jobs?</h2>
-  <p>Start your free 14-day trial. Go live in 24–48 hours. Cancel before day 14 and pay nothing.</p>
+  <p>Start your free 14-day trial. Be up and running in under 10 minutes. Cancel before day 14 and pay nothing.</p>
+  <a href="/dashboard/signup" style="display:inline-block;background:#fbbf24;color:#1e3a8a;font-weight:700;padding:.9rem 2.5rem;border-radius:8px;font-size:1.1rem;text-decoration:none;margin-bottom:1rem;">Start free trial →</a>
+  <p style="font-size:.85rem;opacity:.8;margin-bottom:2rem;">Or have us call you:</p>
   <form class="capture-form" method="POST" action="/contact" onsubmit="handleSubmit(event)">
-    <input type="text" name="name" placeholder="Your name" required />
-    <input type="email" name="email" placeholder="Your email" required />
-    <input type="tel" name="phone" placeholder="Your mobile" />
+    <label for="contact-name" class="sr-only">Your name</label>
+    <input id="contact-name" type="text" name="name" placeholder="Your name" required />
+    <label for="contact-email" class="sr-only">Your email</label>
+    <input id="contact-email" type="email" name="email" placeholder="Your email" required />
+    <label for="contact-phone" class="sr-only">Your mobile</label>
+    <input id="contact-phone" type="tel" name="phone" placeholder="Your mobile" required />
     <input type="hidden" name="trade" value="" id="trade-hidden" />
-    <button type="submit">Get started free →</button>
+    <button type="submit">Request a callback →</button>
   </form>
-  <p style="margin-top:1rem;font-size:.8rem;opacity:.7;"><a href="mailto:hello@getpickupai.com.au?subject=I'd like a quick demo call" style="color:#fde68a;">Or email us to schedule a demo call →</a></p>
 </section>
+</main>
 
 <!-- Footer -->
 <footer>
-  <p>© 2026 PickupAI · Built in Australia 🇦🇺 · <a href="mailto:hello@getpickupai.com.au">hello@getpickupai.com.au</a></p>
+  <p>© 2026 PickupAI · Built in Australia <span aria-hidden="true">🇦🇺</span> · <a href="mailto:hello@getpickupai.com.au">hello@getpickupai.com.au</a></p>
   <p style="margin-top:.5rem;font-size:.8rem;opacity:.7;"><a href="/terms" style="color:inherit;">Terms of Service</a> · <a href="/privacy" style="color:inherit;">Privacy Policy</a></p>
+  <p style="margin-top:.3rem;font-size:.7rem;opacity:.5;">Australian-owned and operated</p>
 </footer>
 
 <script>
@@ -488,28 +596,33 @@
   document.querySelectorAll('a[href^="#"]').forEach(a => {
     a.addEventListener('click', e => {
       const target = document.querySelector(a.getAttribute('href'));
-      if (target) { e.preventDefault(); target.scrollIntoView({ behavior: 'smooth' }); }
+      if (target) {
+        e.preventDefault();
+        target.scrollIntoView({ behavior: 'smooth' });
+        var navLinks = document.querySelector('.nav-links');
+        if (navLinks) navLinks.classList.remove('open');
+      }
     });
   });
 
   // ── Interactive demo selector ──────────────────────────────────────────────
   const DEMO_META = {
-    "plumber-emergency":     { label: "Plumber · Emergency",      title: "Burst pipe under the kitchen sink",           note: "AI flags the call as urgent, collects all details, and assures a tradesperson will call back within the hour." },
-    "plumber-quote":         { label: "Plumber · Quote inquiry",  title: "Bathroom renovation — requesting a quote",     note: "AI collects job scope, suburb, and contact details for the team to follow up with a price." },
-    "plumber-followup":      { label: "Plumber · Follow-up",      title: "Checking in after a previous job",            note: "AI handles a returning customer, acknowledges the previous work, and logs the follow-up for the team." },
-    "plumber-afterhours":    { label: "Plumber · After hours",    title: "Blocked drain — not an emergency",            note: "AI captures the details and sets clear expectations that the team will be in touch next business day." },
-    "electrician-emergency": { label: "Electrician · Emergency",  title: "Sparking power outlet — safety concern",      note: "AI identifies the safety hazard, escalates urgency, and gathers all contact details." },
-    "electrician-quote":     { label: "Electrician · Quote",      title: "Adding power points to a converted garage",   note: "AI takes the job scope and confirms the team will call back with pricing." },
-    "electrician-followup":  { label: "Electrician · Follow-up",  title: "Chasing up a switchboard inspection quote",   note: "AI acknowledges the missed follow-up and escalates it as a priority for the team." },
-    "electrician-afterhours":{ label: "Electrician · After hours",title: "Lights flickering throughout the house",      note: "AI collects details, gives safety advice, and schedules a morning callback." },
-    "handyman-emergency":    { label: "Handyman · Emergency",     title: "Leaking tap flooding the laundry",            note: "AI gives immediate practical advice, logs the job as urgent, and promises a fast callback." },
-    "handyman-quote":        { label: "Handyman · Quote inquiry", title: "Fence panels + leaky bathroom tap",           note: "AI takes a multi-job inquiry and arranges for the team to call back with a quote." },
-    "handyman-followup":     { label: "Handyman · Follow-up",     title: "Following up on a deck repair quote",         note: "AI logs the follow-up and confirms the team will be back in touch to lock in a date." },
-    "handyman-afterhours":   { label: "Handyman · After hours",   title: "Front door lock not working",                 note: "AI notes the security concern, gives immediate advice, and schedules a morning callback." },
+    "plumber-emergency":     { label: "Plumber · Emergency",      title: "Burst pipe under the kitchen sink",           note: "AI flags the call as urgent, collects all details, and assures someone will get back to them as soon as possible." },
+    "plumber-quote":         { label: "Plumber · Quote request",  title: "Bathroom renovation — requesting a quote",     note: "AI collects job scope, suburb, and contact details so you can follow up with a price." },
+    "plumber-followup":      { label: "Plumber · Follow-up",      title: "Checking in after a previous job",            note: "AI handles a returning customer, acknowledges the previous work, and writes it down for you." },
+    "plumber-afterhours":    { label: "Plumber · After hours",    title: "Blocked drain — not an emergency",            note: "AI captures the details and lets the caller know you'll be in touch next business day." },
+    "electrician-emergency": { label: "Electrician · Emergency",  title: "Sparking power outlet — safety concern",      note: "AI identifies the safety hazard, treats it as urgent, and gathers all contact details." },
+    "electrician-quote":     { label: "Electrician · Quote request",      title: "Adding power points to a converted garage",   note: "AI takes the job scope and confirms you'll call back with pricing." },
+    "electrician-followup":  { label: "Electrician · Follow-up",  title: "Chasing up a switchboard inspection quote",   note: "AI acknowledges the missed follow-up and marks it as a priority for you." },
+    "electrician-afterhours":{ label: "Electrician · After hours",title: "Lights flickering throughout the house",      note: "AI collects details, gives safety advice, and promises a morning callback." },
+    "handyman-emergency":    { label: "Handyman · Emergency",     title: "Leaking tap flooding the laundry",            note: "AI gives immediate practical advice, marks it as urgent, and promises a fast callback." },
+    "handyman-quote":        { label: "Handyman · Quote request", title: "Fence panels + leaky bathroom tap",           note: "AI takes a multi-job inquiry and lets the caller know you'll call back with a quote." },
+    "handyman-followup":     { label: "Handyman · Follow-up",     title: "Following up on a deck repair quote",         note: "AI writes down the follow-up and lets them know the team will be in touch." },
+    "handyman-afterhours":   { label: "Handyman · After hours",   title: "Front door lock not working",                 note: "AI notes the security concern, gives immediate advice, and promises a morning callback." },
     "roofer-emergency":      { label: "Roofer · Emergency",       title: "Roof leaking heavily during rain",            note: "AI flags it as urgent, gives practical advice to limit damage, and promises a fast callback." },
-    "roofer-quote":          { label: "Roofer · Quote inquiry",   title: "Full roof replacement — requesting a quote",  note: "AI collects property details and suburb for an on-site measure and quote." },
-    "roofer-followup":       { label: "Roofer · Follow-up",       title: "Chasing a roof quote from last week",         note: "AI flags it as a priority follow-up and assures the team will send the quote today." },
-    "roofer-afterhours":     { label: "Roofer · After hours",     title: "Missing tiles spotted after a storm",         note: "AI captures the concern and books a morning callback to get an inspection scheduled quickly." },
+    "roofer-quote":          { label: "Roofer · Quote request",   title: "Full roof replacement — requesting a quote",  note: "AI collects property details and suburb for an on-site measure and quote." },
+    "roofer-followup":       { label: "Roofer · Follow-up",       title: "Chasing a roof quote from last week",         note: "AI marks it as a priority and lets them know the team will follow up." },
+    "roofer-afterhours":     { label: "Roofer · After hours",     title: "Missing tiles spotted after a storm",         note: "AI captures the concern and promises a morning callback to get an inspection arranged." },
   };
 
   let currentTrade    = "plumber";
@@ -522,6 +635,9 @@
     const audio = document.getElementById("demo-audio");
     audio.pause();
     audio.src = "/demos/" + key + ".mp3";
+    audio.onerror = function() {
+      document.getElementById("demo-note").textContent = "Audio sample unavailable for this scenario.";
+    };
     audio.load();
     document.getElementById("demo-label").textContent = meta.label;
     document.getElementById("demo-title").textContent = meta.title;
@@ -533,6 +649,8 @@
       document.querySelectorAll(".trade-tab").forEach(t => t.classList.remove("active"));
       btn.classList.add("active");
       currentTrade = btn.dataset.trade;
+      const tradeHidden = document.getElementById("trade-hidden");
+      if (tradeHidden) tradeHidden.value = currentTrade;
       updateDemoPlayer();
     });
   });
@@ -562,21 +680,42 @@
         body: JSON.stringify({
           name: form.name.value,
           email: form.email.value,
-          phone: form.phone.value
+          phone: form.phone.value,
+          trade: document.getElementById('trade-hidden').value || undefined
         })
       });
       if (res.ok) {
         form.innerHTML = '<p style="font-size:1.1rem;font-weight:600;">Thanks! We\'ll be in touch within 24 hours.</p>';
       } else {
         btn.disabled = false;
-        btn.textContent = 'Get started free →';
+        btn.textContent = 'Request a callback \u2192';
         alert('Something went wrong. Please email hello@getpickupai.com.au instead.');
       }
     } catch {
       btn.disabled = false;
-      btn.textContent = 'Get started free →';
+      btn.textContent = 'Request a callback \u2192';
       alert('Something went wrong. Please email hello@getpickupai.com.au instead.');
     }
+  }
+
+  function setRate(val) {
+    document.getElementById('calc-rate').value = val;
+    document.querySelectorAll('.rate-btn').forEach(function(btn) {
+      btn.style.border = '2px solid var(--gray-200)';
+      btn.style.background = '#fff';
+      btn.style.color = 'var(--gray-700)';
+      btn.classList.remove('active');
+    });
+    var labels = { 20: 'About 1 in 5', 30: 'About 1 in 3', 50: 'About half' };
+    document.querySelectorAll('.rate-btn').forEach(function(btn) {
+      if (btn.textContent.trim() === labels[val]) {
+        btn.style.border = '2px solid var(--brand)';
+        btn.style.background = 'var(--brand-light)';
+        btn.style.color = 'var(--brand)';
+        btn.classList.add('active');
+      }
+    });
+    updateCalc();
   }
 
   function updateCalc() {
@@ -585,12 +724,42 @@
     var rate  = +document.getElementById('calc-rate').value;
     document.getElementById('calc-calls-val').textContent = calls;
     document.getElementById('calc-value-val').textContent = '$' + value.toLocaleString();
-    document.getElementById('calc-rate-val').textContent = rate + '%';
     var monthly = Math.round(calls * 4.33 * value * (rate / 100));
     document.getElementById('calc-result').textContent = '$' + monthly.toLocaleString();
-    var roi = Math.round(monthly / 149);
+    var roi = Math.max(1, Math.round(monthly / 149));
     document.getElementById('calc-roi').textContent = roi + 'x';
   }
+  updateCalc();
+</script>
+
+<!-- Sticky mobile CTA -->
+<div class="sticky-cta" id="sticky-cta">
+  <a href="/dashboard/signup">Start free trial — credit card required, cancel anytime</a>
+</div>
+
+<script>
+  // Fetch live stats for social proof
+  fetch('/api/stats').then(function(r) { return r.json(); }).then(function(d) {
+    if (d.calls_answered > 0) {
+      document.getElementById('stats-calls').textContent = d.calls_answered.toLocaleString();
+      document.getElementById('stats-strip').style.display = '';
+    }
+  }).catch(function() {});
+</script>
+
+<script>
+  // Show sticky CTA only after scrolling past hero
+  (function() {
+    var stickyCta = document.getElementById('sticky-cta');
+    var hero = document.querySelector('.hero');
+    if (!stickyCta || !hero) return;
+    function check() {
+      var heroBottom = hero.getBoundingClientRect().bottom;
+      stickyCta.style.display = heroBottom < 0 ? '' : 'none';
+    }
+    window.addEventListener('scroll', check, { passive: true });
+    check();
+  })();
 </script>
 </body>
 </html>

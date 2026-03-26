@@ -8,20 +8,9 @@ import type {
   OutreachLogRow,
   DailyFunnelStats
 } from "../db/repo.js";
+import { formatAuPhone } from "../utils/phone.js";
 
 // ─── Shared helpers ────────────────────────────────────────────────────────────
-
-/** Format an E.164 Australian number to local display (e.g. +61412345678 → 0412 345 678) */
-export function formatAuPhone(e164: string): string {
-  if (!e164 || !e164.startsWith("+61")) return e164;
-  const local = "0" + e164.slice(3);
-  if (local.startsWith("04")) {
-    // Mobile: 04XX XXX XXX
-    return `${local.slice(0, 4)} ${local.slice(4, 7)} ${local.slice(7)}`;
-  }
-  // Landline: (0X) XXXX XXXX
-  return `(${local.slice(0, 2)}) ${local.slice(2, 6)} ${local.slice(6)}`;
-}
 
 /** Generate the Australian USSD code for no-answer call divert, timeout 20s */
 export function ussdDivertCode(e164: string): string {
@@ -48,7 +37,7 @@ ${ussd}
 Or call your phone provider and ask them to set up "no-answer call divert" to ${formatted}.
 
 Full setup guide:
-${publicBaseUrl}/dashboard/setup-guide
+${publicBaseUrl}/dashboard/welcome
 
 Login to your dashboard:
 ${publicBaseUrl}/dashboard/login
@@ -61,7 +50,8 @@ function esc(s: string | null | undefined): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function fmtDate(iso: string | null | undefined): string {
@@ -283,7 +273,7 @@ function adminShell(title: string, activeTab: string, content: string, flash?: s
 <header>
   <span class="logo">Pickup<span>AI</span><span class="logo-badge">Admin</span></span>
   <div class="spacer"></div>
-  <a href="/admin/logout" class="logout">Sign out</a>
+  <form method="POST" action="/admin/logout" style="display:inline"><button type="submit" class="logout" style="background:none;border:none;cursor:pointer;font:inherit;color:inherit;padding:0;">Sign out</button></form>
 </header>
 <nav>${navLinks}</nav>
 <div class="container">
@@ -594,7 +584,7 @@ export function adminUserDetailPage(detail: TenantDetail, publicBaseUrl: string,
       <td>${fmtDate(l.created_at)}</td>
       <td>${esc(l.name)}</td>
       <td>${esc(l.issue_summary?.slice(0, 60))}</td>
-      <td>${l.urgency_level ? `<span class="badge badge-${l.urgency_level}">${l.urgency_level}</span>` : "—"}</td>
+      <td>${l.urgency_level ? `<span class="badge badge-${l.urgency_level === "emergency" ? "emergency" : l.urgency_level === "urgent" ? "urgent" : "routine"}">${esc(l.urgency_level)}</span>` : "—"}</td>
       <td>${esc(l.lead_status)}</td>
     </tr>
   `).join("") || `<tr><td colspan="5" class="empty">No leads yet</td></tr>`;
@@ -680,7 +670,7 @@ export function adminUserDetailPage(detail: TenantDetail, publicBaseUrl: string,
           <div class="form-group full">
             <div class="check-row">
               <input type="checkbox" id="warm" name="enable_warm_transfer" value="1"${t.enable_warm_transfer ? " checked" : ""} />
-              <label for="warm" style="margin:0;font-weight:500">Enable warm transfer (emergency calls)</label>
+              <label for="warm" style="margin:0;font-weight:500">Enable live connect (transfer calls to their phone during business hours)</label>
             </div>
           </div>
           <div class="form-group full">
@@ -950,7 +940,7 @@ function prospectStatusBadge(status: string): string {
   };
   const cls = colors[status] ?? "badge-none";
   const label = status.replace(/_/g, " ");
-  return `<span class="badge ${cls}">${label}</span>`;
+  return `<span class="badge ${cls}">${esc(label)}</span>`;
 }
 
 export function adminProspectsPage(
@@ -1110,7 +1100,7 @@ export function adminProspectDetailPage(
         <div><strong>Google rating:</strong> ${p.google_rating ? `${p.google_rating} (${p.review_count ?? 0} reviews)` : "—"}</div>
         <div><strong>Added:</strong> ${fmtDate(p.created_at)}</div>
         <div><strong>Last contacted:</strong> ${p.last_contacted_at ? fmtDateTime(p.last_contacted_at) : "Never"}</div>
-        ${p.website ? `<div><a href="${esc(p.website)}" target="_blank" style="color:var(--brand)">Visit website →</a></div>` : ""}
+        ${p.website && /^https?:\/\//i.test(p.website) ? `<div><a href="${esc(p.website)}" target="_blank" style="color:var(--brand)">Visit website →</a></div>` : ""}
       </div>
     </div>
 

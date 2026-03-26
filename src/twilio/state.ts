@@ -11,6 +11,9 @@ export type LeadDraft = {
   notes?: string;
   next_action?: string;
   confidence?: number;
+  property_type?: "residential" | "commercial" | "strata" | "rental";
+  caller_sentiment?: "positive" | "neutral" | "frustrated" | "distressed" | "rushed";
+  job_value?: "small" | "medium" | "large";
 };
 
 export type CallState = {
@@ -18,25 +21,42 @@ export type CallState = {
   callerHistory: LeadRow[];
   historyConfirmed: boolean;
   callerIntent: string | null;
+  tenantId?: string;
+  tenantOwnerPhone?: string;
+  tenantOwnerEmail?: string;
+  isDemo?: boolean;
+  fromNumber?: string;
 };
 
-const mem = new Map<string, CallState>();
+type CallStateEntry = CallState & { _createdAt: number };
+
+const mem = new Map<string, CallStateEntry>();
+
+const CALL_STATE_MAX_AGE_MS = 30 * 60 * 1000;
+setInterval(() => {
+  const cutoff = Date.now() - CALL_STATE_MAX_AGE_MS;
+  for (const [k, v] of mem) {
+    if (v._createdAt < cutoff) mem.delete(k);
+  }
+}, 5 * 60 * 1000).unref();
 
 export function getOrInitCallState(callSid: string): CallState {
   const existing = mem.get(callSid);
   if (existing) return existing;
-  const init: CallState = {
+  const init: CallStateEntry = {
     lead: {},
     callerHistory: [],
     historyConfirmed: false,
-    callerIntent: null
+    callerIntent: null,
+    _createdAt: Date.now()
   };
   mem.set(callSid, init);
   return init;
 }
 
 export function setCallState(callSid: string, state: CallState) {
-  mem.set(callSid, state);
+  const entry: CallStateEntry = { ...state, _createdAt: mem.get(callSid)?._createdAt ?? Date.now() };
+  mem.set(callSid, entry);
 }
 
 export function clearCallState(callSid: string) {

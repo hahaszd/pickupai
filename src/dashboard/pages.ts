@@ -1,4 +1,6 @@
 import type { LeadRow, TenantRow } from "../db/repo.js";
+import { generateForwardingCode } from "../twilio/sms.js";
+import { formatAuPhone } from "../utils/phone.js";
 
 // ─── Trial helpers ────────────────────────────────────────────────────────────
 
@@ -43,14 +45,14 @@ function shell(title: string, body: string, tenant?: TenantRow) {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${escape(title)} — AI Receptionist</title>
+  <title>${escape(title)} — PickupAI</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
       --brand: #2563eb; --brand-dark: #1d4ed8;
       --red: #dc2626; --orange: #ea580c; --amber: #d97706; --green: #16a34a;
-      --gray-50: #f8fafc; --gray-100: #f1f5f9; --gray-200: #e2e8f0;
-      --gray-400: #94a3b8; --gray-600: #475569; --gray-800: #1e293b;
+      --gray-50: #f8fafc; --gray-100: #f1f5f9; --gray-200: #e2e8f0; --gray-300: #cbd5e1;
+      --gray-400: #94a3b8; --gray-500: #64748b; --gray-600: #475569; --gray-800: #1e293b;
       --radius: 8px; --shadow: 0 1px 3px rgba(0,0,0,.12);
     }
     body { font-family: system-ui, -apple-system, sans-serif; background: var(--gray-50); color: var(--gray-800); }
@@ -58,7 +60,7 @@ function shell(title: string, body: string, tenant?: TenantRow) {
     a:hover { text-decoration: underline; }
     nav {
       background: var(--brand); color: #fff; display: flex; align-items: center;
-      padding: 0 1.5rem; height: 56px; gap: 1.5rem;
+      padding: 0 1.5rem; height: 56px; gap: 1.5rem; flex-wrap: wrap;
     }
     nav .logo { font-weight: 700; font-size: 1.1rem; letter-spacing: -.3px; color: #fff; text-decoration: none; }
     nav .logo span { opacity: .7; font-weight: 400; font-size: .85rem; margin-left: .5rem; }
@@ -66,6 +68,17 @@ function shell(title: string, body: string, tenant?: TenantRow) {
     nav a { color: rgba(255,255,255,.85); font-size: .9rem; }
     nav a:hover { color: #fff; text-decoration: none; }
     nav .spacer { flex: 1; }
+    .nav-toggle { display: none; background: none; border: none; color: #fff; font-size: 1.5rem; cursor: pointer; padding: .25rem; line-height: 1; }
+    .nav-links { display: contents; }
+    .mobile-spacer { display: none; }
+    @media (max-width: 640px) {
+      .nav-toggle { display: block; }
+      .mobile-spacer { display: block; flex: 1; }
+      .desktop-spacer { display: none; }
+      .nav-links { display: none; width: 100%; flex-direction: column; gap: 0; background: var(--brand); padding: .5rem 0; }
+      .nav-links.open { display: flex; }
+      .nav-links a { padding: .6rem 0; border-top: 1px solid rgba(255,255,255,.15); }
+    }
     .container { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
     .card { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.5rem; }
     .badge {
@@ -94,6 +107,7 @@ function shell(title: string, body: string, tenant?: TenantRow) {
       text-decoration: none; transition: opacity .15s;
     }
     .btn:hover { opacity: .85; text-decoration: none; }
+    .btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
     .btn-primary { background: var(--brand); color: #fff; }
     .btn-outline { background: transparent; color: var(--brand); border: 1.5px solid var(--brand); }
     .btn-sm { padding: .3rem .65rem; font-size: .8rem; }
@@ -101,8 +115,8 @@ function shell(title: string, body: string, tenant?: TenantRow) {
     .form-group { margin-bottom: 1rem; }
     label { display: block; font-size: .85rem; font-weight: 600; margin-bottom: .3rem; }
     input, select, textarea { width: 100%; padding: .5rem .75rem; border: 1.5px solid var(--gray-200);
-                    border-radius: 6px; font-size: .9rem; outline: none; font-family: inherit; }
-    input:focus, select:focus, textarea:focus { border-color: var(--brand); }
+                    border-radius: 6px; font-size: .9rem; font-family: inherit; }
+    input:focus, select:focus, textarea:focus { border-color: var(--brand); outline: 2px solid var(--brand); outline-offset: 1px; }
     textarea { resize: vertical; min-height: 80px; }
     .filters { display: flex; gap: .75rem; flex-wrap: wrap; margin-bottom: 1rem; }
     .filter-chip {
@@ -111,6 +125,7 @@ function shell(title: string, body: string, tenant?: TenantRow) {
       text-decoration: none; color: var(--gray-600); transition: all .15s;
     }
     .filter-chip:hover { border-color: var(--brand); color: var(--brand); text-decoration: none; }
+    .filter-chip:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
     .filter-chip.active { background: var(--brand); color: #fff; border-color: var(--brand); }
     .alert { padding: .75rem 1rem; border-radius: 6px; margin-bottom: 1rem; font-size: .9rem; }
     .alert-error { background: #fee2e2; color: var(--red); }
@@ -123,23 +138,31 @@ function shell(title: string, body: string, tenant?: TenantRow) {
                   padding: 1rem; font-size: .85rem; line-height: 1.6; white-space: pre-wrap;
                   max-height: 300px; overflow-y: auto; color: var(--gray-600); }
     .status-row { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .75rem; }
-    .empty { text-align: center; padding: 3rem; color: var(--gray-400); }
+    .empty { text-align: center; padding: 3rem; color: var(--gray-500); }
     .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    details[open] .adv-arrow { transform: rotate(90deg); }
     @media (max-width: 640px) {
       .detail-grid, .settings-grid { grid-template-columns: 1fr; }
-      nav .hide-sm { display: none; }
     }
   </style>
 </head>
 <body>
 <nav>
   <a href="/" class="logo">PickupAI <span>${escape(tenantName)}</span></a>
+  <div class="spacer mobile-spacer"></div>
   ${tenant
-    ? `<a href="/dashboard/leads">Leads</a>
-       <a href="/dashboard/settings" class="hide-sm">Settings</a>
-       <div class="spacer"></div>
-       <a href="/dashboard/logout" class="hide-sm">Log out</a>`
-    : `<div class="spacer"></div>`}
+    ? `<button class="nav-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+       <div class="nav-links">
+         <a href="/dashboard/leads">Jobs</a>
+         <a href="/dashboard/stats">Call Stats</a>
+         <a href="/dashboard/settings">Settings</a>
+         <a href="/dashboard/welcome">Setup</a>
+         <div class="spacer desktop-spacer"></div>
+         <form method="POST" action="/dashboard/logout" style="display:inline;margin:0;padding:0;">
+           <button type="submit" style="background:none;border:none;color:rgba(255,255,255,.85);font-size:.9rem;cursor:pointer;padding:0;font-family:inherit;">Log out</button>
+         </form>
+       </div>`
+    : ``}
 </nav>
 ${banner}
 <div class="container">
@@ -150,19 +173,23 @@ ${banner}
 }
 
 function escape(s: string) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function capitalize(s: string) {
+  return s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, " ");
 }
 
 function urgencyBadge(level: string | null) {
   const cls = level === "emergency" ? "badge-emergency"
     : level === "urgent" ? "badge-urgent"
     : "badge-routine";
-  return `<span class="badge ${cls}">${escape(level ?? "routine")}</span>`;
+  return `<span class="badge ${cls}">${escape(capitalize(level ?? "routine"))}</span>`;
 }
 
 function statusBadge(status: string | null) {
-  const cls = `badge-${status ?? "new"}`;
-  return `<span class="badge ${cls}">${escape(status ?? "new")}</span>`;
+  const cls = `badge-${(status ?? "new").replace(/[^a-z0-9-]/gi, "")}`;
+  return `<span class="badge ${cls}">${escape(capitalize(status ?? "new"))}</span>`;
 }
 
 function formatDate(iso: string | null) {
@@ -235,8 +262,13 @@ export function signupPage(error?: string, prefill: Record<string, string> = {})
         <input type="text" id="ai_name" name="ai_name" placeholder="Olivia" value="${escape(prefill.ai_name ?? "")}" />
       </div>
       <div class="form-group">
-        <label for="owner_phone">Your mobile number <span style="font-size:.8rem;font-weight:400;color:var(--gray-600);">— for SMS lead alerts</span></label>
+        <label for="owner_phone">Your mobile number <span style="font-size:.8rem;font-weight:400;color:var(--gray-600);">— for SMS job alerts</span></label>
         <input type="tel" id="owner_phone" name="owner_phone" required placeholder="+61 4XX XXX XXX" value="${escape(prefill.owner_phone ?? "")}" />
+      </div>
+      <div class="form-group">
+        <label for="service_area">Where do you work? <span style="font-size:.8rem;font-weight:400;color:var(--gray-600);">(optional)</span></label>
+        <input type="text" id="service_area" name="service_area" placeholder="e.g. All of Sydney metro, Hills District, Inner West" value="${escape(prefill.service_area ?? "")}" />
+        <p style="font-size:.78rem;color:var(--gray-500);margin-top:.25rem">Your AI will politely explain you don't cover that area</p>
       </div>
       <div class="form-group">
         <label for="email">Email</label>
@@ -267,372 +299,177 @@ export function signupPage(error?: string, prefill: Record<string, string> = {})
   return shell("Start free trial", body);
 }
 
-// ─── Setup guide page (shown after signup) ────────────────────────────────────
+// ─── Onboarding progress indicator ───────────────────────────────────────────
 
-export function setupGuidePage(tenant: TenantRow) {
-  const isProvisioned = !tenant.twilio_number.startsWith("+PENDING");
-  const pickupNumber = isProvisioned ? tenant.twilio_number : null;
+function onboardingProgress(tenant: TenantRow): string {
+  const paymentDone = tenant.payment_status === "active" || tenant.payment_status === "trial";
+  const numberDone = !tenant.twilio_number.startsWith("+PENDING");
 
-  const forwardingStep = pickupNumber
-    ? `<p style="margin-bottom:.75rem;">Your PickupAI number is: <strong style="font-size:1.1rem;color:var(--brand);">${escape(pickupNumber)}</strong></p>
-       <p style="margin-bottom:.75rem;">Open your phone's dialler and enter:</p>
-       <div style="background:var(--gray-50);border:1.5px solid var(--gray-200);border-radius:8px;padding:1rem 1.25rem;font-family:monospace;font-size:1.05rem;letter-spacing:.05em;margin-bottom:.75rem;">
-         **61*${escape(pickupNumber.replace(/\+/g, ""))}*11*20#
-       </div>
-       <p style="font-size:.85rem;color:var(--gray-600);">Then press <strong>Call / Dial</strong>. You'll hear a confirmation tone.</p>`
-    : `<div class="alert" style="background:#fef9c3;color:#92400e;border:1px solid #fde68a;">
-         <strong>Your number is being provisioned.</strong> We'll text you within 24 hours with your dedicated PickupAI number and setup instructions.
-       </div>`;
+  const steps = [
+    { label: "Sign up", done: true },
+    { label: "Payment", done: paymentDone },
+    { label: "Number ready", done: numberDone },
+  ];
 
-  const body = `
-<div style="max-width:640px;margin:2rem auto;">
+  const stepsRow = steps.map((s, i) => {
+    const color = s.done ? "var(--green)" : "var(--gray-300)";
+    const icon = s.done ? "\u2713" : String(i + 1);
+    const textColor = s.done ? "var(--green)" : "var(--gray-600)";
+    const parts = [`<div style="display:flex;flex-direction:column;align-items:center;gap:.35rem;">
+      <div style="width:32px;height:32px;border-radius:50%;background:${color};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.8rem;">${icon}</div>
+      <span style="font-size:.72rem;font-weight:600;color:${textColor};text-align:center;">${s.label}</span>
+    </div>`];
+    if (i < steps.length - 1) {
+      const nextDone = steps[i + 1].done;
+      parts.push(`<div style="flex:1;height:3px;background:${nextDone ? "var(--green)" : "var(--gray-200)"};margin-top:16px;"></div>`);
+    }
+    return parts.join("");
+  }).join("");
 
-  <div style="background:var(--brand);color:#fff;border-radius:var(--radius);padding:1.5rem 1.75rem;margin-bottom:1.5rem;display:flex;align-items:center;gap:1rem;">
-    <span style="font-size:2rem;">✓</span>
-    <div>
-      <div style="font-weight:700;font-size:1.1rem;">Account created! Welcome, ${escape(tenant.name)}.</div>
-      <div style="opacity:.85;font-size:.9rem;margin-top:.2rem;">Follow the 3 steps below to activate your AI receptionist.</div>
-    </div>
-  </div>
-
-  <div class="card" style="margin-bottom:1rem;">
-    <div style="display:flex;gap:1rem;align-items:flex-start;">
-      <div style="min-width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;">1</div>
-      <div style="flex:1;">
-        <h2 style="margin-bottom:.5rem;">Set up call forwarding on your mobile</h2>
-        <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:1rem;">
-          When you can't answer, your calls will automatically forward to your AI receptionist.
-        </p>
-        ${forwardingStep}
-        ${isProvisioned ? `<details style="margin-top:.75rem;">
-          <summary style="cursor:pointer;font-size:.85rem;color:var(--brand);font-weight:600;">Telstra / Optus / Vodafone instructions &amp; alternatives</summary>
-          <div style="margin-top:.75rem;font-size:.85rem;color:var(--gray-600);line-height:1.7;">
-            <p><strong>Option A:</strong> Dial the code above from your phone — you'll hear a confirmation tone.</p>
-            <p style="margin-top:.5rem;"><strong>Option B:</strong> Via your carrier app — look for <em>Call Forwarding → No Answer</em> or <em>Divert when unanswered</em>.</p>
-            <p style="margin-top:.5rem;"><strong>Option C:</strong> Call your carrier and ask them to set <em>conditional call forwarding (no answer) with a 20-second delay</em> to your PickupAI number.</p>
-            <p style="margin-top:.75rem;"><strong>To cancel forwarding at any time:</strong> Dial <code>##61#</code> and press Call.</p>
-          </div>
-        </details>` : ""}
-      </div>
-    </div>
-  </div>
-
-  <div class="card" style="margin-bottom:1rem;">
-    <div style="display:flex;gap:1rem;align-items:flex-start;">
-      <div style="min-width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;">2</div>
-      <div style="flex:1;">
-        <h2 style="margin-bottom:.5rem;">Test it</h2>
-        <p style="font-size:.9rem;color:var(--gray-600);">Ask a friend to call your business number and don't answer. After ~20 seconds your AI receptionist will pick up. You should receive an SMS on <strong>${escape(tenant.owner_phone || "your mobile")}</strong> within a minute.</p>
-      </div>
-    </div>
-  </div>
-
-  <div class="card" style="margin-bottom:1.5rem;">
-    <div style="display:flex;gap:1rem;align-items:flex-start;">
-      <div style="min-width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;">3</div>
-      <div style="flex:1;">
-        <h2 style="margin-bottom:.5rem;">View your leads</h2>
-        <p style="font-size:.9rem;color:var(--gray-600);">Every call generates a lead in your dashboard. You can see caller details, listen to recordings, and mark jobs as handled.</p>
-      </div>
-    </div>
-  </div>
-
-  <div style="text-align:center;">
-    <a href="/dashboard/leads" class="btn btn-primary" style="padding:.75rem 2rem;font-size:1rem;">
-      Go to Dashboard →
-    </a>
-    <p style="margin-top:.75rem;font-size:.8rem;color:var(--gray-600);">
-      Need help? Email <a href="mailto:hello@getpickupai.com.au">hello@getpickupai.com.au</a>
-    </p>
-  </div>
-
-</div>`;
-  return shell("Setup Guide", body, tenant);
+  return `<div style="display:flex;align-items:flex-start;gap:0;margin-bottom:1.5rem;padding:1rem 0;">${stepsRow}</div>`;
 }
+
+// ─── Setup guide page (shown after signup) ────────────────────────────────────
 
 // ─── Welcome page (post-signup) ───────────────────────────────────────────────
 
 export type WelcomePageOpts = {
   /** Currently claimed demo number for this tenant, if any */
   demoNumber?: string | null;
-  /** Expiry timestamp ISO string for the demo session */
-  demoExpiresAt?: string | null;
   /** Error message to display */
   error?: string;
   /** Whether a simulated demo call was just triggered */
   simulationStarted?: boolean;
-  /** Recording URL from a completed simulated demo call */
-  recordingUrl?: string | null;
 };
 
 export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
-  const { demoNumber, demoExpiresAt, error, simulationStarted, recordingUrl } = opts;
+  const { demoNumber, error, simulationStarted } = opts;
 
-  // Format +61XXXXXXXXX → Australian local style (02 XXXX XXXX / 04XX XXX XXX)
-  const formatAuPhone = (e164: string): string => {
-    if (!e164.startsWith("+61")) return e164;
-    const local = "0" + e164.slice(3);       // +61280000796 → 0280000796
-    if (/^04\d{8}$/.test(local)) {           // mobile: 04XX XXX XXX
-      return local.replace(/^(04\d{2})(\d{3})(\d{3})$/, "$1 $2 $3");
-    }
-    return local.replace(/^(0\d)(\d{4})(\d{4})$/, "$1 $2 $3"); // landline: 02 8000 0796
-  };
   const demoNumberFormatted = demoNumber ? formatAuPhone(demoNumber) : null;
 
-  // Card A: Hands-free (AI simulates a caller — no slot claimed)
-  const proxyRecordingUrl = recordingUrl
-    ? `/dashboard/recording-proxy?url=${encodeURIComponent(recordingUrl)}`
+  const isPendingPayment = tenant.payment_status === "pending";
+  const isNumberReady = !tenant.twilio_number.startsWith("+PENDING");
+  const pickupNumber = isNumberReady ? tenant.twilio_number : null;
+  const forwardingCodeStr = pickupNumber
+    ? generateForwardingCode(pickupNumber)
     : null;
 
-  const cardA = simulationStarted
-    ? `<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:1.25rem;">
-        <p style="font-weight:600;color:#16a34a;margin-bottom:.4rem;">✓ Demo call in progress!</p>
-        <p style="font-size:.85rem;color:var(--gray-600);margin-bottom:.9rem;">
-          Your AI receptionist is taking a call from a simulated customer right now.
-          Click below to listen live — you'll hear everything the AI says in real-time.
-        </p>
-        <p style="font-size:.78rem;color:var(--gray-400);margin-bottom:.9rem;">
-          If audio does not start within 1-2 minutes, keep this page open and check back — the recording will appear automatically once ready.
-        </p>
-        <div id="live-audio-area">
-          <button id="listen-btn" class="btn btn-primary" style="width:100%;margin-bottom:.6rem;">
-            🎧 Listen Live
-          </button>
-          <div id="stream-status" style="font-size:.82rem;color:var(--gray-600);text-align:center;min-height:1.2em;"></div>
+  const activationCard = isPendingPayment
+    ? `<div class="card" style="border:2px solid var(--brand);margin-bottom:1rem;">
+        <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;">
+          <div style="width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;">1</div>
+          <h2 style="margin:0;font-size:1.05rem;">Complete your signup</h2>
         </div>
-        <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
-        <script>
-        (function() {
-          var btn = document.getElementById('listen-btn');
-          var status = document.getElementById('stream-status');
-
-          // μ-law (PCMU) decode — converts Twilio's 8 kHz audio to float32 PCM
-          function decodeMulaw(bytes) {
-            var out = new Float32Array(bytes.length);
-            for (var i = 0; i < bytes.length; i++) {
-              var u = (~bytes[i]) & 0xFF;
-              var t = ((u & 0x0F) << 3) + 0x84;
-              t = t << ((u & 0x70) >> 4);
-              out[i] = ((u & 0x80) ? (0x84 - t) : (t - 0x84)) / 32768.0;
-            }
-            return out;
-          }
-
-          btn.addEventListener('click', function() {
-            btn.disabled = true;
-            status.innerHTML = '<span style="display:inline-block;width:10px;height:10px;border:2px solid #86efac;border-top-color:#16a34a;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:5px;"></span> Connecting…';
-
-            // AudioContext must be created inside a user-gesture handler.
-            var AudioCtx = window.AudioContext || window.webkitAudioContext;
-            var ctx = new AudioCtx();
-            var TWILIO_RATE = 8000;
-            var BROWSER_RATE = ctx.sampleRate;
-            var nextPlayTime = ctx.currentTime + 0.15; // 150 ms initial buffer
-
-            function playChunk(b64) {
-              var bin = atob(b64);
-              var bytes = new Uint8Array(bin.length);
-              for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-
-              // Decode μ-law → float32
-              var src = decodeMulaw(bytes);
-
-              // Upsample 8 kHz → browser native rate (usually 44100 or 48000)
-              var ratio = BROWSER_RATE / TWILIO_RATE;
-              var dstLen = Math.round(src.length * ratio);
-              var dst = new Float32Array(dstLen);
-              for (var j = 0; j < dstLen; j++) {
-                var s = j / ratio;
-                var lo = s | 0;
-                var hi = Math.min(lo + 1, src.length - 1);
-                dst[j] = src[lo] + (src[hi] - src[lo]) * (s - lo);
-              }
-
-              var buf = ctx.createBuffer(1, dstLen, BROWSER_RATE);
-              buf.copyToChannel(dst, 0);
-              var node = ctx.createBufferSource();
-              node.buffer = buf;
-              node.connect(ctx.destination);
-
-              var now = ctx.currentTime;
-              if (nextPlayTime < now + 0.05) nextPlayTime = now + 0.15;
-              node.start(nextPlayTime);
-              nextPlayTime += buf.duration;
-            }
-
-            var evtSource = null;
-            var reconnectAttempts = 0;
-            var maxReconnectAttempts = 2;
-            var demoStatusPoll = null;
-
-            function openStream() {
-              evtSource = new EventSource('/dashboard/demo-audio-stream');
-              evtSource.onopen = function() {
-                reconnectAttempts = 0;
-                status.innerHTML = '<span style="color:#dc2626;font-size:1rem;">●</span> Live — listening to your AI receptionist…';
-              };
-
-              evtSource.onmessage = function(e) {
-                if (ctx.state === 'suspended') ctx.resume();
-                playChunk(e.data);
-              };
-
-              evtSource.addEventListener('end', function() {
-                if (evtSource) evtSource.close();
-                if (demoStatusPoll) clearInterval(demoStatusPoll);
-                ctx.close();
-                status.innerHTML = '✓ Call finished. Check your phone (<strong>${escape(tenant.owner_phone)}</strong>) for the lead SMS!';
-                btn.style.display = 'none';
-              });
-
-              evtSource.onerror = function() {
-                if (!evtSource) return;
-                if (evtSource.readyState === EventSource.CLOSED) {
-                  if (reconnectAttempts < maxReconnectAttempts) {
-                    reconnectAttempts += 1;
-                    status.textContent = 'Connection dropped — reconnecting...';
-                    setTimeout(openStream, 1500);
-                    return;
-                  }
-                  status.textContent = 'Live stream ended. Demo may still be processing — recording will appear once ready.';
-                } else {
-                  status.textContent = 'Connection issue — retrying stream...';
-                }
-              };
-            }
-
-            // Poll demo status so users get a clear completion signal even when SSE drops.
-            demoStatusPoll = setInterval(function() {
-              fetch('/dashboard/demo-status')
-                .then(function(r) { return r.json(); })
-                .then(function(body) {
-                  if (body && body.status === 'ready') {
-                    if (evtSource) evtSource.close();
-                    if (demoStatusPoll) clearInterval(demoStatusPoll);
-                    status.innerHTML = '✓ Demo recording is ready. You can refresh this page or open your Leads dashboard.';
-                  }
-                })
-                .catch(function() {
-                  // Keep polling silently; transient network errors are expected.
-                });
-            }, 8000);
-
-            openStream();
-
-            window.addEventListener('beforeunload', function() {
-              if (evtSource) evtSource.close();
-              if (demoStatusPoll) clearInterval(demoStatusPoll);
-              if (ctx && ctx.state !== 'closed') ctx.close();
-            });
-          });
-
-          // Auto-click the listen button after a short delay so the user sees it
-          // (they must still consciously click; we just scroll it into view)
-          setTimeout(function() {
-            btn.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-          }, 500);
-        })();
-        </script>
-      </div>`
-    : `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius);padding:1.25rem;">
-        <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:.6rem;">
-          We place a simulated customer call to your AI receptionist — personalised with your trade and business name.
-          You'll hear the full recording here and receive the lead SMS on your mobile.
+        <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:1rem;">
+          Add your card to start your 14-day free trial. You won't be charged today — cancel any time before day 14 and pay nothing.
         </p>
-        <p style="font-size:.8rem;color:var(--gray-400);margin-bottom:1rem;">No number reservation needed. Takes about 60 seconds.</p>
-        <form method="POST" action="/dashboard/simulate-demo-call">
-          <button type="submit" class="btn btn-primary" style="width:100%;">Generate Demo Call →</button>
+        <form method="POST" action="/dashboard/create-checkout-session">
+          <button type="submit" class="btn btn-primary" style="width:100%;font-size:1rem;padding:.85rem;">Start free trial — add card →</button>
         </form>
-      </div>`;
-
-  // Card B: Call it yourself (claims a demo slot for 1 hour)
-  const expiryTime = demoExpiresAt
-    ? new Date(demoExpiresAt).toLocaleTimeString("en-AU", {
-        hour: "2-digit", minute: "2-digit", timeZone: "Australia/Sydney"
-      }) + " Sydney time"
-    : null;
-
-  const cardB = demoNumber
-    ? `<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:1.25rem;">
-        <p style="font-weight:600;color:#16a34a;margin-bottom:.5rem;">✓ Your demo number is ready!</p>
-        <div style="background:#fff;border:1.5px solid var(--gray-200);border-radius:8px;padding:.75rem 1rem;font-family:monospace;font-size:1.15rem;letter-spacing:.05em;text-align:center;margin-bottom:.75rem;">
-          ${escape(demoNumberFormatted ?? demoNumber)}
-        </div>
-        <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:.6rem;">
-          Call this number from your mobile <strong>right now</strong>. Your AI receptionist will answer just like a real customer call.
-          You'll receive a lead SMS on <strong>${escape(tenant.owner_phone)}</strong> after the call.
-        </p>
-        <div style="background:#fef9c3;border:1px solid #fde047;border-radius:6px;padding:.5rem .75rem;font-size:.8rem;color:#854d0e;">
-          ⏱ This slot is reserved for <strong>1 hour</strong>${expiryTime ? ` — expires at <strong>${expiryTime}</strong>` : ""}.
-          After that you'll need to request a new demo number.
-        </div>
+        <p style="font-size:.78rem;color:var(--gray-500);margin-top:.75rem;text-align:center;">Secure payment via Stripe. Cancel any time from your account.</p>
       </div>`
-    : `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius);padding:1.25rem;">
-        <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:.6rem;">
-          We'll reserve a demo number for you for <strong>1 hour</strong>. Call it from your own mobile to hear your AI receptionist exactly as your customers will.
+    : isNumberReady
+    ? `<div class="card" style="border:2px solid var(--brand);margin-bottom:1rem;">
+        <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;">
+          <div style="width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;">1</div>
+          <h2 style="margin:0;font-size:1.05rem;">Activate your AI receptionist</h2>
+        </div>
+        <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:1rem;">
+          Open your phone's dialler and type this code, then press <strong>Call</strong>:
         </p>
-        <p style="font-size:.8rem;color:var(--gray-400);margin-bottom:1rem;">The slot auto-expires after 1 hour.</p>
-        <form method="POST" action="/dashboard/request-demo">
-          <button type="submit" class="btn btn-primary" style="width:100%;background:var(--gray-800);">Get Demo Number →</button>
-        </form>
+        <div style="position:relative;background:var(--gray-50);border:2px solid var(--gray-200);border-radius:10px;padding:1rem 1.25rem;font-family:monospace;font-size:1.15rem;letter-spacing:.05em;margin-bottom:.75rem;text-align:center;word-break:break-all;">
+          <span id="fwd-code">${escape(forwardingCodeStr!)}</span>
+          <button onclick="var t=document.getElementById('fwd-code');navigator.clipboard.writeText(t.textContent).then(()=>{this.textContent='Copied!'}).catch(()=>{var r=document.createRange();r.selectNodeContents(t);var s=window.getSelection();s.removeAllRanges();s.addRange(r);this.textContent='Selected!'});setTimeout(()=>this.textContent='Copy',1500)"
+            style="position:absolute;right:.75rem;top:50%;transform:translateY(-50%);background:var(--brand);color:#fff;border:none;border-radius:6px;padding:.3rem .75rem;font-size:.75rem;font-weight:600;cursor:pointer;">Copy</button>
+        </div>
+        <p style="font-size:.85rem;color:var(--gray-600);margin-bottom:.5rem;">You'll hear a confirmation tone. That's it — your AI receptionist is live!</p>
+        <details style="margin-top:.5rem;">
+          <summary style="cursor:pointer;font-size:.82rem;color:var(--brand);font-weight:600;">Other ways to set this up (carrier app, phone call)</summary>
+          <div style="margin-top:.5rem;font-size:.82rem;color:var(--gray-600);line-height:1.7;">
+            <p><strong>Via your carrier app:</strong> Look for <em>Call Forwarding → No Answer</em> and enter your PickupAI number: <strong>${escape(formatAuPhone(pickupNumber!))}</strong></p>
+            <p style="margin-top:.5rem;"><strong>Call your carrier:</strong> Ask for <em>conditional call forwarding (no answer) with a 20-second delay</em> to ${escape(formatAuPhone(pickupNumber!))}.</p>
+            <p style="margin-top:.5rem;"><strong>To turn it off later:</strong> Dial <code>##61#</code> and press Call.</p>
+          </div>
+        </details>
+      </div>`
+    : `<div class="card" style="border:2px solid #fde68a;margin-bottom:1rem;">
+        <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;">
+          <div style="width:40px;height:40px;border-radius:50%;background:var(--amber);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;">1</div>
+          <h2 style="margin:0;font-size:1.05rem;">Your number is being set up</h2>
+        </div>
+        <p style="font-size:.9rem;color:var(--gray-600);">
+          We're setting up your phone number. You'll receive an SMS with your activation code shortly. In the meantime, try a demo below!
+        </p>
       </div>`;
 
   const body = `
-<div style="max-width:680px;margin:2rem auto;">
+<div style="max-width:600px;margin:2rem auto;">
+  ${onboardingProgress(tenant)}
 
-  <div style="background:var(--brand);color:#fff;border-radius:var(--radius);padding:1.5rem 1.75rem;margin-bottom:1.75rem;display:flex;align-items:center;gap:1rem;">
+  <div style="background:var(--brand);color:#fff;border-radius:var(--radius);padding:1.5rem 1.75rem;margin-bottom:1.5rem;display:flex;align-items:center;gap:1rem;">
     <span style="font-size:2rem;">🎉</span>
     <div>
       <div style="font-weight:700;font-size:1.15rem;">Welcome, ${escape(tenant.name)}!</div>
-      <div style="opacity:.85;font-size:.9rem;margin-top:.2rem;">Your AI receptionist is ready. Try it out below — no call forwarding needed yet.</div>
+      <div style="opacity:.85;font-size:.9rem;margin-top:.2rem;">${isPendingPayment ? "One more step to activate your AI receptionist." : isNumberReady ? "Your AI receptionist is ready. Follow the steps below to go live." : "Your account is set up. We're getting your number ready."}</div>
     </div>
   </div>
 
   ${error ? `<div class="alert alert-error" style="margin-bottom:1rem;">${escape(error)}</div>` : ""}
 
-  <div class="demo-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
+  ${activationCard}
 
-    <div class="card">
-      <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;">
-        <span style="font-size:1.3rem;">🤖</span>
-        <h2 style="margin:0;font-size:1rem;">Option A — Hands-Free Demo</h2>
-      </div>
-      <p style="font-size:.8rem;color:var(--brand);font-weight:600;margin-bottom:.6rem;text-transform:uppercase;letter-spacing:.4px;">AI simulates a customer call</p>
-      ${cardA}
+  ${isPendingPayment ? "" : `<div class="card" style="margin-bottom:1rem;">
+    <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;">
+      <div style="width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;">2</div>
+      <h2 style="margin:0;font-size:1.05rem;">Test it</h2>
     </div>
-
-    <div class="card">
-      <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;">
-        <span style="font-size:1.3rem;">📱</span>
-        <h2 style="margin:0;font-size:1rem;">Option B — Call It Yourself</h2>
-      </div>
-      <p style="font-size:.8rem;color:var(--brand);font-weight:600;margin-bottom:.6rem;text-transform:uppercase;letter-spacing:.4px;">Dial from your own mobile</p>
-      ${cardB}
+    <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:1rem;">
+      Ask a mate to call your business number and don't answer. After ~20 seconds your AI picks up. You should get a text on <strong>${escape(tenant.owner_phone ? formatAuPhone(tenant.owner_phone) : "your mobile")}</strong> within a minute.
+    </p>
+    <p style="font-size:.85rem;color:var(--gray-500);">Or try a quick demo right now:</p>
+    <div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-top:.75rem;">
+      ${simulationStarted
+        ? `<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:1rem;flex:1;min-width:200px;">
+            <p style="font-weight:600;color:#16a34a;margin-bottom:.4rem;">Demo call in progress!</p>
+            <p style="font-size:.82rem;color:var(--gray-600);">Check your phone for the SMS when it's done.</p>
+          </div>`
+        : `<form method="POST" action="/dashboard/simulate-demo-call" style="flex:1;">
+            <button type="submit" class="btn btn-outline" style="width:100%;">Run a demo call (AI simulates a customer)</button>
+          </form>`}
+      ${demoNumber
+        ? `<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:1rem;flex:1;min-width:200px;">
+            <p style="font-weight:600;color:#16a34a;font-size:.9rem;margin-bottom:.3rem;">Demo number ready:</p>
+            <p style="font-family:monospace;font-size:1rem;margin-bottom:.3rem;">${escape(demoNumberFormatted ?? demoNumber)}</p>
+            <p style="font-size:.78rem;color:var(--gray-500);">Call it from your mobile to hear your AI receptionist.</p>
+          </div>`
+        : `<form method="POST" action="/dashboard/request-demo" style="flex:1;">
+            <button type="submit" class="btn btn-ghost" style="width:100%;">Get a number to call yourself</button>
+          </form>`}
     </div>
-
   </div>
 
-  <div class="card" style="border:1.5px solid var(--brand);">
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem;">
-      <div>
-        <h2 style="margin:0 0 .25rem;">Ready to activate on your real number?</h2>
-        <p style="font-size:.9rem;color:var(--gray-600);margin:0;">Set up call forwarding on your business mobile — takes 2 minutes.</p>
-      </div>
-      <a href="/dashboard/setup-guide" class="btn btn-primary" style="white-space:nowrap;">Set Up Call Forwarding →</a>
+  <div class="card" style="margin-bottom:1.5rem;">
+    <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;">
+      <div style="width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;">3</div>
+      <h2 style="margin:0;font-size:1.05rem;">Start getting jobs</h2>
     </div>
+    <p style="font-size:.9rem;color:var(--gray-600);">
+      Every call your AI answers shows up in your account with the customer's details. You'll also get a text to your phone straight away.
+    </p>
+  </div>`}
+
+  <div style="text-align:center;">
+    ${isPendingPayment
+      ? `<p style="font-size:.9rem;color:var(--gray-600);margin-bottom:1rem;">Once your card is on file, you can test the AI and start taking calls.</p>
+         <form method="POST" action="/dashboard/create-checkout-session">
+           <button type="submit" class="btn btn-primary" style="padding:.75rem 2rem;font-size:1rem;">Add card and start free trial →</button>
+         </form>`
+      : `<a href="/dashboard/leads" class="btn btn-primary" style="padding:.75rem 2rem;font-size:1rem;">View your jobs →</a>`}
+    <p style="margin-top:.75rem;font-size:.8rem;color:var(--gray-600);">
+      Need help? Text or email <a href="mailto:hello@getpickupai.com.au">hello@getpickupai.com.au</a>
+    </p>
   </div>
-
-  <div style="text-align:center;margin-top:1.25rem;">
-    <a href="/dashboard/leads" style="font-size:.85rem;color:var(--gray-600);">Skip for now — go to Dashboard →</a>
-  </div>
-
-</div>
-
-<style>
-  @media (max-width:600px) {
-    .demo-grid { grid-template-columns: 1fr !important; }
-  }
-</style>`;
+</div>`;
 
   return shell("Welcome", body, tenant);
 }
@@ -703,12 +540,12 @@ export function leadsPage(
 </div>` : "";
 
   const rows = leads.length === 0
-    ? `<tr><td colspan="7"><div class="empty">No leads found. Calls will appear here automatically.</div></td></tr>`
+    ? `<tr><td colspan="7"><div class="empty">No jobs yet. Calls will appear here automatically.</div></td></tr>`
     : leads.map(l => `
       <tr>
         <td>${urgencyBadge(l.urgency_level)}</td>
         <td><a href="/dashboard/leads/${l.lead_id}">${escape(l.name ?? "Unknown")}</a></td>
-        <td>${escape(l.phone ?? "—")}</td>
+        <td>${escape(l.phone ? formatAuPhone(l.phone) : "—")}</td>
         <td>${escape(l.address ?? "—")}</td>
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escape(l.issue_summary ?? "—")}</td>
         <td>${statusBadge(l.lead_status)}</td>
@@ -726,23 +563,23 @@ export function leadsPage(
   <div style="display:flex;flex-direction:column;gap:.6rem;font-size:.9rem;">
     <div style="display:flex;align-items:center;gap:.65rem;">
       <span style="color:#16a34a;font-weight:700;font-size:1.1rem;">✓</span>
-      <span style="text-decoration:line-through;color:var(--gray-400);">Create your account</span>
+      <span style="text-decoration:line-through;color:var(--gray-500);">Create your account</span>
     </div>
     <div style="display:flex;align-items:center;gap:.65rem;">
-      <span style="color:var(--gray-400);font-weight:700;font-size:1.1rem;">○</span>
+      <span style="color:var(--gray-500);font-weight:700;font-size:1.1rem;">○</span>
       <span><a href="/dashboard/welcome">Try the demo</a> — hear your AI receptionist in action</span>
     </div>
     <div style="display:flex;align-items:center;gap:.65rem;">
-      <span style="color:var(--gray-400);font-weight:700;font-size:1.1rem;">○</span>
+      <span style="color:var(--gray-500);font-weight:700;font-size:1.1rem;">○</span>
       <span><a href="/dashboard/settings">Complete your settings</a> — set your service area and business hours</span>
     </div>
     <div style="display:flex;align-items:center;gap:.65rem;">
-      <span style="color:var(--gray-400);font-weight:700;font-size:1.1rem;">○</span>
-      <span><a href="/dashboard/setup-guide">Set up call forwarding</a> — activate your AI receptionist</span>
+      <span style="color:var(--gray-500);font-weight:700;font-size:1.1rem;">○</span>
+      <span><a href="/dashboard/welcome">Set up call forwarding</a> — activate your AI receptionist</span>
     </div>
     <div style="display:flex;align-items:center;gap:.65rem;">
-      <span style="color:var(--gray-400);font-weight:700;font-size:1.1rem;">○</span>
-      <span>Receive your first lead — calls appear here automatically</span>
+      <span style="color:var(--gray-500);font-weight:700;font-size:1.1rem;">○</span>
+      <span>Get your first job enquiry — calls appear here automatically</span>
     </div>
   </div>
 </div>` : "";
@@ -755,7 +592,7 @@ export function leadsPage(
   </div>
   <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
     <a href="/dashboard/welcome" class="btn btn-outline btn-sm">Try Demo</a>
-    <a href="/dashboard/setup-guide" class="btn btn-primary btn-sm">Set Up Now →</a>
+    <a href="/dashboard/welcome" class="btn btn-primary btn-sm">Set Up Now →</a>
   </div>
 </div>` : isPending ? "" : "";
 
@@ -764,7 +601,7 @@ ${onboardingChecklist}
 ${setupBanner}
 ${statsBar}
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;flex-wrap:wrap;gap:.75rem;">
-  <h1 style="margin:0">Leads</h1>
+  <h1 style="margin:0">Jobs</h1>
   <a href="/dashboard/leads/export.csv${csvQs}" class="btn btn-outline btn-sm">Export CSV</a>
 </div>
 <div class="card">
@@ -797,7 +634,7 @@ ${statsBar}
   </table>
   </div>
 </div>`;
-  return shell("Leads", body, tenant);
+  return shell("Jobs", body, tenant);
 }
 
 // ─── Lead detail page ─────────────────────────────────────────────────────────
@@ -813,13 +650,16 @@ export function leadDetailPage(
   const statusButtons = statusOptions.filter(s => s !== (lead.lead_status ?? "new")).map(s => `
     <form method="POST" action="/dashboard/leads/${lead.lead_id}/status" style="display:inline;">
       <input type="hidden" name="status" value="${s}" />
-      <button type="submit" class="btn btn-ghost btn-sm">${escape(s.replace("_", " "))}</button>
+      <button type="submit" class="btn btn-ghost btn-sm">${escape(capitalize(s))}</button>
     </form>`).join("");
 
-  const recordingSection = lead.recording_url
+  const proxyUrl = lead.recording_url
+    ? `/dashboard/recording-proxy?url=${encodeURIComponent(lead.recording_url)}`
+    : null;
+  const recordingSection = proxyUrl
     ? `<div class="card" style="margin-top:1rem;">
         <h2>Call Recording</h2>
-        <audio controls src="${escape(lead.recording_url)}"></audio>
+        <audio controls src="${proxyUrl}"></audio>
        </div>`
     : "";
 
@@ -839,7 +679,7 @@ export function leadDetailPage(
 
   const body = `
 <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.25rem;flex-wrap:wrap;">
-  <a href="/dashboard/leads" style="color:var(--gray-600);font-size:.9rem;">← Back to leads</a>
+  <a href="/dashboard/leads" style="color:var(--gray-600);font-size:.9rem;">← Back to jobs</a>
 </div>
 ${flash ? `<div class="alert" style="background:#dcfce7;color:var(--green);">${escape(flash)}</div>` : ""}
 ${duplicateWarning ? `<div class="alert" style="background:#fef3c7;color:#92400e;border:1px solid #fde68a;">${duplicateWarning}</div>` : ""}
@@ -858,7 +698,7 @@ ${duplicateWarning ? `<div class="alert" style="background:#fef3c7;color:#92400e
     </div>
   </div>
   <div class="detail-grid">
-    ${field("Phone", lead.phone ?? lead.from_number)}
+    ${field("Phone", (lead.phone ?? lead.from_number) ? formatAuPhone((lead.phone ?? lead.from_number)!) : "—")}
     ${field("Address", lead.address)}
     ${field("Issue type", lead.issue_type)}
     ${field("Preferred time", lead.preferred_time)}
@@ -875,19 +715,92 @@ ${duplicateWarning ? `<div class="alert" style="background:#fef3c7;color:#92400e
   </div>` : ""}
 
   <div style="border-top:1px solid var(--gray-200);margin-top:1.25rem;padding-top:1.25rem;">
-    <h2 style="margin-bottom:.75rem;font-size:1rem;">Job value (for ROI tracking)</h2>
+    <h2 style="margin-bottom:.75rem;font-size:1rem;">Job value</h2>
+    <p style="font-size:.8rem;color:var(--gray-600);margin-bottom:.5rem;">Track how much money your AI receptionist brings in.</p>
     <form method="POST" action="/dashboard/leads/${lead.lead_id}/job-value" style="display:flex;gap:.5rem;align-items:center;">
       <span style="font-size:1rem;color:var(--gray-600)">$</span>
       <input type="number" name="job_value" value="${lead.job_value != null ? lead.job_value : ""}" min="0" step="1" placeholder="e.g. 850"
         style="width:140px;" />
       <button type="submit" class="btn btn-outline btn-sm">Save</button>
     </form>
-    ${lead.job_value != null ? `<p style="font-size:.8rem;color:var(--gray-400);margin-top:.35rem">Job value: <strong>$${lead.job_value.toLocaleString()}</strong></p>` : ""}
+    ${lead.job_value != null ? `<p style="font-size:.8rem;color:var(--gray-500);margin-top:.35rem">Job value: <strong>$${lead.job_value.toLocaleString()}</strong></p>` : ""}
   </div>
 </div>
 ${recordingSection}
 ${transcriptSection}`;
-  return shell(`Lead — ${lead.name ?? "Unknown"}`, body, tenant);
+  return shell(`Job — ${lead.name ?? "Unknown"}`, body, tenant);
+}
+
+// ─── Stats page ──────────────────────────────────────────────────────────────
+
+export type StatsData = {
+  callsThisWeek: number;
+  callsThisMonth: number;
+  leadsThisWeek: number;
+  leadsThisMonth: number;
+  totalJobValue: number;
+  totalLeads: number;
+  totalCalls: number;
+};
+
+export function statsPage(tenant: TenantRow, stats: StatsData): string {
+  const fmt = (n: number) => n.toLocaleString("en-AU");
+  const fmtDollar = (n: number) => `$${n.toLocaleString("en-AU")}`;
+
+  if (stats.totalCalls === 0 && stats.totalLeads === 0) {
+    const body = `
+<h1>Call Stats</h1>
+<div class="card" style="text-align:center;padding:3rem 1.5rem;">
+  <div style="font-size:3rem;margin-bottom:1rem;">📊</div>
+  <h2 style="margin-bottom:.75rem;">No calls yet</h2>
+  <p style="color:var(--gray-600);font-size:.95rem;line-height:1.6;margin-bottom:1.5rem;">
+    Once your AI receptionist takes its first call, your stats will appear here —
+    calls answered, jobs captured, and total job value.
+  </p>
+  <a href="/dashboard/welcome" class="btn btn-primary">Try a demo call</a>
+</div>`;
+    return shell("Call Stats", body, tenant);
+  }
+
+  const body = `
+<h1>Call Stats</h1>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin-bottom:2rem;">
+  <div class="card" style="text-align:center;">
+    <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Calls this week</p>
+    <p style="font-size:2rem;font-weight:700;color:var(--brand);">${fmt(stats.callsThisWeek)}</p>
+  </div>
+  <div class="card" style="text-align:center;">
+    <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Calls this month</p>
+    <p style="font-size:2rem;font-weight:700;color:var(--brand);">${fmt(stats.callsThisMonth)}</p>
+  </div>
+  <div class="card" style="text-align:center;">
+    <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Jobs this week</p>
+    <p style="font-size:2rem;font-weight:700;color:var(--green);">${fmt(stats.leadsThisWeek)}</p>
+  </div>
+  <div class="card" style="text-align:center;">
+    <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Jobs this month</p>
+    <p style="font-size:2rem;font-weight:700;color:var(--green);">${fmt(stats.leadsThisMonth)}</p>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:1.5rem;">
+  <h2>All time</h2>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1rem;text-align:center;margin-top:1rem;">
+    <div>
+      <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Total calls</p>
+      <p style="font-size:1.75rem;font-weight:700;">${fmt(stats.totalCalls)}</p>
+    </div>
+    <div>
+      <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Total jobs</p>
+      <p style="font-size:1.75rem;font-weight:700;">${fmt(stats.totalLeads)}</p>
+    </div>
+    <div>
+      <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Total job value</p>
+      <p style="font-size:1.75rem;font-weight:700;color:var(--green);">${fmtDollar(stats.totalJobValue)}</p>
+    </div>
+  </div>
+</div>`;
+  return shell("Call Stats", body, tenant);
 }
 
 // ─── Settings page ────────────────────────────────────────────────────────────
@@ -919,12 +832,12 @@ ${flashHtml}
       <div class="form-group">
         <label for="ai_name">AI receptionist name</label>
         <input type="text" id="ai_name" name="ai_name" value="${escape(tenant.ai_name)}" placeholder="Olivia" />
-        <p style="font-size:.8rem;color:var(--gray-400);margin-top:.25rem">The name your AI uses when answering calls</p>
+        <p style="font-size:.8rem;color:var(--gray-500);margin-top:.25rem">The name your AI uses when answering calls</p>
       </div>
       <div class="form-group">
         <label for="owner_phone">Your callback number</label>
         <input type="tel" id="owner_phone" name="owner_phone" value="${escape(tenant.owner_phone)}" required />
-        <p style="font-size:.8rem;color:var(--gray-400);margin-top:.25rem">Lead SMS summaries are sent here</p>
+        <p style="font-size:.8rem;color:var(--gray-500);margin-top:.25rem">SMS job summaries are sent here</p>
       </div>
       <div class="form-group">
         <label for="business_hours_start">Business hours start</label>
@@ -938,32 +851,47 @@ ${flashHtml}
     <div class="form-group">
       <label for="service_area">Service area</label>
       <textarea id="service_area" name="service_area" rows="3">${escape(tenant.service_area ?? "")}</textarea>
-      <p style="font-size:.8rem;color:var(--gray-400);margin-top:.25rem">
+      <p style="font-size:.8rem;color:var(--gray-500);margin-top:.25rem">
         Describe where you work — the AI will politely decline jobs outside this area.
         Example: "All suburbs within 40km of Parramatta, including the Hills District and Inner West."
       </p>
     </div>
-    <div class="form-group">
-      <label for="custom_instructions">Custom AI instructions <span style="font-weight:400;color:var(--gray-600);">(optional)</span></label>
-      <textarea id="custom_instructions" name="custom_instructions" rows="4" placeholder="e.g. We have a $120 call-out fee for after-hours jobs. We don't take on jobs in high-rise apartments. Always ask if the customer has a preferred time in the morning or afternoon.">${escape(tenant.custom_instructions ?? "")}</textarea>
-      <p style="font-size:.8rem;color:var(--gray-400);margin-top:.25rem">
-        Add any business-specific rules, pricing notes, or special handling instructions for the AI.
-      </p>
-    </div>
+    <details style="border-top:1px solid var(--gray-200);margin-top:.75rem;padding-top:1rem;"${
+      (tenant.custom_instructions || tenant.enable_warm_transfer || tenant.vacation_mode) ? " open" : ""
+    }>
+      <summary style="cursor:pointer;font-weight:600;font-size:.95rem;color:var(--brand);margin-bottom:1rem;list-style:none;display:flex;align-items:center;gap:.5rem;">
+        <span style="font-size:.8rem;transition:transform .2s;" class="adv-arrow">▶</span>
+        Advanced settings
+        <span style="font-size:.8rem;font-weight:400;color:var(--gray-500);margin-left:.25rem;">(custom instructions, live connect, holiday mode)</span>
+      </summary>
 
-    <div style="border-top:1px solid var(--gray-200);margin-top:.75rem;padding-top:1rem;">
+      <div class="form-group">
+        <label for="custom_instructions">Custom AI instructions <span style="font-weight:400;color:var(--gray-600);">(optional)</span></label>
+        <textarea id="custom_instructions" name="custom_instructions" rows="4" placeholder="e.g. We have a $120 call-out fee for after-hours jobs. We don't take on jobs in high-rise apartments. Always ask if the customer has a preferred time in the morning or afternoon.">${escape(tenant.custom_instructions ?? "")}</textarea>
+        <p style="font-size:.8rem;color:var(--gray-500);margin-top:.25rem">
+          Add any business-specific rules, pricing notes, or special handling instructions for the AI.
+        </p>
+      </div>
+
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:.65rem;cursor:pointer;">
+          <input type="checkbox" name="enable_warm_transfer" value="1"${tenant.enable_warm_transfer ? " checked" : ""} style="width:auto;accent-color:var(--brand);" />
+          <span>Live connect — transfer calls to your phone during business hours</span>
+        </label>
+        <p style="font-size:.8rem;color:var(--gray-500);margin-top:.25rem">When enabled, calls during business hours will ring you first. If you don't answer within 18 seconds, the AI takes over.</p>
+      </div>
       <div class="form-group">
         <label style="display:flex;align-items:center;gap:.65rem;cursor:pointer;">
           <input type="checkbox" name="vacation_mode" value="1"${tenant.vacation_mode ? " checked" : ""} style="width:auto;accent-color:var(--brand);" />
-          <span>Holiday / vacation mode — tell callers the business is away</span>
+          <span>Holiday mode — tell callers the business is away</span>
         </label>
       </div>
       <div class="form-group">
-        <label for="vacation_message">Vacation message <span style="font-weight:400;color:var(--gray-600);">(optional)</span></label>
+        <label for="vacation_message">Holiday message <span style="font-weight:400;color:var(--gray-600);">(optional)</span></label>
         <input type="text" id="vacation_message" name="vacation_message" value="${escape(tenant.vacation_message ?? "")}"
           placeholder="e.g. Back on Monday 7 April. Will return all calls then." />
       </div>
-    </div>
+    </details>
     <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;margin-top:.5rem">
       <button type="submit" class="btn btn-primary">Save changes</button>
       <a href="/dashboard/leads" class="btn btn-ghost">Cancel</a>
@@ -973,21 +901,21 @@ ${flashHtml}
 
 <div class="card" style="margin-top:1.25rem">
   <h2>Account info</h2>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;font-size:.9rem">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;font-size:.9rem">
     <div>
       <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.2rem">Email</p>
       <p>${escape(tenant.owner_email ?? "")}</p>
     </div>
     <div>
       <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.2rem">Plan</p>
-      <p>${tenant.payment_status === "active" ? "Active" : tenant.payment_status === "trial" ? "Free trial" : "—"}</p>
+      <p>${tenant.payment_status === "active" ? "Active" : tenant.payment_status === "trial" ? "Free trial" : tenant.payment_status === "pending" ? `Waiting for card — <a href="#" onclick="document.getElementById('pending-checkout-form').submit();return false;">complete signup</a><form id="pending-checkout-form" method="POST" action="/dashboard/create-checkout-session" style="display:none;"></form>` : "—"}</p>
     </div>
     ${tenant.trial_ends_at ? `<div>
       <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.2rem">Trial ends</p>
       <p>${new Date(tenant.trial_ends_at).toLocaleDateString("en-AU", { dateStyle: "long" })}</p>
     </div>` : ""}
   </div>
-  <p style="font-size:.82rem;color:var(--gray-400);margin-top:1rem">
+  <p style="font-size:.82rem;color:var(--gray-500);margin-top:1rem">
     To change your email, contact us at
     <a href="mailto:hello@getpickupai.com.au">hello@getpickupai.com.au</a> ·
     <a href="/dashboard/forgot-password">Change password</a>
@@ -996,7 +924,7 @@ ${flashHtml}
 
 <div class="card" style="margin-top:1.25rem">
   <h2>Subscription</h2>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;font-size:.9rem;margin-bottom:1rem">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;font-size:.9rem;margin-bottom:1rem">
     <div>
       <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.2rem">Status</p>
       <p>${tenant.payment_status === "active" ? '<span style="color:var(--green);font-weight:700;">✓ Active</span>'
@@ -1015,7 +943,12 @@ ${flashHtml}
       <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.2rem">Plan</p>
       <p>${tenant.payment_status === "active" ? "Active subscription"
           : tenant.payment_status === "cancelling" ? "Cancelling — active until period end"
-          : "Free trial (14 days)"}</p>
+          : tenant.payment_status === "trial" ? "Free trial (14 days)"
+          : tenant.payment_status === "pending" ? `Waiting for card — <a href="#" onclick="document.getElementById('plan-checkout-form').submit();return false;">complete signup</a><form id="plan-checkout-form" method="POST" action="/dashboard/create-checkout-session" style="display:none;"></form>`
+          : tenant.payment_status === "expired" ? "Expired"
+          : tenant.payment_status === "payment_failed" ? "Payment issue — please update your card"
+          : tenant.payment_status === "cancelled" ? "Cancelled"
+          : "—"}</p>
     </div>
   </div>
   ${(tenant.payment_status !== "active" && tenant.payment_status !== "cancelling") ? `<a href="/dashboard/upgrade" class="btn btn-primary btn-sm">Upgrade plan</a>` : ""}
@@ -1024,8 +957,8 @@ ${flashHtml}
         <button type="submit" class="btn btn-outline btn-sm">Manage subscription (cancel / update card)</button>
       </form>`
     : ""}
-  <p style="font-size:.75rem;color:var(--gray-400);margin-top:.75rem;">
-    All prices include 10% GST ·
+  <p style="font-size:.75rem;color:var(--gray-500);margin-top:.75rem;">
+    All prices inc. GST ·
     <a href="/terms" target="_blank">Terms</a> · <a href="/privacy" target="_blank">Privacy</a>
   </p>
 </div>`;
@@ -1061,12 +994,12 @@ export function forgotPasswordPage(flash?: string): string {
 
 // ─── Reset password page ──────────────────────────────────────────────────────
 
-export function resetPasswordPage(email: string, error?: string): string {
+export function resetPasswordPage(email: string, flash?: string, flashType: "success" | "error" = "error"): string {
   const body = `
 <div style="max-width:420px;margin:4rem auto;">
   <div class="card">
     <h2 style="text-align:center;margin-bottom:1.5rem;">Set a new password</h2>
-    ${error ? `<div class="alert alert-error">${escape(error)}</div>` : ""}
+    ${flash ? `<div class="alert ${flashType === "success" ? "alert-success" : "alert-error"}">${escape(flash)}</div>` : ""}
     <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:1.25rem;text-align:center;">
       Enter the 6-digit code sent to your phone, then choose a new password.
     </p>
@@ -1109,36 +1042,43 @@ export function upgradePage(tenant?: TenantRow, stripeEnabled?: boolean, reason?
           Subscribe — $149 / month →
         </button>
       </form>
-      <p style="margin-top:.65rem;font-size:.82rem;color:var(--gray-400)">
+      <p style="margin-top:.65rem;font-size:.82rem;color:var(--gray-500)">
         Secure payment via Stripe · Cancel anytime · No lock-in
       </p>`
     : `<a href="mailto:hello@getpickupai.com.au?subject=I'd like to upgrade PickupAI&body=Hi, I'd like to continue my PickupAI subscription for ${escape(tenant?.name ?? "my business")}."
          class="btn btn-primary" style="font-size:1rem;padding:.8rem 2rem;display:inline-block">
         Email us to activate →
       </a>
-      <p style="margin-top:1rem;font-size:.85rem;color:var(--gray-400)">
-        Or email <a href="mailto:hello@getpickupai.com.au" style="color:var(--gray-400)">hello@getpickupai.com.au</a> — we'll respond same day
+      <p style="margin-top:1rem;font-size:.85rem;color:var(--gray-500)">
+        Or email <a href="mailto:hello@getpickupai.com.au" style="color:var(--gray-500)">hello@getpickupai.com.au</a> — we'll respond same day
       </p>`;
+
+  const { icon, headline, subtitle } = reason === "pending"
+    ? { icon: "💳", headline: "Complete your signup", subtitle: "Finish setting up your payment to start your 14-day free trial." }
+    : reason === "payment_failed"
+    ? { icon: "⚠️", headline: "Update your payment method", subtitle: "Your last payment couldn't be processed. Update your card below to keep your AI receptionist active." }
+    : (tenant?.payment_status === "expired" || tenant?.payment_status === "cancelled")
+    ? { icon: "🔄", headline: "Reactivate your account", subtitle: "Your subscription has ended. Subscribe below to get your AI receptionist back online." }
+    : { icon: "⏰", headline: "Your free trial has ended", subtitle: "Thanks for trying PickupAI! To keep your AI receptionist answering calls and capturing job enquiries, subscribe below." };
 
   const body = `
 <div style="max-width:560px;margin:4rem auto;text-align:center">
   ${paymentFailedBanner}
-  <div style="font-size:3rem;margin-bottom:1rem">⏰</div>
-  <h1 style="font-size:1.75rem;margin-bottom:.75rem">Your free trial has ended</h1>
+  <div style="font-size:3rem;margin-bottom:1rem">${icon}</div>
+  <h1 style="font-size:1.75rem;margin-bottom:.75rem">${headline}</h1>
   <p style="color:var(--gray-600);font-size:1rem;line-height:1.6;margin-bottom:2rem">
-    Thanks for trying PickupAI! To keep your AI receptionist answering calls and capturing leads,
-    subscribe below and we'll have your dedicated number set up within 24 hours.
+    ${subtitle}
   </p>
   <div class="card" style="text-align:left;margin-bottom:1.5rem">
     <h2 style="margin-bottom:1rem">What's included — $149 / month</h2>
     <ul style="list-style:none;display:flex;flex-direction:column;gap:.65rem">
       <li style="display:flex;gap:.65rem;align-items:flex-start">
         <span style="color:var(--green);font-weight:700;margin-top:.1rem">✓</span>
-        <span>24/7 call answering — every call picked up, no voicemail</span>
+        <span>24/7 call answering — every call picked up</span>
       </li>
       <li style="display:flex;gap:.65rem;align-items:flex-start">
         <span style="color:var(--green);font-weight:700;margin-top:.1rem">✓</span>
-        <span>Instant SMS lead summary after every call</span>
+        <span>Instant SMS job summary after every call</span>
       </li>
       <li style="display:flex;gap:.65rem;align-items:flex-start">
         <span style="color:var(--green);font-weight:700;margin-top:.1rem">✓</span>
@@ -1150,22 +1090,22 @@ export function upgradePage(tenant?: TenantRow, stripeEnabled?: boolean, reason?
       </li>
       <li style="display:flex;gap:.65rem;align-items:flex-start">
         <span style="color:var(--green);font-weight:700;margin-top:.1rem">✓</span>
-        <span>Dashboard with all your leads and call history</span>
+        <span>Online account with all your jobs and call history</span>
       </li>
     </ul>
-    <p style="font-size:.8rem;color:var(--gray-400);margin-top:1rem">
+    <p style="font-size:.8rem;color:var(--gray-500);margin-top:1rem">
       Founding customer price — locked for 3 months, then $199/mo. Cancel anytime.
     </p>
   </div>
   ${ctaHtml}
-  <p style="font-size:.75rem;color:var(--gray-400);margin-top:.75rem;">
-    All prices include 10% GST ·
-    <a href="/terms" target="_blank" style="color:var(--gray-400)">Terms</a> ·
-    <a href="/privacy" target="_blank" style="color:var(--gray-400)">Privacy</a>
+  <p style="font-size:.75rem;color:var(--gray-500);margin-top:.75rem;">
+    All prices inc. GST ·
+    <a href="/terms" target="_blank" style="color:var(--gray-500)">Terms</a> ·
+    <a href="/privacy" target="_blank" style="color:var(--gray-500)">Privacy</a>
   </p>
-  <p style="margin-top:1.5rem">
-    <a href="/dashboard/logout" style="font-size:.85rem;color:var(--gray-400)">Sign out</a>
-  </p>
+  <form method="POST" action="/dashboard/logout" style="margin-top:1.5rem">
+    <button type="submit" style="background:none;border:none;cursor:pointer;font-size:.85rem;color:var(--gray-500);padding:0;text-decoration:underline;">Sign out</button>
+  </form>
 </div>`;
   return shell("Upgrade", body, tenant);
 }

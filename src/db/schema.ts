@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS tenants (
 
 CREATE TABLE IF NOT EXISTS calls (
   call_id       TEXT PRIMARY KEY,
-  tenant_id     TEXT REFERENCES tenants(tenant_id),
+  tenant_id     TEXT REFERENCES tenants(tenant_id) ON DELETE SET NULL,
   from_number   TEXT,
   to_number     TEXT,
   started_at    TEXT,
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS calls (
 
 CREATE TABLE IF NOT EXISTS leads (
   lead_id        TEXT PRIMARY KEY,
-  tenant_id      TEXT REFERENCES tenants(tenant_id),
+  tenant_id      TEXT REFERENCES tenants(tenant_id) ON DELETE SET NULL,
   call_id        TEXT NOT NULL REFERENCES calls(call_id) ON DELETE CASCADE,
   name           TEXT,
   phone          TEXT,
@@ -150,5 +150,15 @@ export const migrationStatements = [
     level        TEXT DEFAULT 'info',
     payload_json TEXT,
     created_at   TEXT NOT NULL
-  )`
+  )`,
+  `ALTER TABLE calls ADD COLUMN is_demo INTEGER DEFAULT 0`,
+  `CREATE INDEX IF NOT EXISTS idx_calls_tenant_started ON calls(tenant_id, started_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_analytics_created ON analytics_events(created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_tenants_session ON tenants(session_token)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_email ON tenants(owner_email) WHERE owner_email IS NOT NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_leads_tenant_created ON leads(tenant_id, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_prospects_phone ON prospects(phone) WHERE phone IS NOT NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_calls_from_number ON calls(from_number) WHERE from_number IS NOT NULL`,
+  `ALTER TABLE leads ADD COLUMN property_type TEXT`,
+  `ALTER TABLE leads ADD COLUMN caller_sentiment TEXT`
 ];

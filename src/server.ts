@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import http from "node:http";
 import { EventEmitter } from "node:events";
 import path from "node:path";
@@ -37,6 +38,34 @@ setInterval(() => {
     if (entry.windowStart < cutoff) rateLimitStore.delete(key);
   }
 }, 5 * 60 * 1000).unref();
+
+// ─── One-time stream tokens for WebSocket authentication ───────────────────
+// Each TwiML <Stream> gets a unique token passed as a custom parameter.
+// The media-stream WebSocket validates it on the "start" event.
+const streamTokens = new Map<string, number>();
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, expiry] of streamTokens) {
+    if (expiry < now) streamTokens.delete(token);
+  }
+}, 5 * 60 * 1000).unref();
+
+// ─── Admin session tokens ──────────────────────────────────────────────────
+// Random session tokens issued on admin login; avoids storing the raw
+// ADMIN_TOKEN secret in a cookie.
+const adminSessions = new Map<string, number>(); // token → expiresAt
+const ADMIN_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+setInterval(() => {
+  const now = Date.now();
+  for (const [tok, exp] of adminSessions) {
+    if (exp < now) adminSessions.delete(tok);
+  }
+}, 5 * 60 * 1000).unref();
+
+function safeTokenCompare(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
 
 import { env } from "./env.js";
 import { openDb } from "./db/db.js";
@@ -91,6 +120,8 @@ import {
   verifyPasswordResetToken,
   getTenantLeadStats,
   getFoundingCustomerCount,
+  getTenantsNeedingNudge,
+  getTenantCallCount,
   newLeadId
 } from "./db/repo.js";
 import type { TenantRow, CallRow, SystemConfigRow, ProspectRow } from "./db/repo.js";
@@ -107,26 +138,26 @@ import {
   adminProspectImportPage,
   adminBulkSmsPage,
   buildProvisionSms,
-  formatAuPhone
 } from "./admin/pages.js";
 import { twilioValidateMiddleware } from "./twilio/verify.js";
 import { buildAbsoluteUrl, getCallSid, shouldWarmTransferNow } from "./twilio/flow.js";
 import { newVoiceResponse, connectStreamTwiml, sayFriendly, voicemailFallbackTwiml } from "./twilio/twiml.js";
 import { getOrInitCallState, setCallState, clearCallState } from "./twilio/state.js";
 import { startCallRecording } from "./twilio/recording.js";
-import { formatOwnerSms, NO_SMS_INTENTS, sendOwnerSms } from "./twilio/sms.js";
+import { formatOwnerSms, NO_SMS_INTENTS, sendOwnerSms, generateForwardingCode, FIRST_CALL_CELEBRATION_PREFIX, buildCallerConfirmationSms } from "./twilio/sms.js";
 import { isEmailConfigured, sendEmail, formatLeadEmail } from "./utils/email.js";
+import { formatAuPhone } from "./utils/phone.js";
 import { createCrmExporters, exportLeadToCrm } from "./crm/index.js";
 import { RealtimeSession } from "./realtime/session.js";
 import {
   loginPage,
   signupPage,
-  setupGuidePage,
   welcomePage,
   leadsPage,
   leadDetailPage,
   settingsPage,
   upgradePage,
+  statsPage,
   forgotPasswordPage,
   resetPasswordPage
 } from "./dashboard/pages.js";
@@ -171,15 +202,20 @@ function setSessionCookie(res: Response, token: string) {
 }
 
 function clearSessionCookie(res: Response) {
-  res.setHeader("Set-Cookie", "dash_session=; HttpOnly; Path=/dashboard; Max-Age=0");
+  res.setHeader("Set-Cookie", "dash_session=; HttpOnly; Secure; SameSite=Lax; Path=/dashboard; Max-Age=0");
 }
 
 // ─── CSV export helper ────────────────────────────────────────────────────────
 
+function csvSafe(val: string): string {
+  if (/^[=+\-@\t\r]/.test(val)) return "'" + val;
+  return val;
+}
+
 function leadsToCSV(leads: any[]): string {
   const headers = ["name", "phone", "address", "issue_type", "issue_summary", "urgency_level", "preferred_time", "lead_status", "next_action", "created_at"];
   const rows = leads.map((l) =>
-    headers.map((h) => `"${String(l[h] ?? "").replace(/"/g, '""')}"`).join(",")
+    headers.map((h) => `"${csvSafe(String(l[h] ?? "")).replace(/"/g, '""')}"`).join(",")
   );
   return [headers.join(","), ...rows].join("\n");
 }
@@ -283,12 +319,16 @@ async function main() {
 
   // ── Notification helper ───────────────────────────────────────────────────
 
+  const smsInflight = new Set<string>();
+
   async function notifyOwnerSmsIfNeeded(
     callId: string,
     callerIntent?: string | null,
     ownerPhone?: string,
     ownerEmail?: string
   ) {
+    if (smsInflight.has(callId)) return;
+
     const id = createNotification(db, callId, "sms");
     if (callerIntent && NO_SMS_INTENTS.has(callerIntent)) {
       markNotification(db, id, { status: "skipped", error: `intent:${callerIntent}` });
@@ -309,6 +349,9 @@ async function main() {
       return;
     }
 
+    smsInflight.add(callId);
+    setTimeout(() => smsInflight.delete(callId), 60_000);
+
     exportLeadToCrm(crmExporters, lead)
       .then((results) => {
         const errors = results.filter((r) => !r.ok);
@@ -322,11 +365,18 @@ async function main() {
     const recipientEmail = ownerEmail ?? notifyTenant?.owner_email ?? null;
 
     try {
-      const body = formatOwnerSms({ lead, callId, callerIntent });
-      const sms = await sendOwnerSms(db, body, ownerPhone);
+      // Check if this is the tenant's first real call — send a celebration message
+      const isFirstCall = notifyTenant && getTenantCallCount(db, notifyTenant.tenant_id) <= 1;
+
+      const body = formatOwnerSms({ lead, callId, callerIntent, dashboardUrl: env.PUBLIC_BASE_URL });
+      const firstCallPrefix = isFirstCall ? FIRST_CALL_CELEBRATION_PREFIX : "";
+      const sms = await sendOwnerSms(db, firstCallPrefix + body, ownerPhone);
       if (sms.status === "sent") {
         markNotification(db, id, { status: "sent", error: null });
         trackEvent("owner_sms_sent", { call_id: callId, tenant_id: lead.tenant_id });
+        if (isFirstCall) {
+          trackEvent("first_call_celebration", { tenant_id: lead.tenant_id, call_id: callId });
+        }
       } else {
         markNotification(db, id, { status: "skipped", error: sms.reason });
         trackEvent("owner_sms_skipped", {
@@ -373,11 +423,11 @@ async function main() {
     if (lead.urgency_level === "emergency") {
       const ownerSmsNumber = ownerPhone ?? notifyTenant?.owner_phone;
       if (ownerSmsNumber) {
-        setTimeout(async () => {
+        const emergencyTimer = setTimeout(async () => {
           try {
             await sendOwnerSms(
               db,
-              `⚠️ EMERGENCY FOLLOW-UP: ${lead.name ?? "A caller"} reported an emergency${lead.address ? ` at ${lead.address}` : ""}. Have you called them back? ${lead.phone ? `Their number: ${lead.phone}` : ""} View lead: ${env.PUBLIC_BASE_URL}/dashboard/leads/${lead.lead_id}`,
+              `EMERGENCY FOLLOW-UP\n${lead.name ?? "A caller"} reported an emergency${lead.address ? ` at ${lead.address}` : ""}.\nHave you called them back?\n${lead.phone ? `Their number: ${formatAuPhone(lead.phone)}\n` : ""}View job: ${env.PUBLIC_BASE_URL}/dashboard/leads/${lead.lead_id}`,
               ownerSmsNumber
             );
             trackEvent("emergency_followup_sms_sent", { call_id: callId, tenant_id: lead.tenant_id });
@@ -385,6 +435,7 @@ async function main() {
             log.warn({ err, callId }, "emergency follow-up SMS failed");
           }
         }, 2 * 60 * 1000); // 2 minutes
+        if (typeof emergencyTimer.unref === "function") emergencyTimer.unref();
       }
     }
   }
@@ -425,7 +476,7 @@ async function main() {
       event = stripe.webhooks.constructEvent(req.body, sig, env.STRIPE_WEBHOOK_SECRET);
     } catch (err: any) {
       log.warn({ err }, "Stripe webhook signature verification failed");
-      return res.status(400).send(`Webhook Error: ${err.message}`);
+      return res.status(400).send("Webhook signature verification failed");
     }
 
     try {
@@ -433,27 +484,30 @@ async function main() {
         const session = event.data.object as Stripe.Checkout.Session;
         const tenantId = session.metadata?.tenant_id;
         if (tenantId) {
-          const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
-          updateTenant(db, tenantId, {
-            payment_status: "trial",
-            trial_ends_at: trialEndsAt,
-            stripe_customer_id: session.customer as string
-          });
-          const t = getTenantById(db, tenantId);
-          if (t) {
+          const existing = getTenantById(db, tenantId);
+          if (existing && existing.payment_status === "pending") {
+            const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+            updateTenant(db, tenantId, {
+              payment_status: "trial",
+              trial_ends_at: trialEndsAt,
+              stripe_customer_id: session.customer as string
+            });
             if (env.OWNER_PHONE_NUMBER) {
               try {
                 const sms = await sendOwnerSms(db,
-                  `PickupAI: New trial signup (card on file) — ${t.name} (${t.owner_phone}). Trial ends in 14 days. Admin: ${env.PUBLIC_BASE_URL}/admin/users/${t.tenant_id}`
+                  `PickupAI: New trial started (card on file) - ${existing.name} (${formatAuPhone(existing.owner_phone)}). Trial ends in 14 days. Admin: ${env.PUBLIC_BASE_URL}/admin/users/${tenantId}`
                 );
                 if (sms.status === "skipped") log.warn({ reason: sms.reason }, "founder trial notification SMS skipped");
               } catch (e) { log.warn({ e }, "founder trial notification SMS failed"); }
             }
+          } else {
+            log.info({ tenantId, currentStatus: existing?.payment_status }, "checkout.session.completed received but tenant not pending — skipping (idempotent)");
           }
         }
       } else if (event.type === "invoice.payment_succeeded") {
         const invoice = event.data.object as Stripe.Invoice;
-        if ((invoice as any).billing_reason === "subscription_create" && (invoice as any).amount_paid === 0) {
+        const billingReason = (invoice as any).billing_reason;
+        if (billingReason === "subscription_create" && (invoice as any).amount_paid === 0) {
           log.info("Stripe: trial start $0 invoice — skipping activation");
         } else {
           const customerId = typeof invoice.customer === "string" ? invoice.customer : (invoice.customer as any)?.id;
@@ -461,21 +515,25 @@ async function main() {
           const t = tenants.find(x => x.stripe_customer_id === customerId);
           if (t) {
             updateTenant(db, t.tenant_id, { payment_status: "active" });
-            log.info({ tenantId: t.tenant_id }, "Stripe payment succeeded — account activated");
-            try {
-              const sms = await sendOwnerSms(db,
-                `Your PickupAI subscription is now active, ${t.name}! We'll assign your dedicated number and send setup instructions within 24 hours.`,
-                t.owner_phone
-              );
-              if (sms.status === "skipped") log.warn({ reason: sms.reason }, "customer activation SMS skipped");
-            } catch (e) { log.warn({ e }, "customer activation SMS failed"); }
-            if (env.OWNER_PHONE_NUMBER) {
+            log.info({ tenantId: t.tenant_id, billingReason }, "Stripe payment succeeded — account active");
+
+            if (billingReason === "subscription_create") {
               try {
-                const sms = await sendOwnerSms(db,
-                  `PickupAI: New paying customer — ${t.name} (${t.owner_phone}). Log in to assign their number: ${env.PUBLIC_BASE_URL}/admin/users/${t.tenant_id}`
-                );
-                if (sms.status === "skipped") log.warn({ reason: sms.reason }, "founder payment notification SMS skipped");
-              } catch (e) { log.warn({ e }, "founder notification SMS failed"); }
+                const hasNumber = !t.twilio_number.startsWith("+PENDING");
+                const activationBody = hasNumber
+                  ? `Your PickupAI subscription is now active, ${t.name}! Your number: ${formatAuPhone(t.twilio_number)}. If you haven't already, set up call forwarding from your welcome page: ${env.PUBLIC_BASE_URL}/dashboard/welcome`
+                  : `Your PickupAI subscription is now active, ${t.name}! We're setting up your dedicated number - you'll get an SMS with your activation code shortly.`;
+                const sms = await sendOwnerSms(db, activationBody, t.owner_phone);
+                if (sms.status === "skipped") log.warn({ reason: sms.reason }, "customer activation SMS skipped");
+              } catch (e) { log.warn({ e }, "customer activation SMS failed"); }
+              if (env.OWNER_PHONE_NUMBER) {
+                try {
+                  const sms = await sendOwnerSms(db,
+                    `PickupAI: New paying customer - ${t.name} (${formatAuPhone(t.owner_phone)}). Log in to assign their number: ${env.PUBLIC_BASE_URL}/admin/users/${t.tenant_id}`
+                  );
+                  if (sms.status === "skipped") log.warn({ reason: sms.reason }, "founder payment notification SMS skipped");
+                } catch (e) { log.warn({ e }, "founder notification SMS failed"); }
+              }
             }
           }
         }
@@ -527,7 +585,7 @@ async function main() {
           if (env.OWNER_PHONE_NUMBER) {
             try {
               await sendOwnerSms(db,
-                `PickupAI: Payment failed for ${t.name} (${t.owner_phone}). Follow up: ${env.PUBLIC_BASE_URL}/admin/users/${t.tenant_id}`
+                `PickupAI: Payment failed for ${t.name} (${formatAuPhone(t.owner_phone)}). Follow up: ${env.PUBLIC_BASE_URL}/admin/users/${t.tenant_id}`
               );
             } catch (e) { log.warn({ e }, "founder payment-failed notification SMS failed"); }
           }
@@ -535,6 +593,7 @@ async function main() {
       }
     } catch (err: any) {
       log.error({ err }, "Stripe webhook handler error");
+      return res.sendStatus(500);
     }
     res.sendStatus(200);
   });
@@ -549,6 +608,14 @@ async function main() {
   );
   app.use(express.json());
   app.use(pinoHttp({ logger: log }));
+
+  // Security response headers
+  app.use((_req, res, next) => {
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    next();
+  });
 
   // Serve landing page from /public
   app.use(express.static(PUBLIC_DIR));
@@ -569,8 +636,10 @@ async function main() {
     if (!env.ADMIN_TOKEN) {
       return res.status(503).send("Admin panel is not configured. Set ADMIN_TOKEN to enable.");
     }
-    const token = req.header("x-admin-token") ?? req.query.token;
-    if (token && token === env.ADMIN_TOKEN) return next();
+    const token = typeof req.header("x-admin-token") === "string"
+      ? req.header("x-admin-token")!
+      : typeof req.query.token === "string" ? req.query.token as string : "";
+    if (token && safeTokenCompare(token, env.ADMIN_TOKEN)) return next();
     return res.status(401).json({ error: "unauthorized" });
   };
 
@@ -580,10 +649,13 @@ async function main() {
       return res.status(503).send("Admin panel is not configured. Set ADMIN_TOKEN to enable.");
     }
     const cookies = parseCookies(req);
-    if (cookies.admin_session === env.ADMIN_TOKEN) return next();
+    const sessionToken = cookies.admin_session;
+    if (sessionToken && adminSessions.has(sessionToken) && adminSessions.get(sessionToken)! > Date.now()) return next();
     // Also accept x-admin-token header or ?token= for backwards compat
-    const token = req.header("x-admin-token") ?? (req.query.token as string | undefined);
-    if (token && token === env.ADMIN_TOKEN) return next();
+    const token = typeof req.header("x-admin-token") === "string"
+      ? req.header("x-admin-token")!
+      : typeof req.query.token === "string" ? req.query.token as string : "";
+    if (token && safeTokenCompare(token, env.ADMIN_TOKEN)) return next();
     return res.redirect("/admin/login");
   };
 
@@ -613,8 +685,7 @@ async function main() {
     if (status === "active" || status === "cancelling") return next();
     if (!status || status === "none") return next(); // legacy / seed accounts
     if (status === "pending") {
-      // Signed up but never completed Stripe checkout — send them back to checkout
-      return res.redirect("/dashboard/upgrade");
+      return res.redirect("/dashboard/upgrade?reason=pending");
     }
     if (status === "payment_failed") {
       return res.redirect("/dashboard/upgrade?reason=payment_failed");
@@ -632,9 +703,16 @@ async function main() {
 
   app.get("/health", (_req, res) => res.json({ ok: true, mode: "realtime", multiTenant: true }));
 
+  // Public stats for landing page social proof
+  app.get("/api/stats", (_req, res) => {
+    const totalCalls = db.get<{ n: number }>("SELECT COUNT(*) AS n FROM calls WHERE status = 'completed' AND is_demo = 0")?.n ?? 0;
+    const totalTenants = db.get<{ n: number }>("SELECT COUNT(*) AS n FROM tenants WHERE active = 1 AND twilio_number NOT LIKE '+PENDING%'")?.n ?? 0;
+    res.json({ calls_answered: totalCalls, businesses_served: totalTenants });
+  });
+
   // ── System health monitoring ───────────────────────────────────────────────
   app.get("/health/detailed", adminGuard, (_req, res) => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" });
     const recentErrors = db.all<{ event_name: string; created_at: string; payload_json: string | null }>(
       `SELECT event_name, created_at, payload_json FROM analytics_events
        WHERE level IN ('warn','error') AND created_at >= ? ORDER BY created_at DESC LIMIT 50`,
@@ -661,13 +739,33 @@ async function main() {
 
   // ── Landing page contact form ───────────────────────────────────────────
   app.post("/contact", express.json(), rateLimit({ maxRequests: 5, windowMs: 60_000 }), async (req, res) => {
-    const { name, email, phone } = req.body ?? {};
+    const { name, email, phone, trade } = req.body ?? {};
     if (!name || !email) return res.status(400).json({ error: "Name and email are required" });
-    log.info({ name, email, phone }, "Contact form submission");
+    log.info({ name, email, phone, trade }, "Contact form submission");
+
+    try {
+      createProspect(db, {
+        business_name: name,
+        owner_name: name,
+        phone: phone || null,
+        email: email,
+        website: null,
+        trade_type: trade || null,
+        suburb: null,
+        state: "NSW",
+        source: "website_contact",
+        google_rating: null,
+        review_count: null,
+        notes: null,
+        last_contacted_at: null,
+        next_followup_at: null,
+      });
+    } catch (e) { log.warn({ e }, "Failed to persist contact form submission as prospect"); }
+
     if (env.OWNER_PHONE_NUMBER) {
       try {
         const sms = await sendOwnerSms(db,
-          `PickupAI lead from website:\nName: ${name}\nEmail: ${email}${phone ? `\nPhone: ${phone}` : ""}`,
+          `PickupAI enquiry from website:\nName: ${name}\nEmail: ${email}${phone ? `\nPhone: ${phone}` : ""}${trade ? `\nTrade: ${trade}` : ""}`,
         );
         if (sms.status === "skipped") {
           log.warn({ reason: sms.reason }, "Contact form SMS skipped");
@@ -681,6 +779,12 @@ async function main() {
   // Maps demo pool number → { tenantId, expiresAt }
   // Set when a simulation call is placed; cleared when the call completes.
   const simulationRoutingMap = new Map<string, { tenantId: string; expiresAt: number }>();
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of simulationRoutingMap) {
+      if (entry.expiresAt < now) simulationRoutingMap.delete(key);
+    }
+  }, 5 * 60 * 1000).unref();
 
   // ── Live audio streaming for demo calls (SSE) ──────────────────────────────
   // Audio chunks from the AI are emitted on "audio:<tenantId>" events.
@@ -730,11 +834,10 @@ async function main() {
         log.info({ callSid, from, historyCount: history.length }, "returning customer detected");
       }
     }
-    // Store tenant context in call state for media-stream handler
-    (state as any).tenantId = tenant.tenant_id;
-    (state as any).tenantOwnerPhone = tenant.owner_phone;
-    (state as any).tenantOwnerEmail = tenant.owner_email ?? undefined;
-    (state as any).isDemo = isDemo;
+    state.tenantId = tenant.tenant_id;
+    state.tenantOwnerPhone = tenant.owner_phone;
+    state.tenantOwnerEmail = tenant.owner_email ?? undefined;
+    state.isDemo = isDemo;
     setCallState(callSid, state);
 
     upsertCall(db, {
@@ -743,7 +846,8 @@ async function main() {
       from_number: typeof from === "string" ? from : null,
       to_number: typeof to === "string" ? to : null,
       started_at: new Date().toISOString(),
-      status: "in-progress"
+      status: "in-progress",
+      is_demo: isDemo ? 1 : 0
     });
     trackEvent("call_started", {
       tenant_id: tenant.tenant_id !== "default" ? tenant.tenant_id : null,
@@ -765,7 +869,8 @@ async function main() {
       return res.type("text/xml").send(twiml);
     }
 
-    if (shouldWarmTransferNow() && tenant.enable_warm_transfer) {
+    const transferTarget = tenant.owner_phone || env.OWNER_PHONE_NUMBER;
+    if (shouldWarmTransferNow() && tenant.enable_warm_transfer && transferTarget) {
       const vr = newVoiceResponse();
       sayFriendly(vr, "Please hold while I connect you.");
       const dial = vr.dial({
@@ -779,43 +884,51 @@ async function main() {
           statusCallbackEvent: ["initiated", "ringing", "answered", "completed"],
           statusCallbackMethod: "POST"
         },
-        tenant.owner_phone || env.OWNER_PHONE_NUMBER
+        transferTarget
       );
       return res.type("text/xml").send(vr.toString());
     }
 
     const wsUrl = buildAbsoluteUrl("/media-stream").replace(/^https?:\/\//, "wss://");
-    const twiml = connectStreamTwiml(wsUrl, callSid);
+    const token = crypto.randomUUID();
+    streamTokens.set(token, Date.now() + 120_000);
+    const twiml = connectStreamTwiml(wsUrl, callSid, token);
     res.type("text/xml").send(twiml);
   });
 
   app.post("/twilio/voice/transfer-fallback", twilioVerify, (req, res) => {
     const callSid = getCallSid(req);
     const wsUrl = buildAbsoluteUrl("/media-stream").replace(/^https?:\/\//, "wss://");
-    const twiml = connectStreamTwiml(wsUrl, callSid);
+    const token = crypto.randomUUID();
+    streamTokens.set(token, Date.now() + 120_000);
+    const twiml = connectStreamTwiml(wsUrl, callSid, token);
     res.type("text/xml").send(twiml);
   });
 
   app.post("/twilio/voice/status", twilioVerify, (req, res) => {
     const callSid = typeof req.body?.CallSid === "string" ? req.body.CallSid : null;
     const callStatus = typeof req.body?.CallStatus === "string" ? req.body.CallStatus : null;
+    const TERMINAL_STATUSES = new Set(["completed", "busy", "no-answer", "canceled", "failed"]);
     if (callSid) {
+      const isTerminal = callStatus !== null && TERMINAL_STATUSES.has(callStatus);
       upsertCall(db, {
         call_id: callSid,
         status: callStatus ?? undefined,
-        ended_at: callStatus === "completed" ? new Date().toISOString() : undefined
+        ended_at: isTerminal ? new Date().toISOString() : undefined
       });
-      if (callStatus === "completed") {
+      if (isTerminal) {
         const state = getOrInitCallState(callSid);
-        const ownerPhone = (state as any).tenantOwnerPhone ?? undefined;
-        const ownerEmail = (state as any).tenantOwnerEmail ?? undefined;
+        const ownerPhone = state.tenantOwnerPhone ?? undefined;
+        const ownerEmail = state.tenantOwnerEmail ?? undefined;
         trackEvent("call_ended_status_webhook", {
           call_id: callSid,
           payload: { callStatus, callerIntent: state.callerIntent }
         });
-        notifyOwnerSmsIfNeeded(callSid, state.callerIntent, ownerPhone, ownerEmail).catch((err) =>
-          log.warn({ err }, "owner sms on status failed")
-        );
+        if (callStatus === "completed") {
+          notifyOwnerSmsIfNeeded(callSid, state.callerIntent, ownerPhone, ownerEmail).catch((err) =>
+            log.warn({ err }, "owner sms on status failed")
+          );
+        }
         // Clear Option A simulation routing entry for the TO number (if any)
         const toNumber = typeof req.body?.To === "string" ? req.body.To : null;
         if (toNumber) simulationRoutingMap.delete(toNumber);
@@ -860,7 +973,7 @@ async function main() {
             phone: call.from_number,
             address: null,
             issue_type: "voicemail",
-            issue_summary: "Voicemail left — listen to recording",
+            issue_summary: "Voicemail left - listen to recording",
             urgency_level: "routine",
             preferred_time: null,
             notes: null,
@@ -962,14 +1075,20 @@ async function main() {
   //                          (overrides TWILIO_SMS_NUMBERS env var)
   //   default_voice_number – number used as "from" for demo simulation calls
   //                          (overrides TWILIO_DEFAULT_VOICE_NUMBER env var)
+  //   demo_caller_number   – Twilio number used for Option A demo calls
+
+  const ADMIN_CONFIG_ALLOWED_KEYS = new Set(["sms_numbers", "default_voice_number", "demo_caller_number"]);
 
   app.get("/api/admin/config", adminGuard, (_req, res) => {
-    const rows = listSystemConfig(db);
+    const rows = listSystemConfig(db).filter(c => !c.key.startsWith("pw_reset:"));
     res.json({ config: rows });
   });
 
   app.put("/api/admin/config/:key", adminGuard, (req, res) => {
     const { key } = req.params;
+    if (!ADMIN_CONFIG_ALLOWED_KEYS.has(key)) {
+      return res.status(400).json({ error: `Unknown config key "${key}". Allowed: ${[...ADMIN_CONFIG_ALLOWED_KEYS].join(", ")}` });
+    }
     const { value } = req.body ?? {};
     if (typeof value !== "string" || !value.trim()) {
       return res.status(400).json({ error: "value is required and must be a non-empty string" });
@@ -998,21 +1117,29 @@ async function main() {
   app.get("/admin/login", (req, res) => {
     if (!env.ADMIN_TOKEN) return res.redirect("/admin");
     const cookies = parseCookies(req);
-    if (cookies.admin_session === env.ADMIN_TOKEN) return res.redirect("/admin");
+    const st = cookies.admin_session;
+    if (st && adminSessions.has(st) && adminSessions.get(st)! > Date.now()) return res.redirect("/admin");
     res.send(adminLoginPage());
   });
 
   app.post("/admin/login", express.urlencoded({ extended: false }), rateLimit({ maxRequests: 5, windowMs: 60_000, message: "Too many login attempts. Please wait a minute." }), (req, res) => {
     const { token } = req.body ?? {};
-    if (!env.ADMIN_TOKEN || token === env.ADMIN_TOKEN) {
-      res.setHeader("Set-Cookie", `admin_session=${env.ADMIN_TOKEN ?? "open"}; HttpOnly; Path=/admin; SameSite=Strict; Max-Age=86400`);
+    if (!env.ADMIN_TOKEN) {
+      return res.send(adminLoginPage("Admin access is not configured. Set the ADMIN_TOKEN environment variable."));
+    }
+    if (typeof token === "string" && token && safeTokenCompare(token, env.ADMIN_TOKEN)) {
+      const sessionToken = crypto.randomUUID();
+      adminSessions.set(sessionToken, Date.now() + ADMIN_SESSION_TTL_MS);
+      res.setHeader("Set-Cookie", `admin_session=${sessionToken}; HttpOnly; Secure; Path=/admin; SameSite=Strict; Max-Age=86400`);
       return res.redirect("/admin");
     }
     res.send(adminLoginPage("Invalid token — try again."));
   });
 
-  app.get("/admin/logout", (req, res) => {
-    res.setHeader("Set-Cookie", "admin_session=; HttpOnly; Path=/admin; SameSite=Strict; Max-Age=0");
+  app.post("/admin/logout", (req, res) => {
+    const cookies = parseCookies(req);
+    if (cookies.admin_session) adminSessions.delete(cookies.admin_session);
+    res.setHeader("Set-Cookie", "admin_session=; HttpOnly; Secure; Path=/admin; SameSite=Strict; Max-Age=0");
     res.redirect("/admin/login");
   });
 
@@ -1102,12 +1229,12 @@ async function main() {
       await client.messages.create({ from: smsFrom, to: updated.owner_phone, body: smsBody });
       log.info({ tenantId: req.params.id, number: newNumber }, "provision-number SMS sent");
       res.redirect(
-        `/admin/users/${req.params.id}?flash=✓ Number ${formatAuPhone(newNumber)} assigned & setup SMS sent to ${updated.owner_phone}`
+        `/admin/users/${req.params.id}?flash=✓ Number ${formatAuPhone(newNumber)} assigned & setup SMS sent to ${formatAuPhone(updated.owner_phone)}`
       );
     } catch (err: any) {
       log.error({ err }, "provision-number SMS failed");
       res.redirect(
-        `/admin/users/${req.params.id}?flash=⚠ Number assigned but SMS failed: ${err.message}`
+        `/admin/users/${req.params.id}?flash=⚠ Number assigned but SMS notification failed. Check server logs for details.`
       );
     }
   });
@@ -1117,7 +1244,7 @@ async function main() {
     const tenant = getTenantById(db, req.params.id);
     if (!tenant) return res.status(404).send("User not found");
     const tempPw = generateTempPassword();
-    updateTenant(db, req.params.id, { password: tempPw });
+    updateTenant(db, req.params.id, { password: tempPw, session_token: null } as any);
     try {
       const twilioClient = (await import("twilio")).default;
       const client = twilioClient(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);
@@ -1127,10 +1254,10 @@ async function main() {
         to: tenant.owner_phone,
         body: `PickupAI: Your temporary password is: ${tempPw}\nLogin at ${env.PUBLIC_BASE_URL}/dashboard/login`
       });
-      res.redirect(`/admin/users/${req.params.id}?flash=✓ Temp password sent by SMS to ${tenant.owner_phone}`);
+      res.redirect(`/admin/users/${req.params.id}?flash=✓ Temp password sent by SMS to ${formatAuPhone(tenant.owner_phone)}`);
     } catch (err: any) {
       log.error({ err }, "admin reset-password SMS failed");
-      res.redirect(`/admin/users/${req.params.id}?flash=⚠ Password reset in DB but SMS failed: ${err.message}`);
+      res.redirect(`/admin/users/${req.params.id}?flash=⚠ Password reset in DB but SMS notification failed. Check server logs for details.`);
     }
   });
 
@@ -1159,7 +1286,7 @@ async function main() {
     const header = "Date,Caller Name,Phone,Address,Issue Type,Issue Summary,Urgency,Status\n";
     const rows = leads.map(l =>
       [l.created_at, l.name, l.phone, l.address, l.issue_type, l.issue_summary, l.urgency_level, l.lead_status]
-        .map(v => `"${String(v ?? "").replace(/"/g, '""')}"`)
+        .map(v => `"${csvSafe(String(v ?? "")).replace(/"/g, '""')}"`)
         .join(",")
     ).join("\n");
     res.setHeader("Content-Type", "text/csv");
@@ -1301,8 +1428,8 @@ async function main() {
     const p = getProspectById(db, req.params.id);
     if (!p) return res.redirect("/admin/prospects?flash=⚠ Prospect not found");
     const flash = req.query.flash as string | undefined;
-    const log = listOutreachForProspect(db, p.prospect_id);
-    res.send(adminProspectDetailPage(p, log, flash));
+    const outreachLog = listOutreachForProspect(db, p.prospect_id);
+    res.send(adminProspectDetailPage(p, outreachLog, flash));
   });
 
   app.post("/admin/prospects/:id", adminHtmlAuth, express.urlencoded({ extended: false }), (req, res) => {
@@ -1342,7 +1469,7 @@ async function main() {
   // ── Admin Config ────────────────────────────────────────────────────────
 
   app.get("/admin/config", adminHtmlAuth, (req, res) => {
-    const configs = listSystemConfig(db);
+    const configs = listSystemConfig(db).filter(c => !c.key.startsWith("pw_reset:"));
     const flash = (req.query.flash as string | undefined) ?? undefined;
     res.send(adminConfigPage(configs, flash));
   });
@@ -1351,8 +1478,11 @@ async function main() {
     const key = req.params.key === "__new__" ? req.body?.key?.trim() : req.params.key;
     const value = req.body?.value?.trim();
     if (!key || !value) return res.redirect("/admin/config?flash=⚠ Key and value are required");
+    if (!ADMIN_CONFIG_ALLOWED_KEYS.has(key)) {
+      return res.redirect(`/admin/config?flash=${encodeURIComponent(`⚠ Unknown config key "${key}". Allowed: ${[...ADMIN_CONFIG_ALLOWED_KEYS].join(", ")}`)}`);
+    }
     setSystemConfig(db, key, value);
-    res.redirect(`/admin/config?flash=✓ Config "${key}" updated`);
+    res.redirect(`/admin/config?flash=${encodeURIComponent(`✓ Config "${key}" updated`)}`);
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1361,7 +1491,11 @@ async function main() {
 
   app.get("/dashboard/login", (req, res) => {
     const cookies = parseCookies(req);
-    if (cookies.dash_session && getTenantBySessionToken(db, cookies.dash_session)) {
+    const existing = cookies.dash_session ? getTenantBySessionToken(db, cookies.dash_session) : null;
+    if (existing) {
+      if (existing.payment_status === "pending" || existing.twilio_number.startsWith("+PENDING")) {
+        return res.redirect("/dashboard/welcome");
+      }
       return res.redirect("/dashboard/leads");
     }
     const flash = typeof req.query.flash === "string" ? req.query.flash : undefined;
@@ -1376,12 +1510,12 @@ async function main() {
       return res.send(loginPage("Invalid email or password."));
     }
     setSessionCookie(res, tenant.session_token);
-    // Send unset-up users to welcome/demo page first
-    const destination = isPendingNumber(tenant.twilio_number) ? "/dashboard/welcome" : "/dashboard/leads";
+    const destination = (isPendingNumber(tenant.twilio_number) || tenant.payment_status === "pending")
+      ? "/dashboard/welcome" : "/dashboard/leads";
     res.redirect(destination);
   });
 
-  app.get("/dashboard/logout", (req, res) => {
+  app.post("/dashboard/logout", express.urlencoded({ extended: false }), (req, res) => {
     const cookies = parseCookies(req);
     const token = cookies.dash_session;
     if (token) {
@@ -1428,7 +1562,7 @@ async function main() {
   app.get("/dashboard/reset-password", (req, res) => {
     const email = typeof req.query.email === "string" ? req.query.email : "";
     const flash = typeof req.query.flash === "string" ? req.query.flash : undefined;
-    res.send(resetPasswordPage(email, flash));
+    res.send(resetPasswordPage(email, flash, "success"));
   });
 
   app.post(
@@ -1455,7 +1589,7 @@ async function main() {
       if (!valid) {
         return res.send(resetPasswordPage(email, "Invalid or expired code. Please request a new one."));
       }
-      updateTenant(db, tenant.tenant_id, { password: password as string });
+      updateTenant(db, tenant.tenant_id, { password: password as string, session_token: null });
       trackEvent("password_reset_completed", { tenant_id: tenant.tenant_id });
       res.redirect("/dashboard/login?flash=" + encodeURIComponent("✓ Password updated. Please sign in with your new password."));
     }
@@ -1463,15 +1597,19 @@ async function main() {
 
   app.get("/dashboard/signup", (req, res) => {
     const cookies = parseCookies(req);
-    if (cookies.dash_session && getTenantBySessionToken(db, cookies.dash_session)) {
+    const existing = cookies.dash_session ? getTenantBySessionToken(db, cookies.dash_session) : null;
+    if (existing) {
+      if (existing.payment_status === "pending" || existing.twilio_number.startsWith("+PENDING")) {
+        return res.redirect("/dashboard/welcome");
+      }
       return res.redirect("/dashboard/leads");
     }
     res.send(signupPage());
   });
 
   app.post("/dashboard/signup", express.urlencoded({ extended: false }), rateLimit({ maxRequests: 5, windowMs: 60_000, message: "Too many signup attempts. Please wait a minute." }), async (req, res) => {
-    const { name, trade_type, ai_name, owner_phone, email, password } = req.body ?? {};
-    const prefill = { name, trade_type, ai_name, owner_phone, email };
+    const { name, trade_type, ai_name, owner_phone, email, password, service_area } = req.body ?? {};
+    const prefill = { name, trade_type, ai_name, owner_phone, email, service_area };
 
     if (!name || !trade_type || !owner_phone || !email || !password) {
       trackEvent("signup_validation_failed", { payload: { reason: "missing_required_fields" } });
@@ -1490,6 +1628,16 @@ async function main() {
       trackEvent("signup_validation_failed", { payload: { reason: "invalid_email" } });
       return res.send(signupPage("Please enter a valid email address.", prefill));
     }
+    const VALID_TRADE_TYPES = new Set(["plumber","electrician","roofer","handyman","painter","carpenter","tiler","builder","other"]);
+    if (!VALID_TRADE_TYPES.has(trade_type)) {
+      trackEvent("signup_validation_failed", { payload: { reason: "invalid_trade_type" } });
+      return res.send(signupPage("Please select a valid trade type.", prefill));
+    }
+    const phoneClean = (owner_phone as string).replace(/[\s\-()]/g, "");
+    if (!/^(\+?61\d{9}|0[2-9]\d{8})$/.test(phoneClean)) {
+      trackEvent("signup_validation_failed", { payload: { reason: "invalid_phone" } });
+      return res.send(signupPage("Please enter a valid Australian phone number (e.g. 0412345678 or +61412345678).", prefill));
+    }
 
     // Check if email already in use
     const existing = listTenants(db).find(t => t.owner_email?.toLowerCase() === (email as string).toLowerCase());
@@ -1498,19 +1646,48 @@ async function main() {
       return res.send(signupPage("An account with that email already exists. Please sign in.", prefill));
     }
 
-    const pendingNumber = `+PENDING_${Math.floor(100000 + Math.random() * 900000)}`;
+    // Auto-provision a Twilio AU number; fall back to PENDING if purchase fails
+    let twilioNumber: string;
+    try {
+      const { twilioClient } = await import("./twilio/client.js");
+      // Search for an available AU mobile number, fall back to local
+      const mobileNumbers = await twilioClient.availablePhoneNumbers("AU").mobile.list({ limit: 1 });
+      let chosenNumber: string | null = mobileNumbers[0]?.phoneNumber ?? null;
+      if (!chosenNumber) {
+        const localNumbers = await twilioClient.availablePhoneNumbers("AU").local.list({ limit: 1 });
+        chosenNumber = localNumbers[0]?.phoneNumber ?? null;
+      }
+      if (!chosenNumber) throw new Error("No AU numbers available in Twilio inventory");
+
+      const purchased = await twilioClient.incomingPhoneNumbers.create({
+        phoneNumber: chosenNumber,
+        voiceUrl: `${env.PUBLIC_BASE_URL}/twilio/voice/incoming`,
+        voiceMethod: "POST",
+        statusCallback: `${env.PUBLIC_BASE_URL}/twilio/voice/status`,
+        statusCallbackMethod: "POST",
+        friendlyName: `PickupAI – ${name}`,
+      });
+      twilioNumber = purchased.phoneNumber;
+      log.info({ number: twilioNumber, tenantName: name }, "Auto-provisioned Twilio number for new signup");
+    } catch (provisionErr: any) {
+      twilioNumber = `+PENDING_${Math.floor(100000 + Math.random() * 900000)}`;
+      log.warn({ err: provisionErr }, "Auto-provision failed — falling back to PENDING number");
+    }
+
+    const serviceArea = (req.body.service_area as string)?.trim() || null;
     const tenant = createTenant(db, {
       name: name as string,
       trade_type: trade_type as string,
       ai_name: ai_name || "Olivia",
-      twilio_number: pendingNumber,
+      twilio_number: twilioNumber,
       owner_phone: owner_phone as string,
       owner_email: email as string,
       password: password as string,
+      service_area: serviceArea ?? undefined,
     });
     trackEvent("signup_completed", {
       tenant_id: tenant.tenant_id,
-      payload: { trade_type, hasStripeConfig: !!env.STRIPE_SECRET_KEY && !!env.STRIPE_PRICE_ID }
+      payload: { trade_type, autoProvisioned: !twilioNumber.startsWith("+PENDING"), hasStripeConfig: !!env.STRIPE_SECRET_KEY && !!env.STRIPE_PRICE_ID }
     });
 
     // Mark account as pending until Stripe checkout is completed.
@@ -1524,20 +1701,30 @@ async function main() {
       updateTenant(db, tenant.tenant_id, { payment_status: "trial", trial_ends_at: trialEndsAt });
     }
 
-    // Welcome SMS to new user
+    // Welcome SMS — tailor copy to provisioning state and Stripe status
+    const isProvisioned = !twilioNumber.startsWith("+PENDING");
+    const forwardingCode = isProvisioned
+      ? generateForwardingCode(twilioNumber)
+      : null;
     try {
-      const sms = await sendOwnerSms(db,
-        `Welcome to PickupAI, ${name}! Your 14-day free trial has started. Set up your demo at: ${env.PUBLIC_BASE_URL}/dashboard/welcome`,
-        owner_phone as string
-      );
+      let welcomeBody: string;
+      if (stripeReady) {
+        welcomeBody = `Welcome to PickupAI, ${name}! Complete your signup to activate your AI receptionist: ${env.PUBLIC_BASE_URL}/dashboard/welcome`;
+      } else if (isProvisioned) {
+        welcomeBody = `Welcome to PickupAI, ${name}! Your AI receptionist number is ready: ${formatAuPhone(twilioNumber)}\n\nTo activate, open your phone dialler and type:\n${forwardingCode}\nThen press Call. That's it - you're live!\n\nNeed help? Reply to this text.`;
+      } else {
+        welcomeBody = `Welcome to PickupAI, ${name}! Your 14-day free trial has started. We're setting up your number - you'll get an SMS with your activation code shortly.\n\nIn the meantime, try the demo: ${env.PUBLIC_BASE_URL}/dashboard/welcome`;
+      }
+      const sms = await sendOwnerSms(db, welcomeBody, owner_phone as string);
       if (sms.status === "skipped") log.warn({ reason: sms.reason }, "Welcome SMS skipped");
     } catch (e) { log.warn({ e }, "Welcome SMS failed"); }
 
     // Notify founder of new signup
     if (env.OWNER_PHONE_NUMBER) {
       try {
+        const signupLabel = stripeReady ? "New signup (payment pending)" : "New trial signup";
         const sms = await sendOwnerSms(db,
-          `PickupAI: New trial signup — ${name} (${trade_type}, ${owner_phone}). Admin: ${env.PUBLIC_BASE_URL}/admin/users/${tenant.tenant_id}`
+          `PickupAI: ${signupLabel} - ${name} (${trade_type}, ${formatAuPhone(owner_phone as string)}). Admin: ${env.PUBLIC_BASE_URL}/admin/users/${tenant.tenant_id}`
         );
         if (sms.status === "skipped") log.warn({ reason: sms.reason }, "Founder signup notification SMS skipped");
       } catch (e) { log.warn({ e }, "Founder signup notification SMS failed"); }
@@ -1548,18 +1735,19 @@ async function main() {
       setSessionCookie(res, loggedIn.session_token);
     }
 
-    // If Stripe is configured, send user straight to checkout to collect card.
-    // Checkout session creation is reused from the /dashboard/create-checkout-session
-    // route by redirecting internally.
+    // If Stripe is configured, render an auto-submitting form that POSTs to checkout.
+    // Using POST instead of GET prevents CSRF via link prefetch / image tags.
     if (stripeReady) {
-      return res.redirect("/dashboard/create-checkout-session-get");
+      return res.send(`<!DOCTYPE html><html><head><title>Redirecting to checkout…</title></head>
+        <body><p>Redirecting to checkout…</p>
+        <form id="f" method="POST" action="/dashboard/create-checkout-session"></form>
+        <script>document.getElementById("f").submit();</script></body></html>`);
     }
     res.redirect("/dashboard/welcome");
   });
 
-  app.get("/dashboard/setup-guide", dashAuth, (req, res) => {
-    const tenant: TenantRow = (req as any).dashTenant;
-    res.send(setupGuidePage(tenant));
+  app.get("/dashboard/setup-guide", dashAuth, (_req, res) => {
+    res.redirect("/dashboard/welcome");
   });
 
   // ── Welcome / demo routes ─────────────────────────────────────────────────
@@ -1572,7 +1760,6 @@ async function main() {
     const session = poolNumbers.length ? getActiveDemoSession(db, tenant.tenant_id) : null;
     res.send(welcomePage(tenant, {
       demoNumber: session?.demo_number ?? null,
-      demoExpiresAt: session?.expires_at ?? null,
     }));
   });
 
@@ -1615,7 +1802,6 @@ async function main() {
     const session = getActiveDemoSession(db, tenant.tenant_id);
     res.send(welcomePage(tenant, {
       demoNumber: claimed,
-      demoExpiresAt: session?.expires_at ?? null,
     }));
   });
 
@@ -1686,7 +1872,7 @@ async function main() {
       return res.send(welcomePage(tenant, { error: "Could not place the demo call. Please try again or call the number yourself." }));
     }
 
-    // Respond without demoNumber/demoExpiresAt — Option A doesn't occupy a slot
+    // Respond without demoNumber — Option A doesn't occupy a slot
     res.send(welcomePage(tenant, { simulationStarted: true }));
   });
 
@@ -1712,9 +1898,20 @@ async function main() {
 
   // Proxy Twilio recording audio — Twilio requires HTTP Basic Auth which browsers can't supply.
   app.get("/dashboard/recording-proxy", dashAuth, async (req, res) => {
+    const tenant: TenantRow = (req as any).dashTenant;
     const rawUrl = typeof req.query.url === "string" ? req.query.url : "";
-    if (!rawUrl.startsWith("https://api.twilio.com/")) {
+    if (
+      !rawUrl.startsWith("https://api.twilio.com/") ||
+      !rawUrl.includes(`/Accounts/${env.TWILIO_ACCOUNT_SID}/`)
+    ) {
       return res.status(400).send("Invalid recording URL");
+    }
+    const ownsRecording = db.get<{ call_id: string }>(
+      `SELECT call_id FROM calls WHERE recording_url = ? AND tenant_id = ?`,
+      [rawUrl, tenant.tenant_id]
+    );
+    if (!ownsRecording) {
+      return res.status(403).send("Access denied");
     }
     try {
       const creds = Buffer.from(`${env.TWILIO_ACCOUNT_SID}:${env.TWILIO_AUTH_TOKEN}`).toString("base64");
@@ -1779,11 +1976,11 @@ async function main() {
   const DEFAULT_DEMO_SCRIPT =
     "Hi, I need some help with a job at my property. Can you take my details and have someone call me back?";
 
-  app.post("/twilio/demo/caller-script", (req, res) => {
+  app.post("/twilio/demo/caller-script", twilioVerify, (req, res) => {
     const tradeType = typeof req.query.trade_type === "string" ? req.query.trade_type : "";
-    const businessName = typeof req.query.business_name === "string" ? req.query.business_name : "";
+    const rawName = typeof req.query.business_name === "string" ? req.query.business_name : "";
+    const businessName = rawName.replace(/[<>&"']/g, "");
     const script = DEMO_CALLER_SCRIPTS[tradeType] ?? DEFAULT_DEMO_SCRIPT;
-    // Personalise greeting if the AI answers with the business name
     const closing = businessName
       ? `Thanks, I'll wait to hear back from ${businessName}. Bye.`
       : "That sounds great, thanks.";
@@ -1801,7 +1998,8 @@ async function main() {
 
   app.get("/dashboard", dashAuth, (req, res) => {
     const tenant: TenantRow = (req as any).dashTenant;
-    const destination = isPendingNumber(tenant.twilio_number) ? "/dashboard/welcome" : "/dashboard/leads";
+    const destination = (isPendingNumber(tenant.twilio_number) || tenant.payment_status === "pending")
+      ? "/dashboard/welcome" : "/dashboard/leads";
     res.redirect(destination);
   });
 
@@ -1813,8 +2011,7 @@ async function main() {
   });
 
   // Stripe Checkout — create session and redirect to Stripe's hosted page
-  // POST version: used from the upgrade page button
-  // GET version:  used by the signup flow redirect (after account creation)
+  // Used from the upgrade page button and the signup flow auto-submit form
   const createStripeCheckoutSession = async (req: Request, res: Response) => {
     const tenant: TenantRow = (req as any).dashTenant;
     const stripe = getStripe();
@@ -1845,8 +2042,7 @@ async function main() {
     }
   };
 
-  app.post("/dashboard/create-checkout-session", dashAuth, createStripeCheckoutSession);
-  app.get("/dashboard/create-checkout-session-get", dashAuth, createStripeCheckoutSession);
+  app.post("/dashboard/create-checkout-session", dashAuth, rateLimit({ maxRequests: 5, windowMs: 5 * 60_000, message: "Too many checkout requests. Please wait a few minutes." }), createStripeCheckoutSession);
 
   // Stripe success redirect — card collected, 14-day trial has begun
   app.get("/dashboard/stripe-success", dashAuth, async (req, res) => {
@@ -1862,13 +2058,27 @@ async function main() {
         return res.redirect("/dashboard/welcome");
       }
       if (session.status === "complete" || session.payment_status === "paid" || session.payment_status === "no_payment_required") {
-        const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
-        updateTenant(db, tenant.tenant_id, {
-          payment_status: "trial",
-          trial_ends_at: trialEndsAt,
-          stripe_customer_id: session.customer as string
-        });
-        log.info({ tenantId: tenant.tenant_id }, "Stripe checkout complete — 14-day trial started");
+        if (tenant.payment_status === "pending") {
+          const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+          updateTenant(db, tenant.tenant_id, {
+            payment_status: "trial",
+            trial_ends_at: trialEndsAt,
+            stripe_customer_id: session.customer as string
+          });
+          log.info({ tenantId: tenant.tenant_id }, "Stripe checkout complete — 14-day trial started");
+
+          const isProvisioned = !tenant.twilio_number.startsWith("+PENDING");
+          const fwdCode = isProvisioned ? generateForwardingCode(tenant.twilio_number) : null;
+          try {
+            const body = isProvisioned
+              ? `Your 14-day free trial has started, ${tenant.name}! Your AI receptionist number: ${formatAuPhone(tenant.twilio_number)}\n\nTo activate, open your phone dialler and type:\n${fwdCode}\nThen press Call. That's it - you're live!\n\nNeed help? Reply to this text.`
+              : `Your 14-day free trial has started, ${tenant.name}! We're setting up your number - you'll get an SMS with your activation code shortly.\n\nIn the meantime, try the demo: ${env.PUBLIC_BASE_URL}/dashboard/welcome`;
+            const sms = await sendOwnerSms(db, body, tenant.owner_phone);
+            if (sms.status === "skipped") log.warn({ reason: sms.reason }, "Post-checkout welcome SMS skipped");
+          } catch (e) { log.warn({ e }, "Post-checkout welcome SMS failed"); }
+        } else {
+          log.info({ tenantId: tenant.tenant_id, currentStatus: tenant.payment_status }, "stripe-success: tenant not pending — skipping (idempotent)");
+        }
       }
     } catch (err: any) {
       log.error({ err }, "Stripe session retrieval failed");
@@ -1908,6 +2118,14 @@ async function main() {
     if (!b.name || !b.owner_phone) {
       return res.send(settingsPage(tenant, "Business name and phone are required."));
     }
+    const settingsPhoneClean = (b.owner_phone as string).replace(/[\s\-()]/g, "");
+    if (!/^(\+?61\d{9}|0[2-9]\d{8})$/.test(settingsPhoneClean)) {
+      return res.send(settingsPage(tenant, "Please enter a valid Australian phone number (e.g. 0412345678 or +61412345678)."));
+    }
+    const SETTINGS_VALID_TRADES = new Set(["plumber","electrician","roofer","handyman","painter","carpenter","tiler","builder","other"]);
+    if (b.trade_type && !SETTINGS_VALID_TRADES.has(b.trade_type)) {
+      return res.send(settingsPage(tenant, "Please select a valid trade type."));
+    }
     updateTenant(db, tenant.tenant_id, {
       name: b.name,
       trade_type: b.trade_type || tenant.trade_type,
@@ -1915,6 +2133,7 @@ async function main() {
       owner_phone: b.owner_phone,
       service_area: b.service_area || null,
       custom_instructions: b.custom_instructions || null,
+      enable_warm_transfer: b.enable_warm_transfer ? 1 : 0,
       vacation_mode: b.vacation_mode ? 1 : 0,
       vacation_message: b.vacation_message || null,
       business_hours_start: b.business_hours_start || tenant.business_hours_start,
@@ -1930,8 +2149,42 @@ async function main() {
     const leads = listLeadsForTenant(db, tenant.tenant_id, { urgency, status, limit: 10000 });
     const csv = leadsToCSV(leads);
     res.setHeader("Content-Type", "text/csv");
-    res.setHeader("Content-Disposition", `attachment; filename="leads-${Date.now()}.csv"`);
+    res.setHeader("Content-Disposition", `attachment; filename="jobs-${Date.now()}.csv"`);
     res.send(csv);
+  });
+
+  app.get("/dashboard/stats", dashAuth, trialGuard, (req, res) => {
+    const tenant: TenantRow = (req as any).dashTenant;
+    const now = new Date();
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const monthAgo = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+
+    const callsThisWeek = db.get<{ c: number }>(
+      "SELECT COUNT(*) as c FROM calls WHERE tenant_id = ? AND started_at >= ?", [tenant.tenant_id, weekAgo]
+    )?.c ?? 0;
+    const callsThisMonth = db.get<{ c: number }>(
+      "SELECT COUNT(*) as c FROM calls WHERE tenant_id = ? AND started_at >= ?", [tenant.tenant_id, monthAgo]
+    )?.c ?? 0;
+    const leadsThisWeek = db.get<{ c: number }>(
+      "SELECT COUNT(*) as c FROM leads WHERE tenant_id = ? AND created_at >= ?", [tenant.tenant_id, weekAgo]
+    )?.c ?? 0;
+    const leadsThisMonth = db.get<{ c: number }>(
+      "SELECT COUNT(*) as c FROM leads WHERE tenant_id = ? AND created_at >= ?", [tenant.tenant_id, monthAgo]
+    )?.c ?? 0;
+    const totalCalls = db.get<{ c: number }>(
+      "SELECT COUNT(*) as c FROM calls WHERE tenant_id = ?", [tenant.tenant_id]
+    )?.c ?? 0;
+    const totalLeads = db.get<{ c: number }>(
+      "SELECT COUNT(*) as c FROM leads WHERE tenant_id = ?", [tenant.tenant_id]
+    )?.c ?? 0;
+    const totalJobValue = db.get<{ s: number | null }>(
+      "SELECT SUM(job_value) as s FROM leads WHERE tenant_id = ? AND job_value IS NOT NULL", [tenant.tenant_id]
+    )?.s ?? 0;
+
+    res.send(statsPage(tenant, {
+      callsThisWeek, callsThisMonth, leadsThisWeek, leadsThisMonth,
+      totalCalls, totalLeads, totalJobValue
+    }));
   });
 
   app.get("/dashboard/leads", dashAuth, trialGuard, (req, res) => {
@@ -1947,10 +2200,10 @@ async function main() {
   app.get("/dashboard/leads/:id", dashAuth, trialGuard, (req, res) => {
     const tenant: TenantRow = (req as any).dashTenant;
     const lead = getLeadWithCall(db, req.params.id, tenant.tenant_id);
-    if (!lead) return res.status(404).send("Lead not found");
+    if (!lead) return res.status(404).send("Job not found");
     const flash = typeof req.query.flash === "string" ? req.query.flash : undefined;
 
-    // Check for duplicate leads from the same caller in the last 7 days
+    // Check for duplicate jobs from the same caller in the last 7 days
     let duplicateWarning: string | undefined;
     const callerPhone = lead.phone || lead.from_number;
     if (callerPhone) {
@@ -1963,7 +2216,7 @@ async function main() {
          new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()]
       );
       if (dupes.length > 0) {
-        duplicateWarning = `This caller has ${dupes.length} other lead(s) in the past 7 days. <a href="/dashboard/leads?search=${encodeURIComponent(callerPhone)}">View all →</a>`;
+        duplicateWarning = `This caller has ${dupes.length} other job(s) in the past 7 days. <a href="/dashboard/leads?search=${encodeURIComponent(callerPhone)}">View all →</a>`;
       }
     }
 
@@ -1975,7 +2228,7 @@ async function main() {
     (req, res) => {
       const tenant: TenantRow = (req as any).dashTenant;
       const lead = getLeadWithCall(db, req.params.id, tenant.tenant_id);
-      if (!lead) return res.status(404).send("Lead not found");
+      if (!lead) return res.status(404).send("Job not found");
       const newStatus = req.body?.status;
       const allowed = ["new", "handled", "booked", "called_back"];
       if (!allowed.includes(newStatus)) return res.status(400).send("Invalid status");
@@ -1990,10 +2243,10 @@ async function main() {
     (req, res) => {
       const tenant: TenantRow = (req as any).dashTenant;
       const lead = getLeadWithCall(db, req.params.id, tenant.tenant_id);
-      if (!lead) return res.status(404).send("Lead not found");
+      if (!lead) return res.status(404).send("Job not found");
       const rawValue = req.body?.job_value;
       const jobValue = rawValue ? parseFloat(rawValue) : null;
-      if (jobValue !== null && (isNaN(jobValue) || jobValue < 0)) {
+      if (jobValue !== null && (!Number.isFinite(jobValue) || jobValue < 0)) {
         return res.redirect(`/dashboard/leads/${req.params.id}?flash=Invalid+job+value`);
       }
       db.run("UPDATE leads SET job_value = ? WHERE lead_id = ? AND tenant_id = ?", [jobValue, req.params.id, tenant.tenant_id]);
@@ -2036,6 +2289,71 @@ async function main() {
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // Onboarding nudge SMS scheduler
+  // Sends reminders to tenants who signed up but haven't activated call forwarding.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const HOUR = 60 * 60 * 1000;
+  const DAY = 24 * HOUR;
+
+  const nudgeMessages = [
+    {
+      minAge: 1 * HOUR,
+      maxAge: 2 * HOUR,
+      configKey: "nudge_1h",
+      message: (t: TenantRow) => {
+        const code = !t.twilio_number.startsWith("+PENDING")
+          ? `\n\nJust dial this from your phone:\n${generateForwardingCode(t.twilio_number)}\nThen press Call.`
+          : "";
+        return `Hey ${t.name} - did you get a chance to set up call forwarding?${code}\n\nOnce it's on, every missed call gets answered automatically and you'll get a text with the details. Takes 2 minutes!\n\nQuestions? Just reply to this text.`;
+      }
+    },
+    {
+      minAge: 1 * DAY,
+      maxAge: 1.5 * DAY,
+      configKey: "nudge_24h",
+      message: (t: TenantRow) =>
+        `Your AI receptionist is ready and waiting, ${t.name}! You're 2 minutes away from never missing a call again.\n\nSet up guide: ${env.PUBLIC_BASE_URL}/dashboard/welcome\n\nNeed a hand? Reply here or call us.`
+    },
+    {
+      minAge: 3 * DAY,
+      maxAge: 3.5 * DAY,
+      configKey: "nudge_72h",
+      message: (t: TenantRow) =>
+        `Hi ${t.name} - you've been on your free trial for 3 days but your AI receptionist isn't active yet. Every missed call is a potential job lost!\n\nWant us to help you set it up? Just reply "HELP" and we'll sort it out for you.`
+    }
+  ];
+
+  async function runOnboardingNudges() {
+    for (const nudge of nudgeMessages) {
+      try {
+        const tenants = getTenantsNeedingNudge(db, nudge.minAge, nudge.maxAge);
+        for (const t of tenants) {
+          const sentKey = `${nudge.configKey}:${t.tenant_id}`;
+          if (getSystemConfig(db, sentKey)) continue;
+          try {
+            const smsResult = await sendOwnerSms(db, nudge.message(t), t.owner_phone);
+            if (smsResult.status === "sent") {
+              setSystemConfig(db, sentKey, new Date().toISOString());
+              trackEvent("onboarding_nudge_sent", { tenant_id: t.tenant_id, payload: { nudge: nudge.configKey } });
+              log.info({ tenantId: t.tenant_id, nudge: nudge.configKey }, "Onboarding nudge SMS sent");
+            } else {
+              log.warn({ tenantId: t.tenant_id, nudge: nudge.configKey, reason: smsResult.reason }, "Onboarding nudge SMS skipped — will retry");
+            }
+          } catch (e) {
+            log.warn({ e, tenantId: t.tenant_id }, "Onboarding nudge SMS failed");
+          }
+        }
+      } catch (e) {
+        log.warn({ e }, "Onboarding nudge check failed");
+      }
+    }
+  }
+
+  setInterval(runOnboardingNudges, 30 * 60 * 1000).unref();
+  setTimeout(runOnboardingNudges, 60_000).unref();
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // HTTP server + WebSocket server (Twilio Media Streams)
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -2056,6 +2374,14 @@ async function main() {
         try { data = JSON.parse(msg); } catch { return; }
 
         if (data.event === "start") {
+          const streamToken = data.start?.customParameters?.streamToken ?? null;
+          if (!streamToken || !streamTokens.has(streamToken)) {
+            log.warn("media-stream connection rejected: invalid or missing stream token");
+            twilioWs.close();
+            return;
+          }
+          streamTokens.delete(streamToken);
+
           callSid =
             data.start?.customParameters?.callSid ??
             data.start?.callSid ??
@@ -2069,14 +2395,32 @@ async function main() {
 
           const state = getOrInitCallState(callSid);
           const fromNumber = state.lead.phone ?? null;
-          const tenantId = (state as any).tenantId ?? null;
-          const ownerPhone: string | undefined = (state as any).tenantOwnerPhone ?? undefined;
-          const ownerEmail: string | undefined = (state as any).tenantOwnerEmail ?? undefined;
-          const isDemo: boolean = (state as any).isDemo === true;
+          const tenantId = state.tenantId ?? null;
+          const ownerPhone: string | undefined = state.tenantOwnerPhone ?? undefined;
+          const ownerEmail: string | undefined = state.tenantOwnerEmail ?? undefined;
+          const isDemo: boolean = state.isDemo === true;
 
           // Resolve the tenant for this call
           const tenant: TenantRow =
             (tenantId ? getTenantById(db, tenantId) : null) ?? buildFallbackTenant();
+
+          if (!env.OPENAI_API_KEY) {
+            log.warn({ callSid }, "OPENAI_API_KEY not set — redirecting media-stream call to voicemail");
+            trackEvent("ai_unavailable_voicemail_redirect", {
+              tenant_id: tenant.tenant_id !== "default" ? tenant.tenant_id : null,
+              call_id: callSid,
+              level: "warn"
+            });
+            const recordingCallbackUrl = buildAbsoluteUrl("/twilio/voice/recording");
+            const twiml = voicemailFallbackTwiml(tenant.name, recordingCallbackUrl);
+            import("./twilio/client.js").then(({ twilioClient }) => {
+              twilioClient.calls(callSid!).update({ twiml }).catch((err: any) =>
+                log.error({ err, callSid }, "failed to redirect call to voicemail (no API key)")
+              );
+            });
+            twilioWs.close();
+            return;
+          }
 
           session = new RealtimeSession({
             twilioWs,
@@ -2110,8 +2454,9 @@ async function main() {
                   notes: s.lead.notes ?? null,
                   confidence: s.lead.confidence ?? null,
                   next_action: s.lead.next_action ?? null,
-                  job_value: null,
-                  lead_status: null
+                  property_type: s.lead.property_type ?? null,
+                  caller_sentiment: s.lead.caller_sentiment ?? null,
+                  job_value: s.lead.job_value ?? null
                 });
 
                 if (env.STORE_FULL_TRANSCRIPT) {
@@ -2128,6 +2473,30 @@ async function main() {
                   status: "completed",
                   ended_at: new Date().toISOString()
                 });
+
+                if (!getLatestLeadForCall(db, callSid!)) {
+                  upsertLead(db, {
+                    lead_id: callSid!,
+                    tenant_id: tenant.tenant_id !== "default" ? tenant.tenant_id : null,
+                    call_id: callSid!,
+                    name: s.lead.name ?? null,
+                    phone: s.lead.phone ?? fromNumber ?? null,
+                    address: null,
+                    issue_type: null,
+                    issue_summary: "Call ended without details - check recording",
+                    urgency_level: null,
+                    preferred_time: null,
+                    notes: null,
+                    confidence: null,
+                    next_action: null,
+                    job_value: null,
+                    property_type: null,
+                    caller_sentiment: null,
+                    lead_status: "new"
+                  });
+                  log.info({ callSid }, "created fallback lead — save_lead was never called");
+                }
+
                 notifyOwnerSmsIfNeeded(callSid!, s.callerIntent, ownerPhone, ownerEmail).catch((err) =>
                   log.warn({ err }, "owner sms on end_call failed")
                 );
@@ -2138,14 +2507,24 @@ async function main() {
                 const shouldConfirmCaller = callerPhone
                   && callerPhone.trim()
                   && !callerPhone.startsWith("+PENDING_")
+                  && !isDemo
                   && s.callerIntent
                   && !NO_SMS_INTENTS.has(s.callerIntent);
                 if (shouldConfirmCaller && callerPhone) {
-                  sendOwnerSms(
-                    db,
-                    `Thanks for calling ${tenant.name}! We've received your enquiry and the team will be in touch shortly.`,
-                    callerPhone
-                  ).catch((err) => log.warn({ err }, "caller confirmation SMS failed"));
+                  const callerSmsBody = buildCallerConfirmationSms({
+                    businessName: tenant.name,
+                    callerName: s.lead.name,
+                    issueType: s.lead.issue_type,
+                    issueSummary: s.lead.issue_summary,
+                    urgencyLevel: s.lead.urgency_level,
+                    businessHoursStart: tenant.business_hours_start,
+                    businessHoursEnd: tenant.business_hours_end,
+                    timezone: tenant.timezone,
+                    vacationMode: !!tenant.vacation_mode,
+                    tradeType: tenant.trade_type
+                  });
+                  sendOwnerSms(db, callerSmsBody, callerPhone)
+                    .catch((err) => log.warn({ err }, "caller confirmation SMS failed"));
                 }
 
                 trackEvent("call_ended_ai_end_call", {
@@ -2174,6 +2553,22 @@ async function main() {
                   call_id: callSid!,
                   level: "error",
                   payload: { message: err?.message ?? String(err) }
+                });
+              },
+
+              onFallbackToVoicemail: () => {
+                log.warn({ callSid }, "AI unavailable — redirecting call to voicemail");
+                trackEvent("ai_failure_voicemail_redirect", {
+                  tenant_id: tenant.tenant_id !== "default" ? tenant.tenant_id : null,
+                  call_id: callSid!,
+                  level: "warn"
+                });
+                const recordingCallbackUrl = buildAbsoluteUrl("/twilio/voice/recording");
+                const twiml = voicemailFallbackTwiml(tenant.name, recordingCallbackUrl);
+                import("./twilio/client.js").then(({ twilioClient }) => {
+                  twilioClient.calls(callSid!).update({ twiml }).catch((err: any) =>
+                    log.error({ err, callSid }, "failed to redirect call to voicemail")
+                  );
                 });
               },
 
