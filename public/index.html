@@ -19,6 +19,8 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+    .skip-link { position: absolute; top: -100%; left: 0; padding: .75rem 1.5rem; background: var(--brand); color: #fff; z-index: 9999; text-decoration: none; font-weight: 600; border-radius: 0 0 8px 0; }
+    .skip-link:focus { top: 0; }
     a:focus-visible, button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; border-radius: 4px; }
     :root {
       --brand: #2563eb; --brand-dark: #1d4ed8; --brand-light: #eff6ff;
@@ -40,6 +42,8 @@
     .nav-logo { font-weight: 800; font-size: 1.2rem; color: var(--brand); }
     .nav-logo span { color: var(--gray-900); }
     .nav-spacer { flex: 1; }
+    .nav-login { color: var(--gray-600); font-size: .9rem; font-weight: 500; }
+    .nav-login:hover { color: var(--brand); }
     .nav-cta { background: var(--brand); color: #fff !important; padding: .45rem 1.1rem;
                border-radius: 8px; font-weight: 600; font-size: .9rem; }
     .nav-cta:hover { background: var(--brand-dark); }
@@ -243,7 +247,7 @@
   </style>
 </head>
 <body>
-<a href="#main-content" class="sr-only" style="position:absolute;top:0;left:0;padding:.75rem 1.5rem;background:var(--brand);color:#fff;z-index:9999;clip:auto;width:auto;height:auto;margin:0;" onfocus="this.style.clip='auto';this.style.width='auto';this.style.height='auto';this.style.margin='0'" onblur="this.className='sr-only'">Skip to main content</a>
+<a href="#main-content" class="skip-link">Skip to main content</a>
 
 <!-- Nav -->
 <nav>
@@ -254,6 +258,7 @@
     <a href="#demo">Hear it</a>
     <a href="#pricing">Pricing</a>
     <a href="#faq">FAQ</a>
+    <a href="/dashboard/login" class="nav-login">Log in</a>
     <a href="/dashboard/signup" class="nav-cta">Start free trial</a>
   </div>
 </nav>
