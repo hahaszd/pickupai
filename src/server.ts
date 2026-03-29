@@ -1751,7 +1751,6 @@ async function main() {
       demoAudioGenerating: audioGenerating,
       demoAudioError: audioError,
       hasDemoPool: poolNumbers.length > 0,
-      demoNumberExpiresAt: session?.expires_at ?? undefined,
     }));
   });
 
@@ -1802,7 +1801,6 @@ async function main() {
     res.send(welcomePage(tenant, {
       demoNumber: claimed,
       demoAudioReady: audioReady2, demoAudioGenerating: audioGen2, demoAudioError: audioErr2, hasDemoPool: hasPool2,
-      demoNumberExpiresAt: session?.expires_at ?? undefined,
     }));
   });
 
@@ -1875,12 +1873,9 @@ async function main() {
       }));
     }
 
-    const simSession = getActiveDemoSession(db, tenant.tenant_id);
     res.send(welcomePage(tenant, {
       simulationStarted: true,
-      demoNumber: simSession?.demo_number ?? null,
       demoAudioReady: audioReady3, demoAudioGenerating: audioGen3, demoAudioError: audioErr3, hasDemoPool: hasPool3,
-      demoNumberExpiresAt: simSession?.expires_at ?? undefined,
     }));
   });
 
