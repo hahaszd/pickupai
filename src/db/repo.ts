@@ -899,7 +899,7 @@ export function claimDemoNumber(
   if (!available) return null;
 
   const assignedAt = now;
-  const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minutes
   db.run(
     "INSERT INTO demo_sessions (demo_number, tenant_id, assigned_at, expires_at) VALUES (?, ?, ?, ?)",
     [available, tenantId, assignedAt, expiresAt]

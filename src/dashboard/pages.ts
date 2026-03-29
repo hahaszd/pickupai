@@ -241,8 +241,8 @@ export function signupPage(error?: string, prefill: Record<string, string> = {})
 <div style="max-width:480px;margin:3rem auto;">
   <div class="card">
     <div style="text-align:center;margin-bottom:1.75rem;">
-      <h2 style="font-size:1.3rem;margin-bottom:.35rem;">Start your free 14-day trial</h2>
-      <p style="font-size:.85rem;color:var(--gray-600);">14-day free trial. Credit card required, cancel anytime before day 14.</p>
+      <h2 style="font-size:1.3rem;margin-bottom:.35rem;">Try your AI receptionist free</h2>
+      <p style="font-size:.85rem;color:var(--gray-600);">See how your AI handles calls — no credit card needed to start.</p>
     </div>
     ${error ? `<div class="alert alert-error">${escape(error)}</div>` : ""}
     <form method="POST" action="/dashboard/signup">
@@ -288,7 +288,7 @@ export function signupPage(error?: string, prefill: Record<string, string> = {})
         </label>
       </div>
       <button type="submit" class="btn btn-primary" style="width:100%;margin-top:.5rem;padding:.65rem;">
-        Create account &amp; start trial →
+        Create account &amp; try demo →
       </button>
     </form>
     <p style="text-align:center;margin-top:1.25rem;font-size:.85rem;color:var(--gray-600);">
@@ -296,17 +296,20 @@ export function signupPage(error?: string, prefill: Record<string, string> = {})
     </p>
   </div>
 </div>`;
-  return shell("Start free trial", body);
+  return shell("Try it free", body);
 }
 
 // ─── Onboarding progress indicator ───────────────────────────────────────────
 
-function onboardingProgress(tenant: TenantRow): string {
+function onboardingProgress(tenant: TenantRow, opts?: { demoAudioReady?: boolean }): string {
+  const isDemo = tenant.payment_status === "demo";
+  const demoDone = !isDemo || !!opts?.demoAudioReady;
   const paymentDone = tenant.payment_status === "active" || tenant.payment_status === "trial";
   const numberDone = !tenant.twilio_number.startsWith("+PENDING");
 
   const steps = [
     { label: "Sign up", done: true },
+    { label: "Try demo", done: demoDone },
     { label: "Payment", done: paymentDone },
     { label: "Number ready", done: numberDone },
   ];
@@ -340,20 +343,170 @@ export type WelcomePageOpts = {
   error?: string;
   /** Whether a simulated demo call was just triggered */
   simulationStarted?: boolean;
+  /** Whether personalised demo audio is ready to play */
+  demoAudioReady?: boolean;
+  /** Whether demo audio is currently being generated */
+  demoAudioGenerating?: boolean;
+  /** Whether demo audio generation failed */
+  demoAudioError?: boolean;
+  /** Whether demo pool numbers are configured (controls Demo 2 visibility) */
+  hasDemoPool?: boolean;
 };
 
 export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
-  const { demoNumber, error, simulationStarted } = opts;
-
+  const { demoNumber, error, simulationStarted, demoAudioReady, demoAudioGenerating, demoAudioError, hasDemoPool } = opts;
   const demoNumberFormatted = demoNumber ? formatAuPhone(demoNumber) : null;
 
+  const isDemo = tenant.payment_status === "demo";
   const isPendingPayment = tenant.payment_status === "pending";
   const isNumberReady = !tenant.twilio_number.startsWith("+PENDING");
   const pickupNumber = isNumberReady ? tenant.twilio_number : null;
-  const forwardingCodeStr = pickupNumber
-    ? generateForwardingCode(pickupNumber)
-    : null;
+  const forwardingCodeStr = pickupNumber ? generateForwardingCode(pickupNumber) : null;
 
+  // ── Demo phase: user hasn't committed yet ───────────────────────────────
+  if (isDemo) {
+    // Demo 1 state: not started → generating → ready
+    let demoAudioCard: string;
+    if (demoAudioReady) {
+      demoAudioCard = `
+      <div style="background:var(--gray-50);border:1.5px solid var(--gray-200);border-radius:10px;padding:1rem 1.25rem;margin-bottom:1rem;">
+        <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.5rem;">
+          <div style="width:36px;height:36px;border-radius:50%;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-weight:700;">&#10003;</div>
+          <div>
+            <div style="font-weight:600;font-size:.9rem;">Your personalised demo call</div>
+            <div style="font-size:.78rem;color:var(--gray-500);">Hear how <strong>${escape(tenant.ai_name || "Olivia")}</strong> answers calls for <strong>${escape(tenant.name)}</strong></div>
+          </div>
+        </div>
+        <audio id="demo-audio" controls preload="auto" style="width:100%;margin-top:.5rem;border-radius:8px;">
+          <source src="/dashboard/demo-audio.mp3" type="audio/mpeg" />
+          Your browser doesn't support audio playback.
+        </audio>
+        <p style="font-size:.75rem;color:var(--gray-400);margin-top:.5rem;text-align:center;">Play, pause, rewind — listen as many times as you like.</p>
+      </div>
+      <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:.75rem 1rem;display:flex;align-items:center;gap:.5rem;">
+        <span style="color:#16a34a;font-size:1.1rem;">&#10003;</span>
+        <span style="font-size:.85rem;color:#16a34a;font-weight:600;">Sample SMS sent to ${escape(formatAuPhone(tenant.owner_phone))} — check your phone!</span>
+      </div>`;
+    } else if (demoAudioGenerating) {
+      demoAudioCard = `
+      <div style="background:#eff6ff;border:1.5px solid #93c5fd;border-radius:10px;padding:1.5rem;text-align:center;">
+        <div style="margin-bottom:.75rem;">
+          <div style="display:inline-block;width:28px;height:28px;border:3px solid var(--brand);border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div>
+        </div>
+        <p style="font-weight:600;font-size:.95rem;color:var(--brand);margin-bottom:.35rem;">Generating your personalised demo...</p>
+        <p style="font-size:.82rem;color:var(--gray-500);">Our AI is creating a custom call demo for <strong>${escape(tenant.name)}</strong>. This usually takes 15–30 seconds.</p>
+        <p style="font-size:.78rem;color:var(--gray-400);margin-top:.5rem;">We'll also send a sample SMS to your phone when it's ready.</p>
+      </div>
+      <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+      <script>
+        (function(){
+          var poll=setInterval(function(){
+            fetch("/dashboard/demo-audio-status",{credentials:"same-origin"})
+              .then(function(r){return r.json()})
+              .then(function(d){
+                if(d.status==="ready"||d.status==="error"){clearInterval(poll);location.reload();}
+              }).catch(function(){});
+          },3000);
+        })();
+      </script>`;
+    } else if (demoAudioError) {
+      demoAudioCard = `
+      <div style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:10px;padding:1rem 1.25rem;margin-bottom:1rem;">
+        <p style="font-weight:600;color:#dc2626;font-size:.9rem;margin-bottom:.35rem;">Something went wrong generating your demo</p>
+        <p style="font-size:.82rem;color:var(--gray-600);margin-bottom:.75rem;">Don't worry — just hit the button below to try again. It usually works on the second attempt.</p>
+      </div>
+      <form method="POST" action="/dashboard/generate-demo-audio">
+        <button type="submit" class="btn btn-primary" style="width:100%;font-size:1rem;padding:.85rem;">Try again →</button>
+      </form>`;
+    } else {
+      demoAudioCard = `
+      <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:1rem;">
+        We'll generate a personalised call demo using <strong>your business name</strong>, <strong>your AI receptionist name</strong>, and <strong>your trade</strong>. You'll also get a sample SMS to <strong>${escape(formatAuPhone(tenant.owner_phone))}</strong>.
+      </p>
+      <form method="POST" action="/dashboard/generate-demo-audio">
+        <button type="submit" class="btn btn-primary" style="width:100%;font-size:1rem;padding:.85rem;">Generate my personalised demo →</button>
+      </form>
+      <p style="font-size:.78rem;color:var(--gray-400);margin-top:.6rem;text-align:center;">Takes about 15–30 seconds. Uses AI to create audio specific to ${escape(tenant.name)}.</p>`;
+    }
+
+    const body = `
+<div style="max-width:600px;margin:2rem auto;">
+  ${onboardingProgress(tenant, { demoAudioReady })}
+
+  <div style="background:var(--brand);color:#fff;border-radius:var(--radius);padding:1.5rem 1.75rem;margin-bottom:1.5rem;display:flex;align-items:center;gap:1rem;">
+    <span style="font-size:2rem;">👋</span>
+    <div>
+      <div style="font-weight:700;font-size:1.15rem;">Welcome, ${escape(tenant.name)}!</div>
+      <div style="opacity:.85;font-size:.9rem;margin-top:.2rem;">Try your personalised AI receptionist before you commit. No card needed yet.</div>
+    </div>
+  </div>
+
+  ${error ? `<div class="alert alert-error" style="margin-bottom:1rem;">${escape(error)}</div>` : ""}
+
+  <!-- Demo 1: Personalised AI voice demo -->
+  <div class="card" style="border:2px solid var(--brand);margin-bottom:1rem;">
+    <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;">
+      <div style="width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;">1</div>
+      <h2 style="margin:0;font-size:1.05rem;">Hear your AI receptionist in action</h2>
+    </div>
+    ${demoAudioCard}
+  </div>
+
+  ${hasDemoPool ? `<!-- Demo 2: Call the AI yourself -->
+  <div class="card" style="margin-bottom:1rem;">
+    <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;">
+      <div style="width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;">2</div>
+      <h2 style="margin:0;font-size:1.05rem;">Call the AI yourself</h2>
+    </div>
+    <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:1rem;">
+      Want to try it live? Get a temporary number and call it from your phone. You'll talk to your AI receptionist just like a real customer would.
+    </p>
+    <div style="display:flex;gap:.75rem;flex-wrap:wrap;">
+      ${simulationStarted
+        ? `<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:1rem;flex:1;min-width:200px;">
+            <p style="font-weight:600;color:#16a34a;margin-bottom:.4rem;">Demo call in progress!</p>
+            <p style="font-size:.82rem;color:var(--gray-600);">Check your phone for the SMS when it's done.</p>
+          </div>`
+        : `<form method="POST" action="/dashboard/simulate-demo-call" style="flex:1;">
+            <button type="submit" class="btn btn-outline" style="width:100%;">Let AI simulate a customer call</button>
+          </form>`}
+      ${demoNumber
+        ? `<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:1rem;flex:1;min-width:200px;">
+            <p style="font-weight:600;color:#16a34a;font-size:.9rem;margin-bottom:.3rem;">Your demo number:</p>
+            <p style="font-family:monospace;font-size:1.15rem;font-weight:700;margin-bottom:.3rem;">${escape(demoNumberFormatted ?? demoNumber)}</p>
+            <p style="font-size:.78rem;color:var(--gray-500);">Call it now from your mobile — available for 10 minutes. You can request a new one after it expires.</p>
+          </div>`
+        : `<form method="POST" action="/dashboard/request-demo" style="flex:1;">
+            <button type="submit" class="btn btn-ghost" style="width:100%;">Get a number to call yourself</button>
+          </form>`}
+    </div>
+  </div>` : ""}
+
+  <!-- Ready to go? -->
+  <div class="card" style="border:2px solid var(--green);margin-bottom:1.5rem;background:#f0fdf4;">
+    <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;">
+      <div style="width:40px;height:40px;border-radius:50%;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;">${hasDemoPool ? "3" : "2"}</div>
+      <h2 style="margin:0;font-size:1.05rem;">Ready? Get your own number</h2>
+    </div>
+    <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:1rem;">
+      Like what you heard? Start your <strong>14-day free trial</strong> and we'll set up a dedicated phone number for <strong>${escape(tenant.name)}</strong>. You won't be charged today — cancel any time before day 14 and pay nothing.
+    </p>
+    <form method="POST" action="/dashboard/create-checkout-session">
+      <button type="submit" class="btn btn-primary" style="width:100%;font-size:1rem;padding:.85rem;">I'm ready — start free trial →</button>
+    </form>
+    <p style="font-size:.78rem;color:var(--gray-500);margin-top:.75rem;text-align:center;">Secure payment via Stripe. 14-day free trial. Cancel any time.</p>
+  </div>
+
+  <div style="text-align:center;">
+    <p style="font-size:.8rem;color:var(--gray-600);">
+      Need help? Text or email <a href="mailto:hello@getpickupai.com.au">hello@getpickupai.com.au</a>
+    </p>
+  </div>
+</div>`;
+    return shell("Try your AI receptionist", body, tenant);
+  }
+
+  // ── Post-payment flow (pending payment / number setup / active) ─────────
   const activationCard = isPendingPayment
     ? `<div class="card" style="border:2px solid var(--brand);margin-bottom:1rem;">
         <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;">
@@ -404,7 +557,7 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
 
   const body = `
 <div style="max-width:600px;margin:2rem auto;">
-  ${onboardingProgress(tenant)}
+  ${onboardingProgress(tenant, { demoAudioReady: true })}
 
   <div style="background:var(--brand);color:#fff;border-radius:var(--radius);padding:1.5rem 1.75rem;margin-bottom:1.5rem;display:flex;align-items:center;gap:1rem;">
     <span style="font-size:2rem;">🎉</span>

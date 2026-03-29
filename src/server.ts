@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
 import http from "node:http";
 import { EventEmitter } from "node:events";
 import path from "node:path";
@@ -485,7 +486,7 @@ async function main() {
         const tenantId = session.metadata?.tenant_id;
         if (tenantId) {
           const existing = getTenantById(db, tenantId);
-          if (existing && existing.payment_status === "pending") {
+          if (existing && (existing.payment_status === "demo" || existing.payment_status === "pending")) {
             const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
             updateTenant(db, tenantId, {
               payment_status: "trial",
@@ -501,7 +502,7 @@ async function main() {
               } catch (e) { log.warn({ e }, "founder trial notification SMS failed"); }
             }
           } else {
-            log.info({ tenantId, currentStatus: existing?.payment_status }, "checkout.session.completed received but tenant not pending — skipping (idempotent)");
+            log.info({ tenantId, currentStatus: existing?.payment_status }, "checkout.session.completed received but tenant not demo/pending — skipping (idempotent)");
           }
         }
       } else if (event.type === "invoice.payment_succeeded") {
@@ -684,6 +685,9 @@ async function main() {
     const status = tenant.payment_status;
     if (status === "active" || status === "cancelling") return next();
     if (!status || status === "none") return next(); // legacy / seed accounts
+    if (status === "demo") {
+      return res.redirect("/dashboard/welcome");
+    }
     if (status === "pending") {
       return res.redirect("/dashboard/upgrade?reason=pending");
     }
@@ -1599,7 +1603,7 @@ async function main() {
     const cookies = parseCookies(req);
     const existing = cookies.dash_session ? getTenantBySessionToken(db, cookies.dash_session) : null;
     if (existing) {
-      if (existing.payment_status === "pending" || existing.twilio_number.startsWith("+PENDING")) {
+      if (existing.payment_status === "demo" || existing.payment_status === "pending" || existing.twilio_number.startsWith("+PENDING")) {
         return res.redirect("/dashboard/welcome");
       }
       return res.redirect("/dashboard/leads");
@@ -1646,33 +1650,9 @@ async function main() {
       return res.send(signupPage("An account with that email already exists. Please sign in.", prefill));
     }
 
-    // Auto-provision a Twilio AU number; fall back to PENDING if purchase fails
-    let twilioNumber: string;
-    try {
-      const { twilioClient } = await import("./twilio/client.js");
-      // Search for an available AU mobile number, fall back to local
-      const mobileNumbers = await twilioClient.availablePhoneNumbers("AU").mobile.list({ limit: 1 });
-      let chosenNumber: string | null = mobileNumbers[0]?.phoneNumber ?? null;
-      if (!chosenNumber) {
-        const localNumbers = await twilioClient.availablePhoneNumbers("AU").local.list({ limit: 1 });
-        chosenNumber = localNumbers[0]?.phoneNumber ?? null;
-      }
-      if (!chosenNumber) throw new Error("No AU numbers available in Twilio inventory");
-
-      const purchased = await twilioClient.incomingPhoneNumbers.create({
-        phoneNumber: chosenNumber,
-        voiceUrl: `${env.PUBLIC_BASE_URL}/twilio/voice/incoming`,
-        voiceMethod: "POST",
-        statusCallback: `${env.PUBLIC_BASE_URL}/twilio/voice/status`,
-        statusCallbackMethod: "POST",
-        friendlyName: `PickupAI – ${name}`,
-      });
-      twilioNumber = purchased.phoneNumber;
-      log.info({ number: twilioNumber, tenantName: name }, "Auto-provisioned Twilio number for new signup");
-    } catch (provisionErr: any) {
-      twilioNumber = `+PENDING_${Math.floor(100000 + Math.random() * 900000)}`;
-      log.warn({ err: provisionErr }, "Auto-provision failed — falling back to PENDING number");
-    }
+    // No number purchase at signup — user tries the demo first.
+    // A real Twilio number is provisioned only after Stripe checkout succeeds.
+    const twilioNumber = `+PENDING_${Math.floor(100000 + Math.random() * 900000)}`;
 
     const serviceArea = (req.body.service_area as string)?.trim() || null;
     const tenant = createTenant(db, {
@@ -1687,44 +1667,22 @@ async function main() {
     });
     trackEvent("signup_completed", {
       tenant_id: tenant.tenant_id,
-      payload: { trade_type, autoProvisioned: !twilioNumber.startsWith("+PENDING"), hasStripeConfig: !!env.STRIPE_SECRET_KEY && !!env.STRIPE_PRICE_ID }
+      payload: { trade_type, hasStripeConfig: !!env.STRIPE_SECRET_KEY && !!env.STRIPE_PRICE_ID }
     });
 
-    // Mark account as pending until Stripe checkout is completed.
-    // When Stripe is NOT configured (ABN pending / local dev), fall back to
-    // granting a free 14-day trial so internal testing still works.
-    const stripeReady = !!env.STRIPE_SECRET_KEY && !!env.STRIPE_PRICE_ID;
-    if (stripeReady) {
-      updateTenant(db, tenant.tenant_id, { payment_status: "pending" });
-    } else {
-      const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
-      updateTenant(db, tenant.tenant_id, { payment_status: "trial", trial_ends_at: trialEndsAt });
-    }
+    // Start in "demo" state — user explores demos before committing to payment
+    updateTenant(db, tenant.tenant_id, { payment_status: "demo" });
 
-    // Welcome SMS — tailor copy to provisioning state and Stripe status
-    const isProvisioned = !twilioNumber.startsWith("+PENDING");
-    const forwardingCode = isProvisioned
-      ? generateForwardingCode(twilioNumber)
-      : null;
     try {
-      let welcomeBody: string;
-      if (stripeReady) {
-        welcomeBody = `Welcome to PickupAI, ${name}! Complete your signup to activate your AI receptionist: ${env.PUBLIC_BASE_URL}/dashboard/welcome`;
-      } else if (isProvisioned) {
-        welcomeBody = `Welcome to PickupAI, ${name}! Your AI receptionist number is ready: ${formatAuPhone(twilioNumber)}\n\nTo activate, open your phone dialler and type:\n${forwardingCode}\nThen press Call. That's it - you're live!\n\nNeed help? Reply to this text.`;
-      } else {
-        welcomeBody = `Welcome to PickupAI, ${name}! Your 14-day free trial has started. We're setting up your number - you'll get an SMS with your activation code shortly.\n\nIn the meantime, try the demo: ${env.PUBLIC_BASE_URL}/dashboard/welcome`;
-      }
+      const welcomeBody = `Welcome to PickupAI, ${name}! Try your personalised AI receptionist demo now: ${env.PUBLIC_BASE_URL}/dashboard/welcome\n\nYou'll hear how your AI answers calls and see the SMS alerts you'd get. No commitment yet!`;
       const sms = await sendOwnerSms(db, welcomeBody, owner_phone as string);
       if (sms.status === "skipped") log.warn({ reason: sms.reason }, "Welcome SMS skipped");
     } catch (e) { log.warn({ e }, "Welcome SMS failed"); }
 
-    // Notify founder of new signup
     if (env.OWNER_PHONE_NUMBER) {
       try {
-        const signupLabel = stripeReady ? "New signup (payment pending)" : "New trial signup";
         const sms = await sendOwnerSms(db,
-          `PickupAI: ${signupLabel} - ${name} (${trade_type}, ${formatAuPhone(owner_phone as string)}). Admin: ${env.PUBLIC_BASE_URL}/admin/users/${tenant.tenant_id}`
+          `PickupAI: New signup (demo) - ${name} (${trade_type}, ${formatAuPhone(owner_phone as string)}). Admin: ${env.PUBLIC_BASE_URL}/admin/users/${tenant.tenant_id}`
         );
         if (sms.status === "skipped") log.warn({ reason: sms.reason }, "Founder signup notification SMS skipped");
       } catch (e) { log.warn({ e }, "Founder signup notification SMS failed"); }
@@ -1735,14 +1693,40 @@ async function main() {
       setSessionCookie(res, loggedIn.session_token);
     }
 
-    // If Stripe is configured, render an auto-submitting form that POSTs to checkout.
-    // Using POST instead of GET prevents CSRF via link prefetch / image tags.
-    if (stripeReady) {
-      return res.send(`<!DOCTYPE html><html><head><title>Redirecting to checkout…</title></head>
-        <body><p>Redirecting to checkout…</p>
-        <form id="f" method="POST" action="/dashboard/create-checkout-session"></form>
-        <script>document.getElementById("f").submit();</script></body></html>`);
+    // Auto-trigger personalised demo audio generation in background
+    if (env.OPENAI_API_KEY) {
+      demoGenStatus.set(tenant.tenant_id, "generating");
+      (async () => {
+        try {
+          await generatePersonalisedDemoAudio(tenant);
+          demoGenStatus.set(tenant.tenant_id, "ready");
+          const script = DEMO_SCRIPTS[tenant.trade_type] ?? FALLBACK_SCRIPT;
+          const sample = script.sms(tenant.name);
+          const smsBody = [
+            `NEW JOB (URGENT):`,
+            `Name: ${sample.name}`,
+            `Phone: ${sample.phone}`,
+            `Address: ${sample.address}`,
+            `Details: ${sample.issue}`,
+            `Next: Call back ASAP`,
+            ``,
+            `⬆️ THIS IS A DEMO — here's what you'd get when your AI takes a call for ${tenant.name}.`,
+          ].join("\n");
+          try {
+            await sendOwnerSms(db, smsBody, owner_phone as string);
+            trackEvent("demo_sms_sent", { tenant_id: tenant.tenant_id });
+          } catch (smsErr) {
+            log.warn({ err: smsErr }, "Demo SMS after auto-generation failed");
+          }
+          trackEvent("demo_audio_generation_completed", { tenant_id: tenant.tenant_id });
+        } catch (err) {
+          demoGenStatus.set(tenant.tenant_id, "error");
+          log.error({ err, tenantId: tenant.tenant_id }, "Auto-triggered demo audio generation failed");
+          trackEvent("demo_audio_generation_failed", { tenant_id: tenant.tenant_id, level: "error", payload: { message: (err as Error)?.message } });
+        }
+      })();
     }
+
     res.redirect("/dashboard/welcome");
   });
 
@@ -1758,8 +1742,15 @@ async function main() {
       ? env.DEMO_POOL_NUMBERS.split(",").map((n) => n.trim()).filter(Boolean)
       : [];
     const session = poolNumbers.length ? getActiveDemoSession(db, tenant.tenant_id) : null;
+    const audioReady = isDemoAudioReady(tenant.tenant_id);
+    const audioGenerating = !audioReady && demoGenStatus.get(tenant.tenant_id) === "generating";
+    const audioError = !audioReady && demoGenStatus.get(tenant.tenant_id) === "error";
     res.send(welcomePage(tenant, {
       demoNumber: session?.demo_number ?? null,
+      demoAudioReady: audioReady,
+      demoAudioGenerating: audioGenerating,
+      demoAudioError: audioError,
+      hasDemoPool: poolNumbers.length > 0,
     }));
   });
 
@@ -1770,10 +1761,16 @@ async function main() {
       ? env.DEMO_POOL_NUMBERS.split(",").map((n) => n.trim()).filter(Boolean)
       : [];
 
+    const audioReady2 = isDemoAudioReady(tenant.tenant_id);
+    const audioGen2 = !audioReady2 && demoGenStatus.get(tenant.tenant_id) === "generating";
+    const audioErr2 = !audioReady2 && demoGenStatus.get(tenant.tenant_id) === "error";
+    const hasPool2 = poolNumbers.length > 0;
+
     if (poolNumbers.length === 0) {
       trackEvent("demo_unavailable_not_configured", { tenant_id: tenant.tenant_id, level: "warn" });
       return res.send(welcomePage(tenant, {
-        error: "Demo numbers are not configured yet. Please contact support to enable instant demos, or try Option A hands-free demo."
+        error: "Demo numbers are not configured yet. Please contact support to enable instant demos, or try Option A hands-free demo.",
+        demoAudioReady: audioReady2, demoAudioGenerating: audioGen2, demoAudioError: audioErr2, hasDemoPool: hasPool2,
       }));
     }
 
@@ -1791,7 +1788,8 @@ async function main() {
         payload: { waitMinutes }
       });
       return res.send(welcomePage(tenant, {
-        error: `All demo slots are currently busy.${suffix} You can still run Option A hands-free demo right now.`
+        error: `All demo slots are currently busy.${suffix} You can still run Option A hands-free demo right now.`,
+        demoAudioReady: audioReady2, demoAudioGenerating: audioGen2, demoAudioError: audioErr2, hasDemoPool: hasPool2,
       }));
     }
     trackEvent("demo_slot_assigned", {
@@ -1802,6 +1800,7 @@ async function main() {
     const session = getActiveDemoSession(db, tenant.tenant_id);
     res.send(welcomePage(tenant, {
       demoNumber: claimed,
+      demoAudioReady: audioReady2, demoAudioGenerating: audioGen2, demoAudioError: audioErr2, hasDemoPool: hasPool2,
     }));
   });
 
@@ -1812,22 +1811,24 @@ async function main() {
       ? env.DEMO_POOL_NUMBERS.split(",").map((n) => n.trim()).filter(Boolean)
       : [];
 
+    const audioReady3 = isDemoAudioReady(tenant.tenant_id);
+    const audioGen3 = !audioReady3 && demoGenStatus.get(tenant.tenant_id) === "generating";
+    const audioErr3 = !audioReady3 && demoGenStatus.get(tenant.tenant_id) === "error";
+    const hasPool3 = poolNumbers.length > 0;
+
     if (poolNumbers.length === 0) {
       trackEvent("simulate_demo_unavailable_not_configured", { tenant_id: tenant.tenant_id, level: "warn" });
       return res.send(welcomePage(tenant, {
-        error: "Demo simulation is temporarily unavailable because demo numbers are not configured yet. Please contact support."
+        error: "Demo simulation is temporarily unavailable because demo numbers are not configured yet. Please contact support.",
+        demoAudioReady: audioReady3, demoAudioGenerating: audioGen3, demoAudioError: audioErr3, hasDemoPool: hasPool3,
       }));
     }
 
-    // Option A: pick the first pool number without claiming a DB slot.
-    // We register the tenant in the in-memory simulationRoutingMap so the
-    // incoming webhook can route the call correctly.
     const demoTarget = poolNumbers[0];
     const demoCallerFrom =
       getSystemConfig(db, "demo_caller_number") ??
       env.TWILIO_SMS_NUMBERS[0];
 
-    // Register routing (15-min TTL — more than enough for any call to complete)
     simulationRoutingMap.set(demoTarget, {
       tenantId: tenant.tenant_id,
       expiresAt: Date.now() + 15 * 60 * 1000
@@ -1836,9 +1837,6 @@ async function main() {
     try {
       const { twilioClient } = await import("./twilio/client.js");
 
-      // Point the demo number's webhook to THIS server so that when the call
-      // arrives, the media-stream WebSocket runs here — where the SSE listener
-      // is waiting.  This fixes prod/dev webhook ownership fights.
       if (env.DEMO_POOL_NUMBER_SID) {
         await twilioClient.incomingPhoneNumbers(env.DEMO_POOL_NUMBER_SID).update({
           voiceUrl: `${env.PUBLIC_BASE_URL}/twilio/voice/incoming`,
@@ -1863,17 +1861,315 @@ async function main() {
       });
     } catch (err) {
       log.error({ err }, "Failed to place simulated demo call");
-      simulationRoutingMap.delete(demoTarget); // rollback map entry on failure
+      simulationRoutingMap.delete(demoTarget);
       trackEvent("simulate_demo_failed", {
         tenant_id: tenant.tenant_id,
         level: "error",
         payload: { demoTarget, message: (err as Error)?.message ?? String(err) }
       });
-      return res.send(welcomePage(tenant, { error: "Could not place the demo call. Please try again or call the number yourself." }));
+      return res.send(welcomePage(tenant, {
+        error: "Could not place the demo call. Please try again or call the number yourself.",
+        demoAudioReady: audioReady3, demoAudioGenerating: audioGen3, demoAudioError: audioErr3, hasDemoPool: hasPool3,
+      }));
     }
 
-    // Respond without demoNumber — Option A doesn't occupy a slot
-    res.send(welcomePage(tenant, { simulationStarted: true }));
+    res.send(welcomePage(tenant, {
+      simulationStarted: true,
+      demoAudioReady: audioReady3, demoAudioGenerating: audioGen3, demoAudioError: audioErr3, hasDemoPool: hasPool3,
+    }));
+  });
+
+  // ── Personalised demo audio generation ──────────────────────────────────────
+
+  const DEMO_AUDIO_DIR = path.resolve(__dirname, "../data/demo-audio");
+  fs.mkdirSync(DEMO_AUDIO_DIR, { recursive: true });
+
+  type DemoGenStatus = "generating" | "ready" | "error";
+  const demoGenStatus = new Map<string, DemoGenStatus>();
+
+  function getDemoAudioPath(tenantId: string): string {
+    return path.join(DEMO_AUDIO_DIR, `${tenantId}.mp3`);
+  }
+
+  function isDemoAudioReady(tenantId: string): boolean {
+    return fs.existsSync(getDemoAudioPath(tenantId));
+  }
+
+  type TtsVoice = "nova" | "onyx" | "shimmer" | "sage" | "alloy" | "echo" | "fable";
+  interface ScriptLine { speaker: "ai" | "customer"; text: string; }
+
+  const DEMO_SCRIPTS: Record<string, {
+    customerVoice: TtsVoice;
+    scenario: (biz: string, aiName: string, area: string | null) => ScriptLine[];
+    sms: (biz: string) => { name: string; phone: string; address: string; issue: string };
+  }> = {
+    plumber: {
+      customerVoice: "onyx",
+      scenario: (biz, aiName, area) => [
+        { speaker: "ai",       text: `G'day! Thanks for calling ${biz}, this is ${aiName} — how can I help you today?` },
+        { speaker: "customer", text: "Hi yeah, look I've got a burst pipe under my kitchen sink and there's water going everywhere." },
+        { speaker: "ai",       text: `Oh no, that sounds really urgent — you've definitely called the right place. Let me get your details sorted straight away. Can I grab your name first?` },
+        { speaker: "customer", text: "Yeah, it's Mark." },
+        { speaker: "ai",       text: "Thanks Mark. Whereabouts are you located? Suburb and postcode would be great." },
+        { speaker: "customer", text: "I'm in Parramatta, 2150." },
+        { speaker: "ai",       text: `Got ya, Parramatta 2150.${area ? "" : ""} And what's the best number to reach you on — is it the one you're calling from?` },
+        { speaker: "customer", text: "Yeah that's fine, same number." },
+        { speaker: "ai",       text: `Perfect. I've flagged this as urgent. Just so you know, I'm an AI assistant for ${biz}, so I can't book someone in directly, but the team will give you a ring back as soon as possible — likely within the hour. Is there anything else you'd like to pass on?` },
+        { speaker: "customer", text: "No, just please hurry — there's water all over the floor." },
+        { speaker: "ai",       text: "No dramas at all Mark, I've got you down as urgent. Someone from the team will be in touch real soon. Cheers, take care!" },
+      ],
+      sms: (biz) => ({ name: "Mark Thompson", phone: "0412 345 678", address: "52 Smith Street, Parramatta NSW 2150", issue: "Burst pipe under the kitchen sink, water going everywhere. Needs urgent repair today." }),
+    },
+    electrician: {
+      customerVoice: "onyx",
+      scenario: (biz, aiName) => [
+        { speaker: "ai",       text: `Hi there, thanks for calling ${biz}! ${aiName} speaking — how can I help?` },
+        { speaker: "customer", text: "Hi, I've got a complete power outage in my home. All the breakers look fine but nothing's working." },
+        { speaker: "ai",       text: "That definitely needs looking at — let's get your details taken care of. Can I grab your name?" },
+        { speaker: "customer", text: "It's James." },
+        { speaker: "ai",       text: "Thanks James. And what suburb are you in? Postcode as well if you've got it." },
+        { speaker: "customer", text: "Chatswood, 2067." },
+        { speaker: "ai",       text: "Chatswood 2067, got that. And what's the best number to reach you on?" },
+        { speaker: "customer", text: "This number is fine." },
+        { speaker: "ai",       text: `Perfect. I've flagged this as urgent for the ${biz} team. Just so you know, I'm an AI receptionist, so I can't send someone out directly — but I've got all your details and someone will call you back as a priority. Safety tip: avoid touching the switchboard until a licensed electrician checks it. Anything else?` },
+        { speaker: "customer", text: "No that's it, thanks." },
+        { speaker: "ai",       text: "No worries James, the team will be in touch real soon. Take care!" },
+      ],
+      sms: (biz) => ({ name: "James Wilson", phone: "0423 456 789", address: "14 Oak Avenue, Chatswood NSW 2067", issue: "Complete power outage — all breakers look fine but nothing's working. Needs same-day inspection." }),
+    },
+    roofer: {
+      customerVoice: "shimmer",
+      scenario: (biz, aiName) => [
+        { speaker: "ai",       text: `G'day, ${biz} — ${aiName} here, how can I help?` },
+        { speaker: "customer", text: "Hi, I've got a pretty bad roof leak. It rained last night and water was coming through my ceiling." },
+        { speaker: "ai",       text: "Oh no, that's definitely something we'd want to look at quickly. Let me grab your details. Can I start with your name?" },
+        { speaker: "customer", text: "Sarah Mitchell." },
+        { speaker: "ai",       text: "Thanks Sarah. What suburb are you in?" },
+        { speaker: "customer", text: "Blacktown, 2148." },
+        { speaker: "ai",       text: "Blacktown 2148. And what's the best number to call you back on?" },
+        { speaker: "customer", text: "0434 567 890." },
+        { speaker: "ai",       text: `Got it. I've flagged this as urgent for the ${biz} team. I'm an AI receptionist, so I can't arrange an inspection right now — but someone will give you a call back as soon as possible. In the meantime, if you can put a bucket under the drip, that'll help minimise damage. Anything else?` },
+        { speaker: "customer", text: "No, that's all — thanks." },
+        { speaker: "ai",       text: "No worries Sarah, someone will be in touch soon. Take care!" },
+      ],
+      sms: (biz) => ({ name: "Sarah Mitchell", phone: "0434 567 890", address: "7 Maple Drive, Blacktown NSW 2148", issue: "Roof leaking badly after rain, water coming through bedroom ceiling." }),
+    },
+    handyman: {
+      customerVoice: "onyx",
+      scenario: (biz, aiName) => [
+        { speaker: "ai",       text: `Hi there, ${biz} — ${aiName} speaking, how can I help you today?` },
+        { speaker: "customer", text: "Hi, I've got a few odd jobs. A leaky tap, a broken fence panel, and a door that won't close properly." },
+        { speaker: "ai",       text: "No worries, sounds like the kind of thing we can sort out! Let me take your details. Can I grab your name?" },
+        { speaker: "customer", text: "David Miller." },
+        { speaker: "ai",       text: "Thanks David. What suburb are you in?" },
+        { speaker: "customer", text: "Penrith, 2750." },
+        { speaker: "ai",       text: "Penrith 2750, got it. And what's the best number for a callback?" },
+        { speaker: "customer", text: "This one is fine." },
+        { speaker: "ai",       text: `Great. I've noted down all three jobs — leaky tap, fence panel, and the door. I'm an AI receptionist for ${biz}, so I'll pass this straight to the team and they'll call you back to arrange a time. Anything else?` },
+        { speaker: "customer", text: "No, that covers it. Thanks." },
+        { speaker: "ai",       text: "Beauty, someone will be in touch soon. Have a great day David!" },
+      ],
+      sms: (biz) => ({ name: "David Miller", phone: "0445 678 901", address: "21 Park Street, Penrith NSW 2750", issue: "Multiple jobs: leaky tap, broken fence panel, and a door that won't close properly." }),
+    },
+    painter: {
+      customerVoice: "shimmer" as TtsVoice,
+      scenario: (biz: string, aiName: string) => [
+        { speaker: "ai" as const,       text: `Hi there, thanks for calling ${biz}! ${aiName} speaking — how can I help?` },
+        { speaker: "customer" as const, text: "Hi, I'm looking to get my whole interior repainted. Four bedrooms plus the living area and hallway." },
+        { speaker: "ai" as const,       text: "Lovely — sounds like a nice refresh! Let me take your details so we can get back to you with a quote. Can I grab your name?" },
+        { speaker: "customer" as const, text: "It's Emma Brown." },
+        { speaker: "ai" as const,       text: "Thanks Emma. What suburb are you in?" },
+        { speaker: "customer" as const, text: "Cronulla, 2230." },
+        { speaker: "ai" as const,       text: "Cronulla 2230, got it. And what's the best number to reach you on?" },
+        { speaker: "customer" as const, text: "0456 789 012." },
+        { speaker: "ai" as const,       text: `Perfect. I've noted down all the rooms — four bedrooms, living area, and hallway. I'm an AI receptionist for ${biz}, so I can't give you a price right now, but one of the team will call you back to chat through colours, finishes, and arrange a time to quote. Anything else?` },
+        { speaker: "customer" as const, text: "No, that covers it. Thanks." },
+        { speaker: "ai" as const,       text: "Beauty, someone will be in touch soon. Have a great day Emma!" },
+      ],
+      sms: (biz: string) => ({ name: "Emma Brown", phone: "0456 789 012", address: "88 Beach Road, Cronulla NSW 2230", issue: "Full interior repaint — 4 bedrooms plus living area and hallway. Requesting a quote." }),
+    },
+    carpenter: {
+      customerVoice: "onyx" as TtsVoice,
+      scenario: (biz: string, aiName: string) => [
+        { speaker: "ai" as const,       text: `G'day, ${biz} — ${aiName} here, how can I help?` },
+        { speaker: "customer" as const, text: "Hi, I need some custom kitchen cabinets built and installed. I'm renovating my kitchen." },
+        { speaker: "ai" as const,       text: "Oh nice — a kitchen reno! Let me get your details so the team can follow up. Can I start with your name?" },
+        { speaker: "customer" as const, text: "Tom Anderson." },
+        { speaker: "ai" as const,       text: "Thanks Tom. What suburb are you in?" },
+        { speaker: "customer" as const, text: "Cronulla, 2230." },
+        { speaker: "ai" as const,       text: "Cronulla 2230. And what's the best number for a callback?" },
+        { speaker: "customer" as const, text: "This one is fine." },
+        { speaker: "ai" as const,       text: `Great. I've noted down custom kitchen cabinets — build and install. I'm an AI receptionist for ${biz}, so I'll pass this to the team and they'll give you a call to discuss measurements and materials. Anything else you'd like to add?` },
+        { speaker: "customer" as const, text: "Yeah, I'm after a Shaker-style design if that helps." },
+        { speaker: "ai" as const,       text: "Shaker-style — got it, I've added that. Someone will be in touch soon. Cheers Tom!" },
+      ],
+      sms: (biz: string) => ({ name: "Tom Anderson", phone: "0467 890 123", address: "33 Beach Road, Cronulla NSW 2230", issue: "Custom kitchen cabinets — build and install, Shaker-style design, part of kitchen renovation." }),
+    },
+    tiler: {
+      customerVoice: "shimmer" as TtsVoice,
+      scenario: (biz: string, aiName: string) => [
+        { speaker: "ai" as const,       text: `Hi there, ${biz} — ${aiName} speaking, how can I help you today?` },
+        { speaker: "customer" as const, text: "Hi, I need my bathroom retiled. It's about eight square metres. Some tiles have cracked and I want to redo the whole lot." },
+        { speaker: "ai" as const,       text: "No worries, we can definitely help with that. Let me grab your details. Can I get your name?" },
+        { speaker: "customer" as const, text: "Rachel Green." },
+        { speaker: "ai" as const,       text: "Thanks Rachel. What suburb are you in?" },
+        { speaker: "customer" as const, text: "Liverpool, 2170." },
+        { speaker: "ai" as const,       text: "Liverpool 2170, got it. And the best number to reach you?" },
+        { speaker: "customer" as const, text: "0478 901 234." },
+        { speaker: "ai" as const,       text: `Perfect. I've got bathroom retile, about eight square metres. I'm an AI receptionist for ${biz}, so I can't quote right now — but the team will call you back to discuss tile options and arrange a time. Anything else?` },
+        { speaker: "customer" as const, text: "I've already picked out tiles from Beaumont Tiles, just need someone to do the work." },
+        { speaker: "ai" as const,       text: "Great, I've noted that down — tiles already sourced. Someone will be in touch soon. Cheers Rachel!" },
+      ],
+      sms: (biz: string) => ({ name: "Rachel Green", phone: "0478 901 234", address: "15 Harbour Street, Liverpool NSW 2170", issue: "Bathroom retile — about 8 sqm. Tiles already sourced from Beaumont Tiles, needs labour only." }),
+    },
+    builder: {
+      customerVoice: "onyx" as TtsVoice,
+      scenario: (biz: string, aiName: string) => [
+        { speaker: "ai" as const,       text: `G'day! Thanks for calling ${biz}, this is ${aiName} — how can I help you today?` },
+        { speaker: "customer" as const, text: "Hi, I'm looking to get a granny flat built out the back. About 40 square metres, with a kitchenette and bathroom." },
+        { speaker: "ai" as const,       text: "That's a great project! Let me take your details so the team can get back to you. Can I grab your name?" },
+        { speaker: "customer" as const, text: "It's Steve Collins." },
+        { speaker: "ai" as const,       text: "Thanks Steve. What suburb are you in?" },
+        { speaker: "customer" as const, text: "Castle Hill, 2154." },
+        { speaker: "ai" as const,       text: "Castle Hill 2154. And what's the best number to reach you on?" },
+        { speaker: "customer" as const, text: "0489 012 345." },
+        { speaker: "ai" as const,       text: `Perfect. I've noted a 40-square-metre granny flat with kitchenette and bathroom. I'm an AI receptionist for ${biz}, so I can't discuss pricing or council requirements right now — but the team will call you back to go through the details and arrange a site visit. Anything else?` },
+        { speaker: "customer" as const, text: "Yeah, I'd want it to be a separate dwelling with its own entrance." },
+        { speaker: "ai" as const,       text: "Got it — separate entrance, own dwelling. Someone from the team will be in touch real soon. Cheers Steve!" },
+      ],
+      sms: (biz: string) => ({ name: "Steve Collins", phone: "0489 012 345", address: "42 George Street, Castle Hill NSW 2154", issue: "Granny flat build — 40sqm studio with kitchenette, bathroom, and separate entrance." }),
+    },
+    other: {
+      customerVoice: "onyx" as TtsVoice,
+      scenario: (biz: string, aiName: string) => [
+        { speaker: "ai" as const,       text: `Hi there, thanks for calling ${biz}! ${aiName} speaking — how can I help?` },
+        { speaker: "customer" as const, text: "Hi, I need some work done at my property. I've got a couple of things that need fixing up." },
+        { speaker: "ai" as const,       text: "No worries at all — let me take your details so the team can follow up. Can I grab your name?" },
+        { speaker: "customer" as const, text: "It's Chris Taylor." },
+        { speaker: "ai" as const,       text: "Thanks Chris. What suburb are you in?" },
+        { speaker: "customer" as const, text: "Parramatta, 2150." },
+        { speaker: "ai" as const,       text: "Parramatta 2150, got it. And what's the best number to reach you on?" },
+        { speaker: "customer" as const, text: "This number is fine." },
+        { speaker: "ai" as const,       text: `Perfect. I'm an AI receptionist for ${biz}, so I can't discuss the details right now — but I've got your info and the team will give you a call back to chat through what you need. Anything else you'd like to add?` },
+        { speaker: "customer" as const, text: "Just that I'm flexible on timing — any day next week works." },
+        { speaker: "ai" as const,       text: "Noted — flexible next week. Someone will be in touch soon. Cheers Chris!" },
+      ],
+      sms: (biz: string) => ({ name: "Chris Taylor", phone: "0490 123 456", address: "10 Station Street, Parramatta NSW 2150", issue: "Multiple items needing attention at property. Flexible on timing — available any day next week." }),
+    },
+  };
+  const FALLBACK_SCRIPT = DEMO_SCRIPTS.plumber;
+
+  async function ttsChunk(text: string, voice: TtsVoice): Promise<Buffer> {
+    const res = await fetch("https://api.openai.com/v1/audio/speech", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ model: "tts-1", voice, input: text, response_format: "mp3", speed: 1.0 }),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`TTS API error ${res.status}: ${body}`);
+    }
+    return Buffer.from(await res.arrayBuffer());
+  }
+
+  async function generatePersonalisedDemoAudio(tenant: TenantRow): Promise<void> {
+    const script = DEMO_SCRIPTS[tenant.trade_type] ?? FALLBACK_SCRIPT;
+    const aiName = tenant.ai_name || "Olivia";
+    const bizName = tenant.name;
+    const area = (tenant as any).service_area ?? null;
+    const lines = script.scenario(bizName, aiName, area);
+
+    const aiVoice: TtsVoice = (env.OPENAI_VOICE as TtsVoice) || "nova";
+    const chunks: Buffer[] = [];
+    for (const line of lines) {
+      const voice = line.speaker === "ai" ? aiVoice : script.customerVoice;
+      chunks.push(await ttsChunk(line.text, voice));
+    }
+
+    const combined = Buffer.concat(chunks);
+    const outPath = getDemoAudioPath(tenant.tenant_id);
+    fs.writeFileSync(outPath, combined);
+    log.info({ tenantId: tenant.tenant_id, sizeKb: Math.round(combined.length / 1024) }, "Personalised demo audio generated");
+  }
+
+  // Kick off demo audio generation + send SMS when done
+  app.post("/dashboard/generate-demo-audio", dashAuth, rateLimit({ maxRequests: 3, windowMs: 5 * 60_000, message: "Please wait a few minutes before generating another demo." }), async (req, res) => {
+    const tenant: TenantRow = (req as any).dashTenant;
+
+    if (isDemoAudioReady(tenant.tenant_id)) {
+      return res.redirect("/dashboard/welcome");
+    }
+    if (demoGenStatus.get(tenant.tenant_id) === "generating") {
+      return res.redirect("/dashboard/welcome");
+    }
+    if (!env.OPENAI_API_KEY) {
+      trackEvent("demo_audio_no_api_key", { tenant_id: tenant.tenant_id, level: "error" });
+      return res.send(welcomePage(tenant, { error: "Demo audio generation is temporarily unavailable. Please try again later or contact support." }));
+    }
+
+    trackEvent("demo_audio_generation_started", { tenant_id: tenant.tenant_id });
+    demoGenStatus.set(tenant.tenant_id, "generating");
+
+    // Run generation in background — don't block the response
+    (async () => {
+      try {
+        await generatePersonalisedDemoAudio(tenant);
+        demoGenStatus.set(tenant.tenant_id, "ready");
+
+        // Send sample SMS after audio generation completes
+        const script = DEMO_SCRIPTS[tenant.trade_type] ?? FALLBACK_SCRIPT;
+        const sample = script.sms(tenant.name);
+        const smsBody = [
+          `NEW JOB (URGENT):`,
+          `Name: ${sample.name}`,
+          `Phone: ${sample.phone}`,
+          `Address: ${sample.address}`,
+          `Details: ${sample.issue}`,
+          `Next: Call back ASAP`,
+          ``,
+          `⬆️ THIS IS A DEMO — here's what you'd get when your AI takes a call for ${tenant.name}.`,
+        ].join("\n");
+        try {
+          await sendOwnerSms(db, smsBody, tenant.owner_phone);
+          trackEvent("demo_sms_sent", { tenant_id: tenant.tenant_id });
+        } catch (smsErr) {
+          log.warn({ err: smsErr }, "Demo SMS after audio generation failed");
+        }
+
+        trackEvent("demo_audio_generation_completed", { tenant_id: tenant.tenant_id });
+      } catch (err) {
+        demoGenStatus.set(tenant.tenant_id, "error");
+        log.error({ err, tenantId: tenant.tenant_id }, "Demo audio generation failed");
+        trackEvent("demo_audio_generation_failed", { tenant_id: tenant.tenant_id, level: "error", payload: { message: (err as Error)?.message } });
+      }
+    })();
+
+    res.redirect("/dashboard/welcome");
+  });
+
+  // Poll for demo audio generation status
+  app.get("/dashboard/demo-audio-status", dashAuth, (req, res) => {
+    const tenant: TenantRow = (req as any).dashTenant;
+    if (isDemoAudioReady(tenant.tenant_id)) {
+      return res.json({ status: "ready" });
+    }
+    const status = demoGenStatus.get(tenant.tenant_id) ?? "none";
+    res.json({ status });
+  });
+
+  // Serve the generated personalised demo audio
+  app.get("/dashboard/demo-audio.mp3", dashAuth, (req, res) => {
+    const tenant: TenantRow = (req as any).dashTenant;
+    const audioPath = getDemoAudioPath(tenant.tenant_id);
+    if (!fs.existsSync(audioPath)) {
+      return res.status(404).send("Demo audio not yet generated");
+    }
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.sendFile(audioPath);
   });
 
   app.get("/dashboard/demo-status", dashAuth, (req, res) => {
@@ -1998,7 +2294,7 @@ async function main() {
 
   app.get("/dashboard", dashAuth, (req, res) => {
     const tenant: TenantRow = (req as any).dashTenant;
-    const destination = (isPendingNumber(tenant.twilio_number) || tenant.payment_status === "pending")
+    const destination = (tenant.payment_status === "demo" || isPendingNumber(tenant.twilio_number) || tenant.payment_status === "pending")
       ? "/dashboard/welcome" : "/dashboard/leads";
     res.redirect(destination);
   });
@@ -2016,15 +2312,23 @@ async function main() {
     const tenant: TenantRow = (req as any).dashTenant;
     const stripe = getStripe();
     if (!stripe || !env.STRIPE_PRICE_ID) {
-      return res.redirect("/dashboard/upgrade");
+      if (tenant.payment_status === "demo" || tenant.payment_status === "pending") {
+        const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+        updateTenant(db, tenant.tenant_id, { payment_status: "trial", trial_ends_at: trialEndsAt });
+        log.info({ tenantId: tenant.tenant_id }, "Stripe not configured — auto-granting trial (dev mode)");
+      }
+      return res.redirect("/dashboard/welcome");
     }
+    const cancelUrl = tenant.payment_status === "demo"
+      ? `${env.PUBLIC_BASE_URL}/dashboard/welcome`
+      : `${env.PUBLIC_BASE_URL}/dashboard/upgrade`;
     try {
       const session = await stripe.checkout.sessions.create({
         mode: "subscription",
         customer_email: tenant.owner_email ?? undefined,
         line_items: [{ price: env.STRIPE_PRICE_ID, quantity: 1 }],
         success_url: `${env.PUBLIC_BASE_URL}/dashboard/stripe-success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${env.PUBLIC_BASE_URL}/dashboard/upgrade`,
+        cancel_url: cancelUrl,
         metadata: { tenant_id: tenant.tenant_id },
         subscription_data: {
           trial_period_days: 14,
@@ -2038,13 +2342,14 @@ async function main() {
       res.redirect(303, session.url!);
     } catch (err: any) {
       log.error({ err }, "Stripe checkout session creation failed");
-      res.redirect("/dashboard/upgrade");
+      res.redirect(tenant.payment_status === "demo" ? "/dashboard/welcome" : "/dashboard/upgrade");
     }
   };
 
   app.post("/dashboard/create-checkout-session", dashAuth, rateLimit({ maxRequests: 5, windowMs: 5 * 60_000, message: "Too many checkout requests. Please wait a few minutes." }), createStripeCheckoutSession);
 
-  // Stripe success redirect — card collected, 14-day trial has begun
+  // Stripe success redirect — card collected, 14-day trial has begun.
+  // This is also where we provision the real Twilio number (deferred from signup).
   app.get("/dashboard/stripe-success", dashAuth, async (req, res) => {
     const tenant: TenantRow = (req as any).dashTenant;
     const stripe = getStripe();
@@ -2058,7 +2363,7 @@ async function main() {
         return res.redirect("/dashboard/welcome");
       }
       if (session.status === "complete" || session.payment_status === "paid" || session.payment_status === "no_payment_required") {
-        if (tenant.payment_status === "pending") {
+        if (tenant.payment_status === "demo" || tenant.payment_status === "pending") {
           const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
           updateTenant(db, tenant.tenant_id, {
             payment_status: "trial",
@@ -2067,17 +2372,58 @@ async function main() {
           });
           log.info({ tenantId: tenant.tenant_id }, "Stripe checkout complete — 14-day trial started");
 
-          const isProvisioned = !tenant.twilio_number.startsWith("+PENDING");
-          const fwdCode = isProvisioned ? generateForwardingCode(tenant.twilio_number) : null;
+          // Provision a real Twilio AU number now that the user has committed
+          let twilioNumber: string | null = null;
+          if (isPendingNumber(tenant.twilio_number)) {
+            try {
+              const { twilioClient } = await import("./twilio/client.js");
+              const mobileNumbers = await twilioClient.availablePhoneNumbers("AU").mobile.list({ limit: 1 });
+              let chosenNumber: string | null = mobileNumbers[0]?.phoneNumber ?? null;
+              if (!chosenNumber) {
+                const localNumbers = await twilioClient.availablePhoneNumbers("AU").local.list({ limit: 1 });
+                chosenNumber = localNumbers[0]?.phoneNumber ?? null;
+              }
+              if (chosenNumber) {
+                const purchased = await twilioClient.incomingPhoneNumbers.create({
+                  phoneNumber: chosenNumber,
+                  voiceUrl: `${env.PUBLIC_BASE_URL}/twilio/voice/incoming`,
+                  voiceMethod: "POST",
+                  statusCallback: `${env.PUBLIC_BASE_URL}/twilio/voice/status`,
+                  statusCallbackMethod: "POST",
+                  friendlyName: `PickupAI – ${tenant.name}`,
+                });
+                twilioNumber = purchased.phoneNumber;
+                updateTenant(db, tenant.tenant_id, { twilio_number: twilioNumber });
+                log.info({ number: twilioNumber, tenantId: tenant.tenant_id }, "Provisioned Twilio number after Stripe checkout");
+              } else {
+                log.warn({ tenantId: tenant.tenant_id }, "No AU numbers available after checkout — staying PENDING");
+              }
+            } catch (provisionErr: any) {
+              log.warn({ err: provisionErr, tenantId: tenant.tenant_id }, "Twilio provisioning failed after checkout — staying PENDING");
+            }
+          } else {
+            twilioNumber = tenant.twilio_number;
+          }
+
+          const fwdCode = twilioNumber ? generateForwardingCode(twilioNumber) : null;
           try {
-            const body = isProvisioned
-              ? `Your 14-day free trial has started, ${tenant.name}! Your AI receptionist number: ${formatAuPhone(tenant.twilio_number)}\n\nTo activate, open your phone dialler and type:\n${fwdCode}\nThen press Call. That's it - you're live!\n\nNeed help? Reply to this text.`
-              : `Your 14-day free trial has started, ${tenant.name}! We're setting up your number - you'll get an SMS with your activation code shortly.\n\nIn the meantime, try the demo: ${env.PUBLIC_BASE_URL}/dashboard/welcome`;
+            const body = twilioNumber
+              ? `Your 14-day free trial has started, ${tenant.name}! Your AI receptionist number: ${formatAuPhone(twilioNumber)}\n\nTo activate, open your phone dialler and type:\n${fwdCode}\nThen press Call. That's it - you're live!\n\nNeed help? Reply to this text.`
+              : `Your 14-day free trial has started, ${tenant.name}! We're setting up your number - you'll get an SMS with your activation code shortly.\n\nIn the meantime, check your dashboard: ${env.PUBLIC_BASE_URL}/dashboard/welcome`;
             const sms = await sendOwnerSms(db, body, tenant.owner_phone);
             if (sms.status === "skipped") log.warn({ reason: sms.reason }, "Post-checkout welcome SMS skipped");
           } catch (e) { log.warn({ e }, "Post-checkout welcome SMS failed"); }
+
+          if (env.OWNER_PHONE_NUMBER) {
+            try {
+              const sms = await sendOwnerSms(db,
+                `PickupAI: New trial started (card on file) - ${tenant.name} (${formatAuPhone(tenant.owner_phone)})${twilioNumber ? ` Number: ${formatAuPhone(twilioNumber)}` : " (number pending)"}. Admin: ${env.PUBLIC_BASE_URL}/admin/users/${tenant.tenant_id}`
+              );
+              if (sms.status === "skipped") log.warn({ reason: sms.reason }, "founder trial notification SMS skipped");
+            } catch (e) { log.warn({ e }, "founder trial notification SMS failed"); }
+          }
         } else {
-          log.info({ tenantId: tenant.tenant_id, currentStatus: tenant.payment_status }, "stripe-success: tenant not pending — skipping (idempotent)");
+          log.info({ tenantId: tenant.tenant_id, currentStatus: tenant.payment_status }, "stripe-success: tenant not demo/pending — skipping (idempotent)");
         }
       }
     } catch (err: any) {
