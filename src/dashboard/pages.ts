@@ -351,10 +351,12 @@ export type WelcomePageOpts = {
   demoAudioError?: boolean;
   /** Whether demo pool numbers are configured (controls Demo 2 visibility) */
   hasDemoPool?: boolean;
+  /** ISO timestamp when the demo number expires (for countdown timer) */
+  demoNumberExpiresAt?: string;
 };
 
 export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
-  const { demoNumber, error, simulationStarted, demoAudioReady, demoAudioGenerating, demoAudioError, hasDemoPool } = opts;
+  const { demoNumber, error, simulationStarted, demoAudioReady, demoAudioGenerating, demoAudioError, hasDemoPool, demoNumberExpiresAt } = opts;
   const demoNumberFormatted = demoNumber ? formatAuPhone(demoNumber) : null;
 
   const isDemo = tenant.payment_status === "demo";
@@ -474,7 +476,7 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
         ? `<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:1rem;flex:1;min-width:200px;">
             <p style="font-weight:600;color:#16a34a;font-size:.9rem;margin-bottom:.3rem;">Your demo number:</p>
             <p style="font-family:monospace;font-size:1.15rem;font-weight:700;margin-bottom:.3rem;">${escape(demoNumberFormatted ?? demoNumber)}</p>
-            <p style="font-size:.78rem;color:var(--gray-500);">Call it now from your mobile — available for 10 minutes. You can request a new one after it expires.</p>
+            <p style="font-size:.78rem;color:var(--gray-500);">Call it now from your mobile — <span id="demo-countdown" data-expires="${demoNumberExpiresAt || ""}"></span></p>
           </div>`
         : `<form method="POST" action="/dashboard/request-demo" style="flex:1;">
             <button type="submit" class="btn btn-ghost" style="width:100%;">Get a number to call yourself</button>
@@ -548,10 +550,10 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
     : `<div class="card" style="border:2px solid #fde68a;margin-bottom:1rem;">
         <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;">
           <div style="width:40px;height:40px;border-radius:50%;background:var(--amber);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;">1</div>
-          <h2 style="margin:0;font-size:1.05rem;">Your number is being set up</h2>
+          <h2 style="margin:0;font-size:1.05rem;">We're provisioning your dedicated number</h2>
         </div>
         <p style="font-size:.9rem;color:var(--gray-600);">
-          We're setting up your phone number. You'll receive an SMS with your activation code shortly. In the meantime, try a demo below!
+          Your phone number is being set up — this usually completes within a few minutes. You'll receive an SMS with your activation code once it's ready.
         </p>
       </div>`;
 
@@ -563,7 +565,7 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
     <span style="font-size:2rem;">🎉</span>
     <div>
       <div style="font-weight:700;font-size:1.15rem;">Welcome, ${escape(tenant.name)}!</div>
-      <div style="opacity:.85;font-size:.9rem;margin-top:.2rem;">${isPendingPayment ? "One more step to activate your AI receptionist." : isNumberReady ? "Your AI receptionist is ready. Follow the steps below to go live." : "Your account is set up. We're getting your number ready."}</div>
+      <div style="opacity:.85;font-size:.9rem;margin-top:.2rem;">${isPendingPayment ? "One more step to activate your AI receptionist." : isNumberReady ? "Your AI receptionist is ready. Follow the steps below to go live." : "Your number is being set up — you'll get an SMS with your activation code shortly."}</div>
     </div>
   </div>
 
@@ -579,6 +581,15 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
     <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:1rem;">
       Ask a mate to call your business number and don't answer. After ~20 seconds your AI picks up. You should get a text on <strong>${escape(tenant.owner_phone ? formatAuPhone(tenant.owner_phone) : "your mobile")}</strong> within a minute.
     </p>
+    ${demoAudioReady ? `<div style="background:var(--gray-50);border:1.5px solid var(--gray-200);border-radius:10px;padding:1rem 1.25rem;margin-bottom:1rem;">
+      <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.4rem;">
+        <span style="color:var(--green);font-size:1.1rem;">&#10003;</span>
+        <span style="font-weight:600;font-size:.85rem;">Your personalised demo call</span>
+      </div>
+      <audio controls preload="auto" style="width:100%;border-radius:8px;">
+        <source src="/dashboard/demo-audio.mp3" type="audio/mpeg" />
+      </audio>
+    </div>` : ""}
     <p style="font-size:.85rem;color:var(--gray-500);">Or try a quick demo right now:</p>
     <div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-top:.75rem;">
       ${simulationStarted
@@ -593,7 +604,7 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
         ? `<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:1rem;flex:1;min-width:200px;">
             <p style="font-weight:600;color:#16a34a;font-size:.9rem;margin-bottom:.3rem;">Demo number ready:</p>
             <p style="font-family:monospace;font-size:1rem;margin-bottom:.3rem;">${escape(demoNumberFormatted ?? demoNumber)}</p>
-            <p style="font-size:.78rem;color:var(--gray-500);">Call it from your mobile to hear your AI receptionist.</p>
+            <p style="font-size:.78rem;color:var(--gray-500);">Call it from your mobile — <span id="demo-countdown-postpay" data-expires="${demoNumberExpiresAt || ""}"></span></p>
           </div>`
         : `<form method="POST" action="/dashboard/request-demo" style="flex:1;">
             <button type="submit" class="btn btn-ghost" style="width:100%;">Get a number to call yourself</button>
@@ -622,7 +633,36 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
       Need help? Text or email <a href="mailto:hello@getpickupai.com.au">hello@getpickupai.com.au</a>
     </p>
   </div>
-</div>`;
+</div>
+<script>
+(function(){
+  var els = document.querySelectorAll('[id^="demo-countdown"]');
+  els.forEach(function(el){
+    var exp = el.getAttribute('data-expires');
+    if(!exp) { el.textContent = 'available for 10 minutes.'; return; }
+    var end = new Date(exp).getTime();
+    function tick(){
+      var now = Date.now();
+      var diff = Math.max(0, Math.floor((end - now) / 1000));
+      if(diff <= 0){
+        el.innerHTML = '<strong style="color:#dc2626;">expired.</strong> <a href="" style="color:var(--brand);text-decoration:underline;">Request a new number</a>';
+        el.querySelector('a').addEventListener('click', function(e){
+          e.preventDefault();
+          var f = document.createElement('form');
+          f.method = 'POST'; f.action = '/dashboard/request-demo';
+          document.body.appendChild(f); f.submit();
+        });
+        return;
+      }
+      var m = Math.floor(diff / 60);
+      var s = diff % 60;
+      el.textContent = m + 'm ' + (s < 10 ? '0' : '') + s + 's remaining.';
+      setTimeout(tick, 1000);
+    }
+    tick();
+  });
+})();
+</script>`;
 
   return shell("Welcome", body, tenant);
 }
