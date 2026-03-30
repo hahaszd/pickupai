@@ -10,6 +10,7 @@ import { WebSocketServer } from "ws";
 import pino from "pino";
 import pinoHttp from "pino-http";
 import { buildSystemPrompt, type ChatContext } from "./chat/system-prompt.js";
+import { createSilenceMP3, getSpeakerChangeDelay } from "./silence.js";
 
 // ─── Simple in-memory rate limiter ────────────────────────────────────────────
 // Tracks attempt counts per IP in a sliding window. No external deps needed.
@@ -2264,9 +2265,15 @@ async function main() {
       log.warn({ configured: rawVoice, fallback: "nova" }, "TTS voice is not valid for tts-1 model, falling back to nova");
     }
     const chunks: Buffer[] = [];
-    for (const line of lines) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
       const voice = line.speaker === "ai" ? aiVoice : script.customerVoice;
       chunks.push(await ttsChunk(line.text, voice));
+
+      if (i < lines.length - 1) {
+        const nextSpeaker = lines[i + 1].speaker;
+        chunks.push(createSilenceMP3(getSpeakerChangeDelay(line.speaker, nextSpeaker)));
+      }
     }
 
     const combined = Buffer.concat(chunks);

@@ -80,10 +80,10 @@
   padding: 20px; text-align: center; color: #64748b; font-size: .88rem;\
 }\
 \
-@media (max-width: 480px) {\
+@media (max-width: 640px) {\
   #pai-chat-panel { right: 0; bottom: 0; left: 0; width: 100%; max-height: 100vh;\
     border-radius: 16px 16px 0 0; max-height: 85vh; }\
-  #pai-chat-bubble { bottom: 16px; right: 16px; }\
+  #pai-chat-bubble { bottom: 80px; right: 16px; }\
 }';
 
   // ── Inject styles ─────────────────────────────────────────────────────────

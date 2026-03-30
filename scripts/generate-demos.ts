@@ -11,6 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as dotenv from "dotenv";
+import { createSilenceMP3, getSpeakerChangeDelay } from "../src/silence.js";
 
 dotenv.config();
 
@@ -367,6 +368,11 @@ async function generateDemo(demo: typeof DEMOS[0]): Promise<void> {
     const voice: Voice = speaker === "ai" ? AI_VOICE : demo.customerVoice;
     process.stdout.write(`  [${i + 1}/${demo.lines.length}] ${speaker === "ai" ? "AI" : "Customer"}: ${text.slice(0, 65)}…\r`);
     chunks.push(await ttsChunk(text, voice));
+
+    if (i < demo.lines.length - 1) {
+      const nextSpeaker = demo.lines[i + 1].speaker;
+      chunks.push(createSilenceMP3(getSpeakerChangeDelay(speaker, nextSpeaker)));
+    }
   }
 
   const combined = Buffer.concat(chunks);

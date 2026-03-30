@@ -68,7 +68,7 @@ function shell(title: string, body: string, tenant?: TenantRow) {
     nav a { color: rgba(255,255,255,.85); font-size: .9rem; }
     nav a:hover { color: #fff; text-decoration: none; }
     nav .spacer { flex: 1; }
-    .nav-toggle { display: none; background: none; border: none; color: #fff; font-size: 1.5rem; cursor: pointer; padding: .25rem; line-height: 1; }
+    .nav-toggle { display: none; background: none; border: none; color: #fff; font-size: 1.5rem; cursor: pointer; padding: .5rem; line-height: 1; min-width: 44px; min-height: 44px; }
     .nav-links { display: contents; }
     .mobile-spacer { display: none; }
     @media (max-width: 640px) {
@@ -77,7 +77,7 @@ function shell(title: string, body: string, tenant?: TenantRow) {
       .desktop-spacer { display: none; }
       .nav-links { display: none; width: 100%; flex-direction: column; gap: 0; background: var(--brand); padding: .5rem 0; }
       .nav-links.open { display: flex; }
-      .nav-links a { padding: .6rem 0; border-top: 1px solid rgba(255,255,255,.15); }
+      .nav-links a { padding: .75rem 0; border-top: 1px solid rgba(255,255,255,.15); min-height: 44px; display: flex; align-items: center; }
     }
     .container { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
     .card { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.5rem; }
@@ -102,9 +102,10 @@ function shell(title: string, body: string, tenant?: TenantRow) {
     tr:last-child td { border-bottom: none; }
     tr:hover td { background: var(--gray-50); }
     .btn {
-      display: inline-block; padding: .45rem 1rem; border-radius: 6px;
+      display: inline-flex; align-items: center; justify-content: center;
+      padding: .45rem 1rem; border-radius: 6px;
       font-size: .85rem; font-weight: 600; cursor: pointer; border: none;
-      text-decoration: none; transition: opacity .15s;
+      text-decoration: none; transition: opacity .15s; min-height: 44px;
     }
     .btn:hover { opacity: .85; text-decoration: none; }
     .btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
@@ -115,14 +116,15 @@ function shell(title: string, body: string, tenant?: TenantRow) {
     .form-group { margin-bottom: 1rem; }
     label { display: block; font-size: .85rem; font-weight: 600; margin-bottom: .3rem; }
     input, select, textarea { width: 100%; padding: .5rem .75rem; border: 1.5px solid var(--gray-200);
-                    border-radius: 6px; font-size: .9rem; font-family: inherit; }
+                    border-radius: 6px; font-size: 1rem; font-family: inherit; min-height: 44px; }
     input:focus, select:focus, textarea:focus { border-color: var(--brand); outline: 2px solid var(--brand); outline-offset: 1px; }
     textarea { resize: vertical; min-height: 80px; }
     .filters { display: flex; gap: .75rem; flex-wrap: wrap; margin-bottom: 1rem; }
     .filter-chip {
-      padding: .35rem .9rem; border-radius: 999px; font-size: .8rem; font-weight: 600;
+      padding: .5rem .9rem; border-radius: 999px; font-size: .8rem; font-weight: 600;
       border: 1.5px solid var(--gray-200); background: #fff; cursor: pointer;
       text-decoration: none; color: var(--gray-600); transition: all .15s;
+      min-height: 44px; display: inline-flex; align-items: center;
     }
     .filter-chip:hover { border-color: var(--brand); color: var(--brand); text-decoration: none; }
     .filter-chip:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
@@ -143,6 +145,10 @@ function shell(title: string, body: string, tenant?: TenantRow) {
     details[open] .adv-arrow { transform: rotate(90deg); }
     @media (max-width: 640px) {
       .detail-grid, .settings-grid { grid-template-columns: 1fr; }
+      .container { padding: 1rem; }
+      .onboarding-steps { flex-direction: column !important; gap: .75rem !important; }
+      .onboarding-steps .step-connector { display: none !important; }
+      .onboarding-step { flex-direction: row !important; gap: .75rem !important; text-align: left !important; }
     }
   </style>
 </head>
@@ -159,7 +165,7 @@ function shell(title: string, body: string, tenant?: TenantRow) {
          <a href="/dashboard/welcome">Setup</a>
          <div class="spacer desktop-spacer"></div>
          <form method="POST" action="/dashboard/logout" style="display:inline;margin:0;padding:0;">
-           <button type="submit" style="background:none;border:none;color:rgba(255,255,255,.85);font-size:.9rem;cursor:pointer;padding:0;font-family:inherit;">Log out</button>
+           <button type="submit" style="background:none;border:none;color:rgba(255,255,255,.85);font-size:.9rem;cursor:pointer;padding:.75rem 0;font-family:inherit;min-height:44px;">Log out</button>
          </form>
        </div>`
     : ``}
@@ -170,6 +176,10 @@ ${banner}
 </div>
 ${tenant ? `<script>window.__pickupai_chat_context=${JSON.stringify({ name: tenant.name, trade: tenant.trade_type })};</script>` : ""}
 <script src="/chat-widget.js" defer></script>
+<script>
+document.addEventListener('click',function(e){var n=document.querySelector('nav'),l=document.querySelector('.nav-links'),t=document.querySelector('.nav-toggle');if(l&&l.classList.contains('open')&&n&&!n.contains(e.target)){l.classList.remove('open');if(t)t.setAttribute('aria-expanded','false');}});
+document.addEventListener('keydown',function(e){if(e.key==='Escape'){var l=document.querySelector('.nav-links'),t=document.querySelector('.nav-toggle');if(l&&l.classList.contains('open')){l.classList.remove('open');if(t){t.setAttribute('aria-expanded','false');t.focus();}}}});
+</script>
 </body>
 </html>`;
 }
@@ -270,7 +280,7 @@ export function signupPage(error?: string, prefill: Record<string, string> = {})
       <div class="form-group">
         <label for="service_area">Where do you work? <span style="font-size:.8rem;font-weight:400;color:var(--gray-600);">(optional)</span></label>
         <input type="text" id="service_area" name="service_area" placeholder="e.g. All of Sydney metro, Hills District, Inner West" value="${escape(prefill.service_area ?? "")}" />
-        <p style="font-size:.78rem;color:var(--gray-500);margin-top:.25rem">If left blank, your AI will accept jobs from any location. If set, out-of-area callers are still captured but flagged for you to confirm.</p>
+        <p style="font-size:.8rem;color:var(--gray-500);margin-top:.25rem">If left blank, your AI will accept jobs from any location. If set, out-of-area callers are still captured but flagged for you to confirm.</p>
       </div>
       <div class="form-group">
         <label for="email">Email</label>
@@ -282,7 +292,7 @@ export function signupPage(error?: string, prefill: Record<string, string> = {})
       </div>
       <div class="form-group">
         <label style="display:flex;align-items:flex-start;gap:.65rem;cursor:pointer;font-weight:400;">
-          <input type="checkbox" name="terms_accepted" required style="width:auto;margin-top:.2rem;" />
+          <input type="checkbox" name="terms_accepted" required style="width:20px;height:20px;margin-top:.2rem;flex-shrink:0;" />
           <span style="font-size:.85rem;">I agree to the
             <a href="/terms" target="_blank">Terms of Service</a> and
             <a href="/privacy" target="_blank">Privacy Policy</a>
@@ -321,18 +331,18 @@ function onboardingProgress(tenant: TenantRow, opts?: { demoAudioReady?: boolean
     const color = s.done ? "var(--green)" : "var(--gray-300)";
     const icon = s.done ? "\u2713" : String(i + 1);
     const textColor = s.done ? "var(--green)" : "var(--gray-600)";
-    const parts = [`<div style="display:flex;flex-direction:column;align-items:center;gap:.35rem;">
-      <div style="width:32px;height:32px;border-radius:50%;background:${color};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.8rem;">${icon}</div>
-      <span style="font-size:.72rem;font-weight:600;color:${textColor};text-align:center;">${s.label}</span>
+    const parts = [`<div class="onboarding-step" style="display:flex;flex-direction:column;align-items:center;gap:.35rem;">
+      <div style="width:32px;height:32px;border-radius:50%;background:${color};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.8rem;flex-shrink:0;">${icon}</div>
+      <span style="font-size:.8rem;font-weight:600;color:${textColor};text-align:center;">${s.label}</span>
     </div>`];
     if (i < steps.length - 1) {
       const nextDone = steps[i + 1].done;
-      parts.push(`<div style="flex:1;height:3px;background:${nextDone ? "var(--green)" : "var(--gray-200)"};margin-top:16px;"></div>`);
+      parts.push(`<div class="step-connector" style="flex:1;height:3px;background:${nextDone ? "var(--green)" : "var(--gray-200)"};margin-top:16px;min-width:20px;"></div>`);
     }
     return parts.join("");
   }).join("");
 
-  return `<div style="display:flex;align-items:flex-start;gap:0;margin-bottom:1.5rem;padding:1rem 0;">${stepsRow}</div>`;
+  return `<div class="onboarding-steps" style="display:flex;align-items:flex-start;gap:0;margin-bottom:1.5rem;padding:1rem 0;">${stepsRow}</div>`;
 }
 
 // ─── Setup guide page (shown after signup) ────────────────────────────────────
@@ -379,14 +389,14 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
           <div style="width:36px;height:36px;border-radius:50%;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-weight:700;">&#10003;</div>
           <div>
             <div style="font-weight:600;font-size:.9rem;">Your personalised demo call</div>
-            <div style="font-size:.78rem;color:var(--gray-500);">Hear how <strong>${escape(tenant.ai_name || "Olivia")}</strong> answers calls for <strong>${escape(tenant.name)}</strong></div>
+            <div style="font-size:.8rem;color:var(--gray-500);">Hear how <strong>${escape(tenant.ai_name || "Olivia")}</strong> answers calls for <strong>${escape(tenant.name)}</strong></div>
           </div>
         </div>
         <audio id="demo-audio" controls preload="auto" style="width:100%;margin-top:.5rem;border-radius:8px;">
           <source src="/dashboard/demo-audio.mp3" type="audio/mpeg" />
           Your browser doesn't support audio playback.
         </audio>
-        <p style="font-size:.75rem;color:var(--gray-400);margin-top:.5rem;text-align:center;">Play, pause, rewind — listen as many times as you like.</p>
+        <p style="font-size:.8rem;color:var(--gray-400);margin-top:.5rem;text-align:center;">Play, pause, rewind — listen as many times as you like.</p>
       </div>
       <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:.75rem 1rem;display:flex;align-items:center;gap:.5rem;">
         <span style="color:#16a34a;font-size:1.1rem;">&#10003;</span>
@@ -400,7 +410,7 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
         </div>
         <p style="font-weight:600;font-size:.95rem;color:var(--brand);margin-bottom:.35rem;">Generating your personalised demo...</p>
         <p style="font-size:.82rem;color:var(--gray-500);">Our AI is creating a custom call demo for <strong>${escape(tenant.name)}</strong>. This usually takes 15–30 seconds.</p>
-        <p style="font-size:.78rem;color:var(--gray-400);margin-top:.5rem;">We'll also send a sample SMS to your phone when it's ready.</p>
+        <p style="font-size:.8rem;color:var(--gray-400);margin-top:.5rem;">We'll also send a sample SMS to your phone when it's ready.</p>
       </div>
       <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
       <script>
@@ -422,7 +432,7 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
       <div style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:10px;padding:1rem 1.25rem;margin-bottom:1rem;">
         <p style="font-weight:600;color:#dc2626;font-size:.9rem;margin-bottom:.35rem;">Something went wrong generating your demo</p>
         <p style="font-size:.82rem;color:var(--gray-600);margin-bottom:.75rem;">Don't worry — just hit the button below to try again. It usually works on the second attempt.</p>
-        <p id="demo-error-detail" style="font-size:.72rem;color:var(--gray-400);font-family:monospace;word-break:break-all;display:none;margin-top:.5rem;"></p>
+        <p id="demo-error-detail" style="font-size:.8rem;color:var(--gray-400);font-family:monospace;word-break:break-all;display:none;margin-top:.5rem;"></p>
         <!-- Debug info only shown when ?debug=1 is in URL -->
       </div>
       <form method="POST" action="/dashboard/generate-demo-audio">
@@ -451,7 +461,7 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
         <button type="submit" class="btn btn-primary" style="width:100%;font-size:1rem;padding:.85rem;"
           onclick="this.disabled=true;this.textContent='Generating...';this.form.submit();">Generate my personalised demo →</button>
       </form>
-      <p style="font-size:.78rem;color:var(--gray-400);margin-top:.6rem;text-align:center;">Takes about 15–30 seconds. Uses AI to create audio specific to ${escape(tenant.name)}.</p>`;
+      <p style="font-size:.8rem;color:var(--gray-400);margin-top:.6rem;text-align:center;">Takes about 15–30 seconds. Uses AI to create audio specific to ${escape(tenant.name)}.</p>`;
     }
 
     const body = `
@@ -490,7 +500,7 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
       ? `<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:1rem;">
           <p style="font-weight:600;color:#16a34a;font-size:.9rem;margin-bottom:.3rem;">Your demo number:</p>
           <p style="font-family:monospace;font-size:1.15rem;font-weight:700;margin-bottom:.3rem;">${escape(demoNumberFormatted ?? demoNumber)}</p>
-          <p style="font-size:.78rem;color:var(--gray-500);">Call it now from your mobile — <span id="demo-countdown" data-expires="${demoNumberExpiresAt || ""}"></span></p>
+          <p style="font-size:.8rem;color:var(--gray-500);">Call it now from your mobile — <span id="demo-countdown" data-expires="${demoNumberExpiresAt || ""}"></span></p>
         </div>`
       : `<form method="POST" action="/dashboard/request-demo">
           <button type="submit" class="btn btn-outline" style="width:100%;"
@@ -511,7 +521,7 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
       <button type="submit" class="btn btn-primary" style="width:100%;font-size:1rem;padding:.85rem;">I'm ready — start free trial →</button>
     </form>
     <p id="checkout-error" style="font-size:.82rem;color:#dc2626;margin-top:.5rem;text-align:center;display:none;"></p>
-    <p style="font-size:.78rem;color:var(--gray-500);margin-top:.75rem;text-align:center;">Secure payment via Stripe. 14-day free trial. Cancel any time.</p>
+    <p style="font-size:.8rem;color:var(--gray-500);margin-top:.75rem;text-align:center;">Secure payment via Stripe. 14-day free trial. Cancel any time.</p>
     <script>
     (function(){
       var form = document.getElementById('checkout-form');
@@ -551,7 +561,7 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
     if (diff <= 0) {
       el.innerHTML = '<strong style="color:#dc2626;">expired.</strong> ';
       var a = document.createElement('a');
-      a.href = '#'; a.style.cssText = 'color:var(--brand);text-decoration:underline;';
+      a.href = '#'; a.style.cssText = 'display:inline-block;color:var(--brand);text-decoration:underline;padding:.5rem 0;min-height:44px;line-height:44px;font-weight:600;';
       a.textContent = 'Request a new number';
       a.addEventListener('click', function(e) {
         e.preventDefault();
@@ -585,7 +595,7 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
         <form method="POST" action="/dashboard/create-checkout-session">
           <button type="submit" class="btn btn-primary" style="width:100%;font-size:1rem;padding:.85rem;">Start free trial — add card →</button>
         </form>
-        <p style="font-size:.78rem;color:var(--gray-500);margin-top:.75rem;text-align:center;">Secure payment via Stripe. Cancel any time from your account.</p>
+        <p style="font-size:.8rem;color:var(--gray-500);margin-top:.75rem;text-align:center;">Secure payment via Stripe. Cancel any time from your account.</p>
       </div>`
     : isNumberReady
     ? `<div class="card" style="border:2px solid var(--brand);margin-bottom:1rem;">
@@ -599,7 +609,7 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
         <div style="position:relative;background:var(--gray-50);border:2px solid var(--gray-200);border-radius:10px;padding:1rem 1.25rem;font-family:monospace;font-size:1.15rem;letter-spacing:.05em;margin-bottom:.75rem;text-align:center;word-break:break-all;">
           <span id="fwd-code">${escape(forwardingCodeStr!)}</span>
           <button onclick="var t=document.getElementById('fwd-code');navigator.clipboard.writeText(t.textContent).then(()=>{this.textContent='Copied!'}).catch(()=>{var r=document.createRange();r.selectNodeContents(t);var s=window.getSelection();s.removeAllRanges();s.addRange(r);this.textContent='Selected!'});setTimeout(()=>this.textContent='Copy',1500)"
-            style="position:absolute;right:.75rem;top:50%;transform:translateY(-50%);background:var(--brand);color:#fff;border:none;border-radius:6px;padding:.3rem .75rem;font-size:.75rem;font-weight:600;cursor:pointer;">Copy</button>
+            style="position:absolute;right:.75rem;top:50%;transform:translateY(-50%);background:var(--brand);color:#fff;border:none;border-radius:6px;padding:.3rem .75rem;font-size:.8rem;font-weight:600;cursor:pointer;">Copy</button>
         </div>
         <p style="font-size:.85rem;color:var(--gray-600);margin-bottom:.5rem;">You'll hear a confirmation tone. That's it — your AI receptionist is live!</p>
         <details style="margin-top:.5rem;">
@@ -613,7 +623,7 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
               <li><strong>Optus:</strong> Dial <code>##61#</code> and press Call (or use My Optus app → Call Settings)</li>
               <li><strong>Vodafone:</strong> Dial <code>##61#</code> and press Call (or use My Vodafone app → Call Divert)</li>
             </ul>
-            <p style="margin-top:.35rem;font-size:.78rem;color:var(--gray-400);">The <code>##61#</code> code works on most AU carriers. If it doesn't, contact your carrier to remove call forwarding on no answer.</p>
+            <p style="margin-top:.35rem;font-size:.8rem;color:var(--gray-400);">The <code>##61#</code> code works on most AU carriers. If it doesn't, contact your carrier to remove call forwarding on no answer.</p>
           </div>
         </details>
       </div>`
@@ -665,7 +675,7 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
         ? `<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:1rem;flex:1;min-width:200px;">
             <p style="font-weight:600;color:#16a34a;font-size:.9rem;margin-bottom:.3rem;">Demo number ready:</p>
             <p style="font-family:monospace;font-size:1rem;margin-bottom:.3rem;">${escape(demoNumberFormatted ?? demoNumber)}</p>
-            <p style="font-size:.78rem;color:var(--gray-500);">Call it from your mobile to hear your AI receptionist.</p>
+            <p style="font-size:.8rem;color:var(--gray-500);">Call it from your mobile to hear your AI receptionist.</p>
           </div>`
         : `<form method="POST" action="/dashboard/request-demo" style="flex:1;">
             <button type="submit" class="btn btn-ghost" style="width:100%;">Get a number to call yourself</button>
@@ -744,23 +754,23 @@ export function leadsPage(
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.75rem;margin-bottom:1.25rem;">
   <div class="card" style="padding:.85rem;text-align:center;">
     <div style="font-size:1.6rem;font-weight:700;color:var(--brand)">${stats.total}</div>
-    <div style="font-size:.75rem;color:var(--gray-600);text-transform:uppercase;letter-spacing:.4px">Total</div>
+    <div style="font-size:.8rem;color:var(--gray-600);text-transform:uppercase;letter-spacing:.4px">Total</div>
   </div>
   <div class="card" style="padding:.85rem;text-align:center;">
     <div style="font-size:1.6rem;font-weight:700;color:var(--brand)">${stats.this_week}</div>
-    <div style="font-size:.75rem;color:var(--gray-600);text-transform:uppercase;letter-spacing:.4px">This week</div>
+    <div style="font-size:.8rem;color:var(--gray-600);text-transform:uppercase;letter-spacing:.4px">This week</div>
   </div>
   <div class="card" style="padding:.85rem;text-align:center;border-left:3px solid var(--red)">
     <div style="font-size:1.6rem;font-weight:700;color:var(--red)">${stats.emergency}</div>
-    <div style="font-size:.75rem;color:var(--gray-600);text-transform:uppercase;letter-spacing:.4px">Emergency</div>
+    <div style="font-size:.8rem;color:var(--gray-600);text-transform:uppercase;letter-spacing:.4px">Emergency</div>
   </div>
   <div class="card" style="padding:.85rem;text-align:center;border-left:3px solid var(--orange)">
     <div style="font-size:1.6rem;font-weight:700;color:var(--orange)">${stats.urgent}</div>
-    <div style="font-size:.75rem;color:var(--gray-600);text-transform:uppercase;letter-spacing:.4px">Urgent</div>
+    <div style="font-size:.8rem;color:var(--gray-600);text-transform:uppercase;letter-spacing:.4px">Urgent</div>
   </div>
   <div class="card" style="padding:.85rem;text-align:center;border-left:3px solid var(--green)">
     <div style="font-size:1.6rem;font-weight:700;color:var(--green)">${stats.booked + stats.handled + stats.called_back}</div>
-    <div style="font-size:.75rem;color:var(--gray-600);text-transform:uppercase;letter-spacing:.4px">Handled</div>
+    <div style="font-size:.8rem;color:var(--gray-600);text-transform:uppercase;letter-spacing:.4px">Handled</div>
   </div>
 </div>` : "";
 
@@ -831,8 +841,8 @@ ${statsBar}
 </div>
 <div class="card">
   <form method="GET" action="/dashboard/leads" style="margin-bottom:.75rem;">
-    <div style="display:flex;gap:.5rem;">
-      <input type="text" name="search" value="${escape(filters.search ?? "")}" placeholder="Search by name, phone, address, or issue…" style="flex:1;" />
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+      <input type="text" name="search" value="${escape(filters.search ?? "")}" placeholder="Search by name, phone, address, or issue…" style="flex:1;min-width:0;" />
       ${filters.urgency ? `<input type="hidden" name="urgency" value="${escape(filters.urgency)}" />` : ""}
       ${filters.status ? `<input type="hidden" name="status" value="${escape(filters.status)}" />` : ""}
       <button type="submit" class="btn btn-primary btn-sm">Search</button>
@@ -998,24 +1008,24 @@ export function statsPage(tenant: TenantRow, stats: StatsData): string {
 <h1>Call Stats</h1>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin-bottom:2rem;">
   <div class="card" style="text-align:center;">
-    <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Calls this week</p>
+    <p style="font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Calls this week</p>
     <p style="font-size:2rem;font-weight:700;color:var(--brand);">${fmt(stats.callsThisWeek)}</p>
-    ${stats.weekLabel ? `<p style="font-size:.68rem;color:var(--gray-400);margin-top:.25rem;">${stats.weekLabel}</p>` : ""}
+    ${stats.weekLabel ? `<p style="font-size:.8rem;color:var(--gray-400);margin-top:.25rem;">${stats.weekLabel}</p>` : ""}
   </div>
   <div class="card" style="text-align:center;">
-    <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Calls this month</p>
+    <p style="font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Calls this month</p>
     <p style="font-size:2rem;font-weight:700;color:var(--brand);">${fmt(stats.callsThisMonth)}</p>
-    ${stats.monthLabel ? `<p style="font-size:.68rem;color:var(--gray-400);margin-top:.25rem;">${stats.monthLabel}</p>` : ""}
+    ${stats.monthLabel ? `<p style="font-size:.8rem;color:var(--gray-400);margin-top:.25rem;">${stats.monthLabel}</p>` : ""}
   </div>
   <div class="card" style="text-align:center;">
-    <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Jobs this week</p>
+    <p style="font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Jobs this week</p>
     <p style="font-size:2rem;font-weight:700;color:var(--green);">${fmt(stats.leadsThisWeek)}</p>
-    ${stats.weekLabel ? `<p style="font-size:.68rem;color:var(--gray-400);margin-top:.25rem;">${stats.weekLabel}</p>` : ""}
+    ${stats.weekLabel ? `<p style="font-size:.8rem;color:var(--gray-400);margin-top:.25rem;">${stats.weekLabel}</p>` : ""}
   </div>
   <div class="card" style="text-align:center;">
-    <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Jobs this month</p>
+    <p style="font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Jobs this month</p>
     <p style="font-size:2rem;font-weight:700;color:var(--green);">${fmt(stats.leadsThisMonth)}</p>
-    ${stats.monthLabel ? `<p style="font-size:.68rem;color:var(--gray-400);margin-top:.25rem;">${stats.monthLabel}</p>` : ""}
+    ${stats.monthLabel ? `<p style="font-size:.8rem;color:var(--gray-400);margin-top:.25rem;">${stats.monthLabel}</p>` : ""}
   </div>
 </div>
 
@@ -1023,15 +1033,15 @@ export function statsPage(tenant: TenantRow, stats: StatsData): string {
   <h2>All time</h2>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1rem;text-align:center;margin-top:1rem;">
     <div>
-      <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Total calls</p>
+      <p style="font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Total calls</p>
       <p style="font-size:1.75rem;font-weight:700;">${fmt(stats.totalCalls)}</p>
     </div>
     <div>
-      <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Total jobs</p>
+      <p style="font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Total jobs</p>
       <p style="font-size:1.75rem;font-weight:700;">${fmt(stats.totalLeads)}</p>
     </div>
     <div>
-      <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Total job value</p>
+      <p style="font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Total job value</p>
       <p style="font-size:1.75rem;font-weight:700;color:var(--green);">${fmtDollar(stats.totalJobValue)}</p>
     </div>
   </div>
@@ -1112,14 +1122,14 @@ ${flashHtml}
 
       <div class="form-group">
         <label style="display:flex;align-items:center;gap:.65rem;cursor:pointer;">
-          <input type="checkbox" name="enable_warm_transfer" value="1"${tenant.enable_warm_transfer ? " checked" : ""} style="width:auto;accent-color:var(--brand);" />
+          <input type="checkbox" name="enable_warm_transfer" value="1"${tenant.enable_warm_transfer ? " checked" : ""} style="width:20px;height:20px;accent-color:var(--brand);flex-shrink:0;" />
           <span>Live connect — transfer calls to your phone during business hours</span>
         </label>
         <p style="font-size:.8rem;color:var(--gray-500);margin-top:.25rem">When enabled, calls during business hours will ring you first. If you don't answer within 18 seconds, the AI takes over.</p>
       </div>
       <div class="form-group">
         <label style="display:flex;align-items:center;gap:.65rem;cursor:pointer;">
-          <input type="checkbox" name="vacation_mode" value="1"${tenant.vacation_mode ? " checked" : ""} style="width:auto;accent-color:var(--brand);" />
+          <input type="checkbox" name="vacation_mode" value="1"${tenant.vacation_mode ? " checked" : ""} style="width:20px;height:20px;accent-color:var(--brand);flex-shrink:0;" />
           <span>Holiday mode — tell callers the business is away</span>
         </label>
       </div>
@@ -1140,15 +1150,15 @@ ${flashHtml}
   <h2>Account info</h2>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;font-size:.9rem">
     <div>
-      <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.2rem">Email</p>
+      <p style="font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.2rem">Email</p>
       <p>${escape(tenant.owner_email ?? "")}</p>
     </div>
     <div>
-      <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.2rem">Plan</p>
+      <p style="font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.2rem">Plan</p>
       <p>${tenant.payment_status === "active" ? "Active" : tenant.payment_status === "trial" ? "Free trial" : tenant.payment_status === "pending" ? `Waiting for card — <a href="#" onclick="document.getElementById('pending-checkout-form').submit();return false;">complete signup</a><form id="pending-checkout-form" method="POST" action="/dashboard/create-checkout-session" style="display:none;"></form>` : "—"}</p>
     </div>
     ${tenant.trial_ends_at ? `<div>
-      <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.2rem">Trial ends</p>
+      <p style="font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.2rem">Trial ends</p>
       <p>${new Date(tenant.trial_ends_at).toLocaleDateString("en-AU", { dateStyle: "long" })}</p>
     </div>` : ""}
   </div>
@@ -1163,7 +1173,7 @@ ${flashHtml}
   <h2>Subscription</h2>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;font-size:.9rem;margin-bottom:1rem">
     <div>
-      <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.2rem">Status</p>
+      <p style="font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.2rem">Status</p>
       <p>${tenant.payment_status === "active" ? '<span style="color:var(--green);font-weight:700;">✓ Active</span>'
           : tenant.payment_status === "cancelling" ? '<span style="color:var(--amber);font-weight:700;">⏳ Cancelling at period end</span>'
           : tenant.payment_status === "trial" ? '<span style="color:var(--brand);font-weight:700;">Free trial</span>'
@@ -1173,11 +1183,11 @@ ${flashHtml}
           : '<span style="color:var(--gray-600);">—</span>'}</p>
     </div>
     ${tenant.trial_ends_at ? `<div>
-      <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.2rem">Trial ends</p>
+      <p style="font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.2rem">Trial ends</p>
       <p>${new Date(tenant.trial_ends_at).toLocaleDateString("en-AU", { dateStyle: "long" })}</p>
     </div>` : ""}
     <div>
-      <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.2rem">Plan</p>
+      <p style="font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.2rem">Plan</p>
       <p>${tenant.payment_status === "active" ? "Active subscription"
           : tenant.payment_status === "cancelling" ? "Cancelling — active until period end"
           : tenant.payment_status === "trial" ? "Free trial (14 days)"
@@ -1194,7 +1204,7 @@ ${flashHtml}
         <button type="submit" class="btn btn-outline btn-sm">Manage subscription (cancel / update card)</button>
       </form>`
     : ""}
-  <p style="font-size:.75rem;color:var(--gray-500);margin-top:.75rem;">
+  <p style="font-size:.8rem;color:var(--gray-500);margin-top:.75rem;">
     All prices inc. GST ·
     <a href="/terms" target="_blank">Terms</a> · <a href="/privacy" target="_blank">Privacy</a>
   </p>
@@ -1337,7 +1347,7 @@ export function upgradePage(tenant?: TenantRow, stripeEnabled?: boolean, reason?
     </p>
   </div>
   ${ctaHtml}
-  <p style="font-size:.75rem;color:var(--gray-500);margin-top:.75rem;">
+  <p style="font-size:.8rem;color:var(--gray-500);margin-top:.75rem;">
     All prices inc. GST ·
     <a href="/terms" target="_blank" style="color:var(--gray-500)">Terms</a> ·
     <a href="/privacy" target="_blank" style="color:var(--gray-500)">Privacy</a>
