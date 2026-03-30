@@ -48,6 +48,10 @@ const envSchema = z.object({
 
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_VOICE: z.string().default("sage"),
+  // Voice for TTS demo audio generation (tts-1 model).
+  // Valid: nova, shimmer, echo, onyx, fable, alloy, ash, sage, coral.
+  // Falls back to OPENAI_VOICE if unset; falls back to "nova" if neither is valid for TTS.
+  OPENAI_TTS_VOICE: z.string().optional(),
   // Hard guardrail: force-call completion if model never invokes end_call().
   // Defaults to 5 minutes to avoid stuck media streams and leaked call resources.
   MAX_CALL_DURATION_MS: z.coerce.number().int().positive().default(300000),

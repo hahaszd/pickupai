@@ -2090,10 +2090,10 @@ async function main() {
     const area = (tenant as any).service_area ?? null;
     const lines = script.scenario(bizName, aiName, area);
 
-    const rawVoice = env.OPENAI_VOICE || "nova";
+    const rawVoice = env.OPENAI_TTS_VOICE || env.OPENAI_VOICE || "nova";
     const aiVoice: TtsVoice = VALID_TTS_VOICES.has(rawVoice) ? (rawVoice as TtsVoice) : "nova";
     if (!VALID_TTS_VOICES.has(rawVoice)) {
-      log.warn({ configured: rawVoice, fallback: "nova" }, "OPENAI_VOICE is not a valid TTS voice, falling back to nova");
+      log.warn({ configured: rawVoice, fallback: "nova" }, "TTS voice is not valid for tts-1 model, falling back to nova");
     }
     const chunks: Buffer[] = [];
     for (const line of lines) {
