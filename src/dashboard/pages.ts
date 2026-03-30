@@ -509,38 +509,16 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
     (function(){
       var form = document.getElementById('checkout-form');
       var errEl = document.getElementById('checkout-error');
-      form.addEventListener('submit', function(e){
-        e.preventDefault();
+      var params = new URLSearchParams(window.location.search);
+      var errParam = params.get('error');
+      if (errParam) {
+        errEl.textContent = 'Error: ' + errParam;
+        errEl.style.display = 'block';
+      }
+      form.addEventListener('submit', function(){
         var btn = form.querySelector('button');
         btn.disabled = true;
         btn.textContent = 'Redirecting to Stripe...';
-        console.log('[PickupAI] Submitting checkout form...');
-        fetch('/dashboard/create-checkout-session', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          redirect: 'follow'
-        }).then(function(r){
-          console.log('[PickupAI] Checkout response:', r.status, r.url, r.redirected);
-          if (r.redirected) {
-            console.log('[PickupAI] Redirecting to:', r.url);
-            window.location.href = r.url;
-          } else {
-            return r.text().then(function(body){
-              console.error('[PickupAI] Unexpected response:', r.status, body.substring(0, 500));
-              errEl.textContent = 'Unexpected response (status ' + r.status + '). Check console for details.';
-              errEl.style.display = 'block';
-              btn.disabled = false;
-              btn.textContent = 'I\\'m ready — start free trial →';
-            });
-          }
-        }).catch(function(err){
-          console.error('[PickupAI] Checkout fetch error:', err);
-          errEl.textContent = 'Network error: ' + err.message;
-          errEl.style.display = 'block';
-          btn.disabled = false;
-          btn.textContent = 'I\\'m ready — start free trial →';
-        });
       });
     })();
     </script>
