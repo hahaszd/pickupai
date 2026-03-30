@@ -402,12 +402,15 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
       <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
       <script>
         (function(){
+          console.log('[PickupAI] Demo audio generation polling started');
           var poll=setInterval(function(){
             fetch("/dashboard/demo-audio-status",{credentials:"same-origin"})
               .then(function(r){return r.json()})
               .then(function(d){
-                if(d.status==="ready"||d.status==="error"){clearInterval(poll);location.reload();}
-              }).catch(function(){});
+                console.log('[PickupAI] Demo audio status:', JSON.stringify(d));
+                if(d.status==="ready"){console.log('[PickupAI] Audio ready, reloading');clearInterval(poll);location.reload();}
+                if(d.status==="error"){console.error('[PickupAI] Audio generation failed:', d.error);clearInterval(poll);location.reload();}
+              }).catch(function(e){console.error('[PickupAI] Status poll error:', e);});
           },3000);
         })();
       </script>`;
@@ -416,10 +419,24 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
       <div style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:10px;padding:1rem 1.25rem;margin-bottom:1rem;">
         <p style="font-weight:600;color:#dc2626;font-size:.9rem;margin-bottom:.35rem;">Something went wrong generating your demo</p>
         <p style="font-size:.82rem;color:var(--gray-600);margin-bottom:.75rem;">Don't worry — just hit the button below to try again. It usually works on the second attempt.</p>
+        <p id="demo-error-detail" style="font-size:.72rem;color:var(--gray-400);font-family:monospace;word-break:break-all;display:none;margin-top:.5rem;"></p>
       </div>
       <form method="POST" action="/dashboard/generate-demo-audio">
         <button type="submit" class="btn btn-primary" style="width:100%;font-size:1rem;padding:.85rem;">Try again →</button>
-      </form>`;
+      </form>
+      <script>
+        (function(){
+          fetch("/dashboard/demo-audio-status",{credentials:"same-origin"})
+            .then(function(r){return r.json()})
+            .then(function(d){
+              console.error('[PickupAI] Demo audio error details:', JSON.stringify(d));
+              if(d.error){
+                var el=document.getElementById('demo-error-detail');
+                if(el){el.textContent='Debug: '+d.error;el.style.display='block';}
+              }
+            }).catch(function(e){console.error('[PickupAI] Failed to fetch error details:', e);});
+        })();
+      </script>`;
     } else {
       demoAudioCard = `
       <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:1rem;">
@@ -463,25 +480,15 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
     <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:1rem;">
       Want to try it live? Get a temporary number and call it from your phone. You'll talk to your AI receptionist just like a real customer would.
     </p>
-    <div style="display:flex;gap:.75rem;flex-wrap:wrap;">
-      ${simulationStarted
-        ? `<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:1rem;flex:1;min-width:200px;">
-            <p style="font-weight:600;color:#16a34a;margin-bottom:.4rem;">Demo call in progress!</p>
-            <p style="font-size:.82rem;color:var(--gray-600);">Check your phone for the SMS when it's done.</p>
-          </div>`
-        : `<form method="POST" action="/dashboard/simulate-demo-call" style="flex:1;">
-            <button type="submit" class="btn btn-outline" style="width:100%;">Let AI simulate a customer call</button>
-          </form>`}
-      ${demoNumber
-        ? `<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:1rem;flex:1;min-width:200px;">
-            <p style="font-weight:600;color:#16a34a;font-size:.9rem;margin-bottom:.3rem;">Your demo number:</p>
-            <p style="font-family:monospace;font-size:1.15rem;font-weight:700;margin-bottom:.3rem;">${escape(demoNumberFormatted ?? demoNumber)}</p>
-            <p style="font-size:.78rem;color:var(--gray-500);">Call it now from your mobile — <span id="demo-countdown" data-expires="${demoNumberExpiresAt || ""}"></span></p>
-          </div>`
-        : `<form method="POST" action="/dashboard/request-demo" style="flex:1;">
-            <button type="submit" class="btn btn-ghost" style="width:100%;">Get a number to call yourself</button>
-          </form>`}
-    </div>
+    ${demoNumber
+      ? `<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:1rem;">
+          <p style="font-weight:600;color:#16a34a;font-size:.9rem;margin-bottom:.3rem;">Your demo number:</p>
+          <p style="font-family:monospace;font-size:1.15rem;font-weight:700;margin-bottom:.3rem;">${escape(demoNumberFormatted ?? demoNumber)}</p>
+          <p style="font-size:.78rem;color:var(--gray-500);">Call it now from your mobile — <span id="demo-countdown" data-expires="${demoNumberExpiresAt || ""}"></span></p>
+        </div>`
+      : `<form method="POST" action="/dashboard/request-demo">
+          <button type="submit" class="btn btn-outline" style="width:100%;">Get a temporary number to call →</button>
+        </form>`}
   </div>` : ""}
 
   <!-- Ready to go? -->

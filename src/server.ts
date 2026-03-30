@@ -1721,6 +1721,7 @@ async function main() {
           trackEvent("demo_audio_generation_completed", { tenant_id: tenant.tenant_id });
         } catch (err) {
           demoGenStatus.set(tenant.tenant_id, "error");
+          demoGenErrors.set(tenant.tenant_id, (err as Error)?.message ?? String(err));
           log.error({ err, tenantId: tenant.tenant_id }, "Auto-triggered demo audio generation failed");
           trackEvent("demo_audio_generation_failed", { tenant_id: tenant.tenant_id, level: "error", payload: { message: (err as Error)?.message } });
         }
@@ -1891,6 +1892,7 @@ async function main() {
 
   type DemoGenStatus = "generating" | "ready" | "error";
   const demoGenStatus = new Map<string, DemoGenStatus>();
+  const demoGenErrors = new Map<string, string>();
 
   function getDemoAudioPath(tenantId: string): string {
     return path.join(DEMO_AUDIO_DIR, `${tenantId}.mp3`);
@@ -2147,6 +2149,7 @@ async function main() {
         trackEvent("demo_audio_generation_completed", { tenant_id: tenant.tenant_id });
       } catch (err) {
         demoGenStatus.set(tenant.tenant_id, "error");
+        demoGenErrors.set(tenant.tenant_id, (err as Error)?.message ?? String(err));
         log.error({ err, tenantId: tenant.tenant_id }, "Demo audio generation failed");
         trackEvent("demo_audio_generation_failed", { tenant_id: tenant.tenant_id, level: "error", payload: { message: (err as Error)?.message } });
       }
@@ -2162,7 +2165,8 @@ async function main() {
       return res.json({ status: "ready" });
     }
     const status = demoGenStatus.get(tenant.tenant_id) ?? "none";
-    res.json({ status });
+    const errorDetail = status === "error" ? (demoGenErrors.get(tenant.tenant_id) ?? null) : null;
+    res.json({ status, error: errorDetail });
   });
 
   // Serve the generated personalised demo audio
