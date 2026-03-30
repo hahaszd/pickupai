@@ -500,10 +500,50 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
     <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:1rem;">
       Like what you heard? Start your <strong>14-day free trial</strong> and we'll set up a dedicated phone number for <strong>${escape(tenant.name)}</strong>. You won't be charged today — cancel any time before day 14 and pay nothing.
     </p>
-    <form method="POST" action="/dashboard/create-checkout-session">
+    <form id="checkout-form" method="POST" action="/dashboard/create-checkout-session">
       <button type="submit" class="btn btn-primary" style="width:100%;font-size:1rem;padding:.85rem;">I'm ready — start free trial →</button>
     </form>
+    <p id="checkout-error" style="font-size:.82rem;color:#dc2626;margin-top:.5rem;text-align:center;display:none;"></p>
     <p style="font-size:.78rem;color:var(--gray-500);margin-top:.75rem;text-align:center;">Secure payment via Stripe. 14-day free trial. Cancel any time.</p>
+    <script>
+    (function(){
+      var form = document.getElementById('checkout-form');
+      var errEl = document.getElementById('checkout-error');
+      form.addEventListener('submit', function(e){
+        e.preventDefault();
+        var btn = form.querySelector('button');
+        btn.disabled = true;
+        btn.textContent = 'Redirecting to Stripe...';
+        console.log('[PickupAI] Submitting checkout form...');
+        fetch('/dashboard/create-checkout-session', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          redirect: 'follow'
+        }).then(function(r){
+          console.log('[PickupAI] Checkout response:', r.status, r.url, r.redirected);
+          if (r.redirected) {
+            console.log('[PickupAI] Redirecting to:', r.url);
+            window.location.href = r.url;
+          } else {
+            return r.text().then(function(body){
+              console.error('[PickupAI] Unexpected response:', r.status, body.substring(0, 500));
+              errEl.textContent = 'Unexpected response (status ' + r.status + '). Check console for details.';
+              errEl.style.display = 'block';
+              btn.disabled = false;
+              btn.textContent = 'I\\'m ready — start free trial →';
+            });
+          }
+        }).catch(function(err){
+          console.error('[PickupAI] Checkout fetch error:', err);
+          errEl.textContent = 'Network error: ' + err.message;
+          errEl.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = 'I\\'m ready — start free trial →';
+        });
+      });
+    })();
+    </script>
   </div>
 
   <div style="text-align:center;">

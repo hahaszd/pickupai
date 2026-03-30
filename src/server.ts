@@ -1746,6 +1746,7 @@ async function main() {
     const audioReady = isDemoAudioReady(tenant.tenant_id);
     const audioGenerating = !audioReady && demoGenStatus.get(tenant.tenant_id) === "generating";
     const audioError = !audioReady && demoGenStatus.get(tenant.tenant_id) === "error";
+    const qError = typeof req.query.error === "string" ? req.query.error : undefined;
     res.send(welcomePage(tenant, {
       demoNumber: session?.demo_number ?? null,
       demoAudioReady: audioReady,
@@ -1753,6 +1754,7 @@ async function main() {
       demoAudioError: audioError,
       hasDemoPool: poolNumbers.length > 0,
       demoNumberExpiresAt: session?.expires_at ?? undefined,
+      error: qError,
     }));
   });
 
