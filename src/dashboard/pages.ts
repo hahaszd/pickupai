@@ -351,10 +351,12 @@ export type WelcomePageOpts = {
   demoAudioError?: boolean;
   /** Whether demo pool numbers are configured (controls Demo 2 visibility) */
   hasDemoPool?: boolean;
+  /** ISO timestamp when the demo number expires (for countdown timer) */
+  demoNumberExpiresAt?: string;
 };
 
 export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
-  const { demoNumber, error, simulationStarted, demoAudioReady, demoAudioGenerating, demoAudioError, hasDemoPool } = opts;
+  const { demoNumber, error, simulationStarted, demoAudioReady, demoAudioGenerating, demoAudioError, hasDemoPool, demoNumberExpiresAt } = opts;
   const demoNumberFormatted = demoNumber ? formatAuPhone(demoNumber) : null;
 
   const isDemo = tenant.payment_status === "demo";
@@ -474,7 +476,7 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
         ? `<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:1rem;flex:1;min-width:200px;">
             <p style="font-weight:600;color:#16a34a;font-size:.9rem;margin-bottom:.3rem;">Your demo number:</p>
             <p style="font-family:monospace;font-size:1.15rem;font-weight:700;margin-bottom:.3rem;">${escape(demoNumberFormatted ?? demoNumber)}</p>
-            <p style="font-size:.78rem;color:var(--gray-500);">Call it now from your mobile — available for 10 minutes. You can request a new one after it expires.</p>
+            <p style="font-size:.78rem;color:var(--gray-500);">Call it now from your mobile — <span id="demo-countdown" data-expires="${demoNumberExpiresAt || ""}"></span></p>
           </div>`
         : `<form method="POST" action="/dashboard/request-demo" style="flex:1;">
             <button type="submit" class="btn btn-ghost" style="width:100%;">Get a number to call yourself</button>
@@ -502,7 +504,37 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
       Need help? Text or email <a href="mailto:hello@getpickupai.com.au">hello@getpickupai.com.au</a>
     </p>
   </div>
-</div>`;
+</div>
+<script>
+(function(){
+  var el = document.getElementById('demo-countdown');
+  if (!el) return;
+  var exp = el.getAttribute('data-expires');
+  if (!exp) { el.textContent = 'available for 10 minutes.'; return; }
+  var end = new Date(exp).getTime();
+  function tick() {
+    var diff = Math.max(0, Math.floor((end - Date.now()) / 1000));
+    if (diff <= 0) {
+      el.innerHTML = '<strong style="color:#dc2626;">expired.</strong> ';
+      var a = document.createElement('a');
+      a.href = '#'; a.style.cssText = 'color:var(--brand);text-decoration:underline;';
+      a.textContent = 'Request a new number';
+      a.addEventListener('click', function(e) {
+        e.preventDefault();
+        var f = document.createElement('form');
+        f.method = 'POST'; f.action = '/dashboard/request-demo';
+        document.body.appendChild(f); f.submit();
+      });
+      el.appendChild(a);
+      return;
+    }
+    var m = Math.floor(diff / 60), s = diff % 60;
+    el.textContent = m + 'm ' + (s < 10 ? '0' : '') + s + 's remaining.';
+    setTimeout(tick, 1000);
+  }
+  tick();
+})();
+</script>`;
     return shell("Try your AI receptionist", body, tenant);
   }
 
