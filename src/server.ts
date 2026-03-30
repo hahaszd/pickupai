@@ -1902,7 +1902,8 @@ async function main() {
     return fs.existsSync(getDemoAudioPath(tenantId));
   }
 
-  type TtsVoice = "nova" | "onyx" | "shimmer" | "sage" | "alloy" | "echo" | "fable";
+  type TtsVoice = "nova" | "onyx" | "shimmer" | "sage" | "alloy" | "echo" | "fable" | "ash" | "coral";
+  const VALID_TTS_VOICES = new Set<string>(["nova", "onyx", "shimmer", "sage", "alloy", "echo", "fable", "ash", "coral"]);
   interface ScriptLine { speaker: "ai" | "customer"; text: string; }
 
   const DEMO_SCRIPTS: Record<string, {
@@ -2089,7 +2090,11 @@ async function main() {
     const area = (tenant as any).service_area ?? null;
     const lines = script.scenario(bizName, aiName, area);
 
-    const aiVoice: TtsVoice = (env.OPENAI_VOICE as TtsVoice) || "nova";
+    const rawVoice = env.OPENAI_VOICE || "nova";
+    const aiVoice: TtsVoice = VALID_TTS_VOICES.has(rawVoice) ? (rawVoice as TtsVoice) : "nova";
+    if (!VALID_TTS_VOICES.has(rawVoice)) {
+      log.warn({ configured: rawVoice, fallback: "nova" }, "OPENAI_VOICE is not a valid TTS voice, falling back to nova");
+    }
     const chunks: Buffer[] = [];
     for (const line of lines) {
       const voice = line.speaker === "ai" ? aiVoice : script.customerVoice;
