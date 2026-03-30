@@ -160,5 +160,15 @@ export const migrationStatements = [
   `CREATE INDEX IF NOT EXISTS idx_prospects_phone ON prospects(phone) WHERE phone IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS idx_calls_from_number ON calls(from_number) WHERE from_number IS NOT NULL`,
   `ALTER TABLE leads ADD COLUMN property_type TEXT`,
-  `ALTER TABLE leads ADD COLUMN caller_sentiment TEXT`
+  `ALTER TABLE leads ADD COLUMN caller_sentiment TEXT`,
+  `CREATE TABLE IF NOT EXISTS chat_logs (
+    chat_id      TEXT PRIMARY KEY,
+    tenant_id    TEXT,
+    ip_address   TEXT,
+    user_message TEXT NOT NULL,
+    ai_response  TEXT,
+    created_at   TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_logs_created ON chat_logs(created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_logs_tenant ON chat_logs(tenant_id) WHERE tenant_id IS NOT NULL`
 ];

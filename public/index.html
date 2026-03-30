@@ -336,7 +336,7 @@
     <div class="step">
       <div class="step-num">1</div>
       <h3>You sign up</h3>
-      <p>Enter your business details and you'll get a dedicated phone number within minutes — no waiting.</p>
+      <p>Enter your business details and try a personalised AI demo — hear how your receptionist handles calls before you commit.</p>
     </div>
     <div class="step">
       <div class="step-num">2</div>
@@ -402,10 +402,10 @@
 
   <!-- Row 1: trade selector -->
   <div class="trade-tabs">
-    <button class="trade-tab active" data-trade="plumber"><span aria-hidden="true">🔧</span> Plumber</button>
-    <button class="trade-tab"        data-trade="electrician"><span aria-hidden="true">⚡</span> Electrician</button>
-    <button class="trade-tab"        data-trade="handyman"><span aria-hidden="true">🏠</span> Handyman</button>
-    <button class="trade-tab"        data-trade="roofer"><span aria-hidden="true">🏗</span> Roofer</button>
+    <button class="trade-tab active" data-trade="plumber" aria-pressed="true"><span aria-hidden="true">🔧</span> Plumber</button>
+    <button class="trade-tab"        data-trade="electrician" aria-pressed="false"><span aria-hidden="true">⚡</span> Electrician</button>
+    <button class="trade-tab"        data-trade="handyman" aria-pressed="false"><span aria-hidden="true">🏠</span> Handyman</button>
+    <button class="trade-tab"        data-trade="roofer" aria-pressed="false"><span aria-hidden="true">🏗</span> Roofer</button>
   </div>
 
   <div class="demo-divider"></div>
@@ -413,10 +413,10 @@
   <!-- Row 2: scenario selector -->
   <div class="scenario-row">
     <div class="scenario-tabs">
-      <button class="scenario-tab active" data-scenario="emergency"><span aria-hidden="true">🚨</span> Emergency</button>
-      <button class="scenario-tab"        data-scenario="quote"><span aria-hidden="true">💬</span> Quote request</button>
-      <button class="scenario-tab"        data-scenario="followup"><span aria-hidden="true">🔄</span> Follow-up</button>
-      <button class="scenario-tab"        data-scenario="afterhours"><span aria-hidden="true">🌙</span> After hours</button>
+      <button class="scenario-tab active" data-scenario="emergency" aria-pressed="true"><span aria-hidden="true">🚨</span> Emergency</button>
+      <button class="scenario-tab"        data-scenario="quote" aria-pressed="false"><span aria-hidden="true">💬</span> Quote request</button>
+      <button class="scenario-tab"        data-scenario="followup" aria-pressed="false"><span aria-hidden="true">🔄</span> Follow-up</button>
+      <button class="scenario-tab"        data-scenario="afterhours" aria-pressed="false"><span aria-hidden="true">🌙</span> After hours</button>
     </div>
   </div>
 
@@ -585,6 +585,7 @@
     <input id="contact-phone" type="tel" name="phone" placeholder="Your mobile" required />
     <input type="hidden" name="trade" value="" id="trade-hidden" />
     <button type="submit">Request a callback →</button>
+    <p id="contact-error" style="display:none;color:#fca5a5;font-size:.85rem;margin-top:.5rem;text-align:center;"></p>
   </form>
 </section>
 </main>
@@ -651,8 +652,8 @@
 
   document.querySelectorAll(".trade-tab").forEach(btn => {
     btn.addEventListener("click", () => {
-      document.querySelectorAll(".trade-tab").forEach(t => t.classList.remove("active"));
-      btn.classList.add("active");
+      document.querySelectorAll(".trade-tab").forEach(t => { t.classList.remove("active"); t.setAttribute("aria-pressed", "false"); });
+      btn.classList.add("active"); btn.setAttribute("aria-pressed", "true");
       currentTrade = btn.dataset.trade;
       const tradeHidden = document.getElementById("trade-hidden");
       if (tradeHidden) tradeHidden.value = currentTrade;
@@ -662,8 +663,8 @@
 
   document.querySelectorAll(".scenario-tab").forEach(btn => {
     btn.addEventListener("click", () => {
-      document.querySelectorAll(".scenario-tab").forEach(t => t.classList.remove("active"));
-      btn.classList.add("active");
+      document.querySelectorAll(".scenario-tab").forEach(t => { t.classList.remove("active"); t.setAttribute("aria-pressed", "false"); });
+      btn.classList.add("active"); btn.setAttribute("aria-pressed", "true");
       currentScenario = btn.dataset.scenario;
       updateDemoPlayer();
     });
@@ -694,12 +695,16 @@
       } else {
         btn.disabled = false;
         btn.textContent = 'Request a callback \u2192';
-        alert('Something went wrong. Please email hello@getpickupai.com.au instead.');
+        var errEl = document.getElementById('contact-error');
+        errEl.textContent = 'Something went wrong. Please email hello@getpickupai.com.au instead.';
+        errEl.style.display = 'block';
       }
     } catch {
       btn.disabled = false;
       btn.textContent = 'Request a callback \u2192';
-      alert('Something went wrong. Please email hello@getpickupai.com.au instead.');
+      var errEl2 = document.getElementById('contact-error');
+      errEl2.textContent = 'Connection error. Please email hello@getpickupai.com.au instead.';
+      errEl2.style.display = 'block';
     }
   }
 
@@ -731,15 +736,15 @@
     document.getElementById('calc-value-val').textContent = '$' + value.toLocaleString();
     var monthly = Math.round(calls * 4.33 * value * (rate / 100));
     document.getElementById('calc-result').textContent = '$' + monthly.toLocaleString();
-    var roi = Math.max(1, Math.round(monthly / 149));
-    document.getElementById('calc-roi').textContent = roi + 'x';
+    var roi = Math.round(monthly / 149);
+    document.getElementById('calc-roi').textContent = roi >= 1 ? roi + 'x' : 'Pays for itself with just one extra job';
   }
   updateCalc();
 </script>
 
 <!-- Sticky mobile CTA -->
 <div class="sticky-cta" id="sticky-cta">
-  <a href="/dashboard/signup">Start free trial — credit card required, cancel anytime</a>
+  <a href="/dashboard/signup">Try it free — no card needed for demo</a>
 </div>
 
 <script>
@@ -766,5 +771,6 @@
     check();
   })();
 </script>
+<script src="/chat-widget.js" defer></script>
 </body>
 </html>

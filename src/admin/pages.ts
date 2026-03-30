@@ -6,7 +6,8 @@ import type {
   ProspectRow,
   ProspectStats,
   OutreachLogRow,
-  DailyFunnelStats
+  DailyFunnelStats,
+  ChatLogRow
 } from "../db/repo.js";
 import { formatAuPhone } from "../utils/phone.js";
 
@@ -113,6 +114,7 @@ function adminShell(title: string, activeTab: string, content: string, flash?: s
     { href: "/admin/users", label: "Users", key: "users" },
     { href: "/admin/prospects", label: "Prospects", key: "prospects" },
     { href: "/admin/demo-sessions", label: "Demo Pool", key: "demo" },
+    { href: "/admin/chat-logs", label: "Chat Logs", key: "chatlogs" },
     { href: "/admin/config", label: "Config", key: "config" },
   ];
 
@@ -1210,4 +1212,77 @@ export function adminBulkSmsPage(
 </div>
 `;
   return adminShell("Bulk SMS", "prospects", content, flash);
+}
+
+// ── Chat Logs ─────────────────────────────────────────────────────────────
+
+export function adminChatLogsPage(
+  logs: (ChatLogRow & { tenant_name?: string })[],
+  totalCount: number,
+  page: number,
+  search?: string,
+  flash?: string
+): string {
+  const perPage = 50;
+  const totalPages = Math.max(1, Math.ceil(totalCount / perPage));
+
+  const rows = logs.map(l => {
+    const date = new Date(l.created_at);
+    const dateStr = date.toLocaleString("en-AU", { timeZone: "Australia/Sydney", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+    const tenant = l.tenant_id
+      ? `<a href="/admin/users/${esc(l.tenant_id)}">${esc((l as any).tenant_name || l.tenant_id)}</a>`
+      : `<span style="color:var(--gray-400)">Anonymous</span>`;
+    const userMsg = esc(l.user_message.slice(0, 200)) + (l.user_message.length > 200 ? "..." : "");
+    const aiMsg = l.ai_response
+      ? esc(l.ai_response.slice(0, 200)) + (l.ai_response.length > 200 ? "..." : "")
+      : `<span style="color:var(--gray-400)">—</span>`;
+
+    return `<tr>
+      <td style="white-space:nowrap">${dateStr}</td>
+      <td>${tenant}</td>
+      <td style="font-size:.82rem">${userMsg}</td>
+      <td style="font-size:.82rem">${aiMsg}</td>
+      <td style="font-size:.78rem;color:var(--gray-400)">${esc(l.ip_address ?? "")}</td>
+    </tr>`;
+  }).join("");
+
+  const pagination = totalPages > 1 ? Array.from({ length: totalPages }, (_, i) => {
+    const p = i + 1;
+    const active = p === page ? ' style="font-weight:700;color:var(--brand)"' : "";
+    const qs = search ? `&search=${encodeURIComponent(search)}` : "";
+    return `<a href="/admin/chat-logs?page=${p}${qs}"${active}>${p}</a>`;
+  }).join(" ") : "";
+
+  const content = `
+<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.75rem;margin-bottom:1rem">
+  <h1>Chat Logs <span style="font-weight:400;font-size:.85rem;color:var(--gray-400)">(${totalCount} total)</span></h1>
+  <form method="GET" action="/admin/chat-logs" style="display:flex;gap:.5rem">
+    <input name="search" type="text" placeholder="Search questions..." value="${esc(search ?? "")}"
+      style="padding:.4rem .6rem;border-radius:6px;border:1px solid var(--navy-light);background:var(--navy-mid);color:#fff;font-size:.85rem;width:200px" />
+    <button type="submit" class="btn btn-primary btn-sm">Search</button>
+    ${search ? `<a href="/admin/chat-logs" class="btn btn-sm" style="color:var(--gray-400)">Clear</a>` : ""}
+  </form>
+</div>
+
+<div class="card" style="overflow-x:auto">
+  <table>
+    <thead>
+      <tr>
+        <th>Time</th>
+        <th>User</th>
+        <th>Question</th>
+        <th>AI Response</th>
+        <th>IP</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows || `<tr><td colspan="5" style="text-align:center;padding:2rem;color:var(--gray-400)">No chat logs yet</td></tr>`}
+    </tbody>
+  </table>
+</div>
+
+${pagination ? `<div style="margin-top:1rem;display:flex;gap:.5rem;justify-content:center">${pagination}</div>` : ""}
+`;
+
+  return adminShell("Chat Logs", "chatlogs", content, flash);
 }

@@ -9,6 +9,7 @@ import type { NextFunction, Request, Response } from "express";
 import { WebSocketServer } from "ws";
 import pino from "pino";
 import pinoHttp from "pino-http";
+import { buildSystemPrompt, type ChatContext } from "./chat/system-prompt.js";
 
 // ─── Simple in-memory rate limiter ────────────────────────────────────────────
 // Tracks attempt counts per IP in a sliding window. No external deps needed.
@@ -123,9 +124,13 @@ import {
   getFoundingCustomerCount,
   getTenantsNeedingNudge,
   getTenantCallCount,
-  newLeadId
+  newLeadId,
+  insertChatLog,
+  updateChatLogResponse,
+  listChatLogs,
+  countChatLogs
 } from "./db/repo.js";
-import type { TenantRow, CallRow, SystemConfigRow, ProspectRow } from "./db/repo.js";
+import type { TenantRow, CallRow, SystemConfigRow, ProspectRow, ChatLogRow } from "./db/repo.js";
 import {
   adminLoginPage,
   adminOverviewPage,
@@ -138,6 +143,7 @@ import {
   adminProspectDetailPage,
   adminProspectImportPage,
   adminBulkSmsPage,
+  adminChatLogsPage,
   buildProvisionSms,
 } from "./admin/pages.js";
 import { twilioValidateMiddleware } from "./twilio/verify.js";
@@ -712,6 +718,154 @@ async function main() {
     const totalCalls = db.get<{ n: number }>("SELECT COUNT(*) AS n FROM calls WHERE status = 'completed' AND is_demo = 0")?.n ?? 0;
     const totalTenants = db.get<{ n: number }>("SELECT COUNT(*) AS n FROM tenants WHERE active = 1 AND twilio_number NOT LIKE '+PENDING%'")?.n ?? 0;
     res.json({ calls_answered: totalCalls, businesses_served: totalTenants });
+  });
+
+  // ── AI Chat Assistant ─────────────────────────────────────────────────────
+  const chatRateLimitAnon = rateLimit({ maxRequests: 20, windowMs: 60_000, message: "Too many chat messages. Please wait a moment." });
+  const chatRateLimitAuth = rateLimit({ maxRequests: 40, windowMs: 60_000, message: "Too many chat messages. Please wait a moment." });
+
+  app.post("/api/chat", (req, res, next) => {
+    const cookies = parseCookies(req);
+    const token = cookies.dash_session;
+    const tenant = token ? getTenantBySessionToken(db, token) : null;
+    (req as any).chatTenant = tenant ?? null;
+    const limiter = tenant ? chatRateLimitAuth : chatRateLimitAnon;
+    limiter(req, res, next);
+  }, async (req: Request, res: Response) => {
+    if (!env.OPENAI_API_KEY) {
+      return res.status(503).json({ error: "Chat is temporarily unavailable." });
+    }
+
+    const body = req.body;
+    if (!body || !Array.isArray(body.messages)) {
+      return res.status(400).json({ error: "Invalid request. Provide { messages: [...] }." });
+    }
+
+    const MAX_HISTORY = 20;
+    const userMessages: Array<{ role: string; content: string }> = body.messages
+      .slice(-MAX_HISTORY)
+      .filter((m: any) => typeof m.role === "string" && typeof m.content === "string" && (m.role === "user" || m.role === "assistant"))
+      .map((m: any) => ({ role: m.role as string, content: (m.content as string).slice(0, 2000) }));
+
+    if (userMessages.length === 0) {
+      return res.status(400).json({ error: "At least one message is required." });
+    }
+
+    const tenant = (req as any).chatTenant as TenantRow | null;
+    const ctx: ChatContext = {
+      isAuthenticated: !!tenant,
+      businessName: tenant?.name,
+      tradeType: tenant?.trade_type,
+    };
+
+    const systemPrompt = buildSystemPrompt(ctx);
+
+    const lastUserMsg = userMessages.filter(m => m.role === "user").pop()?.content ?? "";
+    const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ?? req.socket.remoteAddress ?? "unknown";
+    const chatLogId = insertChatLog(db, {
+      tenantId: tenant?.tenant_id,
+      ip,
+      userMessage: lastUserMsg,
+    });
+
+    try {
+      const openaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          stream: true,
+          max_tokens: 800,
+          messages: [
+            { role: "system", content: systemPrompt },
+            ...userMessages,
+          ],
+        }),
+      });
+
+      if (!openaiRes.ok) {
+        const errText = await openaiRes.text();
+        log.error({ status: openaiRes.status, body: errText }, "OpenAI chat completions error");
+        return res.status(502).json({ error: "AI is temporarily unavailable. Please try again." });
+      }
+
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders();
+
+      const reader = openaiRes.body as any;
+      if (!reader || typeof reader[Symbol.asyncIterator] !== "function") {
+        res.write("data: [DONE]\n\n");
+        return res.end();
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let fullResponse = "";
+
+      for await (const chunk of reader) {
+        buffer += decoder.decode(chunk, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith("data: ")) continue;
+          const payload = trimmed.slice(6);
+          if (payload === "[DONE]") {
+            res.write("data: [DONE]\n\n");
+            continue;
+          }
+          try {
+            const parsed = JSON.parse(payload);
+            const token = parsed.choices?.[0]?.delta?.content;
+            if (token) {
+              fullResponse += token;
+              res.write(`data: ${JSON.stringify({ token })}\n\n`);
+            }
+          } catch {
+            // skip malformed SSE lines
+          }
+        }
+      }
+
+      if (buffer.trim()) {
+        const trimmed = buffer.trim();
+        if (trimmed.startsWith("data: ")) {
+          const payload = trimmed.slice(6);
+          if (payload === "[DONE]") {
+            res.write("data: [DONE]\n\n");
+          } else {
+            try {
+              const parsed = JSON.parse(payload);
+              const token = parsed.choices?.[0]?.delta?.content;
+              if (token) {
+                fullResponse += token;
+                res.write(`data: ${JSON.stringify({ token })}\n\n`);
+              }
+            } catch { /* skip */ }
+          }
+        }
+      }
+
+      if (fullResponse) {
+        try { updateChatLogResponse(db, chatLogId, fullResponse); } catch { /* non-critical */ }
+      }
+
+      res.write("data: [DONE]\n\n");
+      res.end();
+    } catch (err: any) {
+      log.error({ err }, "Chat endpoint error");
+      if (!res.headersSent) {
+        return res.status(500).json({ error: "Something went wrong. Please try again." });
+      }
+      res.end();
+    }
   });
 
   // ── System health monitoring ───────────────────────────────────────────────
@@ -1468,6 +1622,18 @@ async function main() {
   app.post("/admin/prospects/:id/delete", adminHtmlAuth, (req, res) => {
     deleteProspect(db, req.params.id);
     res.redirect("/admin/prospects?flash=✓ Prospect deleted");
+  });
+
+  // ── Admin Chat Logs ─────────────────────────────────────────────────────
+
+  app.get("/admin/chat-logs", adminHtmlAuth, (req, res) => {
+    const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+    const search = typeof req.query.search === "string" ? req.query.search : undefined;
+    const perPage = 50;
+    const logs = listChatLogs(db, { limit: perPage, offset: (page - 1) * perPage, search });
+    const total = countChatLogs(db);
+    const flash = (req.query.flash as string | undefined) ?? undefined;
+    res.send(adminChatLogsPage(logs, total, page, search, flash));
   });
 
   // ── Admin Config ────────────────────────────────────────────────────────
@@ -2536,7 +2702,8 @@ async function main() {
     const tenant: TenantRow = (req as any).dashTenant;
     const urgency = typeof req.query.urgency === "string" ? req.query.urgency : undefined;
     const status = typeof req.query.status === "string" ? req.query.status : undefined;
-    const leads = listLeadsForTenant(db, tenant.tenant_id, { urgency, status, limit: 10000 });
+    const search = typeof req.query.search === "string" ? req.query.search : undefined;
+    const leads = listLeadsForTenant(db, tenant.tenant_id, { urgency, status, search, limit: 10000 });
     const csv = leadsToCSV(leads);
     res.setHeader("Content-Type", "text/csv");
     res.setHeader("Content-Disposition", `attachment; filename="jobs-${Date.now()}.csv"`);
@@ -2571,9 +2738,16 @@ async function main() {
       "SELECT SUM(job_value) as s FROM leads WHERE tenant_id = ? AND job_value IS NOT NULL", [tenant.tenant_id]
     )?.s ?? 0;
 
+    const tz = tenant.timezone || "Australia/Sydney";
+    const fmtShort = (d: Date) => d.toLocaleDateString("en-AU", { day: "numeric", month: "short", timeZone: tz });
+    const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const weekLabel = `${fmtShort(weekStart)} – ${fmtShort(now)}`;
+    const monthLabel = `${fmtShort(monthStart)} – ${fmtShort(now)}`;
+
     res.send(statsPage(tenant, {
       callsThisWeek, callsThisMonth, leadsThisWeek, leadsThisMonth,
-      totalCalls, totalLeads, totalJobValue
+      totalCalls, totalLeads, totalJobValue, weekLabel, monthLabel
     }));
   });
 

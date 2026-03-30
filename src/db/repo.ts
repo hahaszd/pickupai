@@ -1178,3 +1178,65 @@ export function listOutreachForProspect(db: Db, prospectId: string): OutreachLog
     [prospectId]
   );
 }
+
+// ─── Chat logs ──────────────────────────────────────────────────────────────
+
+export type ChatLogRow = {
+  chat_id: string;
+  tenant_id: string | null;
+  ip_address: string | null;
+  user_message: string;
+  ai_response: string | null;
+  created_at: string;
+};
+
+export function insertChatLog(
+  db: Db,
+  opts: { tenantId?: string | null; ip?: string | null; userMessage: string; aiResponse?: string | null }
+): string {
+  const id = randomUUID();
+  db.run(
+    `INSERT INTO chat_logs (chat_id, tenant_id, ip_address, user_message, ai_response, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [id, opts.tenantId ?? null, opts.ip ?? null, opts.userMessage, opts.aiResponse ?? null, new Date().toISOString()]
+  );
+  return id;
+}
+
+export function updateChatLogResponse(db: Db, chatId: string, aiResponse: string): void {
+  db.run("UPDATE chat_logs SET ai_response = ? WHERE chat_id = ?", [aiResponse, chatId]);
+}
+
+export function listChatLogs(
+  db: Db,
+  opts: { limit?: number; offset?: number; tenantId?: string; search?: string } = {}
+): ChatLogRow[] {
+  const conditions: string[] = [];
+  const params: any[] = [];
+
+  if (opts.tenantId) {
+    conditions.push("c.tenant_id = ?");
+    params.push(opts.tenantId);
+  }
+  if (opts.search) {
+    conditions.push("(LOWER(c.user_message) LIKE LOWER(?) OR LOWER(c.ai_response) LIKE LOWER(?))");
+    const s = `%${opts.search}%`;
+    params.push(s, s);
+  }
+
+  const where = conditions.length ? "WHERE " + conditions.join(" AND ") : "";
+  const limit = opts.limit ?? 100;
+  const offset = opts.offset ?? 0;
+
+  return db.all<ChatLogRow>(
+    `SELECT c.*, t.name AS tenant_name FROM chat_logs c
+     LEFT JOIN tenants t ON t.tenant_id = c.tenant_id
+     ${where}
+     ORDER BY c.created_at DESC LIMIT ? OFFSET ?`,
+    [...params, limit, offset]
+  );
+}
+
+export function countChatLogs(db: Db): number {
+  return db.get<{ n: number }>("SELECT COUNT(*) AS n FROM chat_logs")?.n ?? 0;
+}

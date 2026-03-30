@@ -168,6 +168,8 @@ ${banner}
 <div class="container">
   ${body}
 </div>
+${tenant ? `<script>window.__pickupai_chat_context=${JSON.stringify({ name: tenant.name, trade: tenant.trade_type })};</script>` : ""}
+<script src="/chat-widget.js" defer></script>
 </body>
 </html>`;
 }
@@ -287,7 +289,8 @@ export function signupPage(error?: string, prefill: Record<string, string> = {})
           </span>
         </label>
       </div>
-      <button type="submit" class="btn btn-primary" style="width:100%;margin-top:.5rem;padding:.65rem;">
+      <button type="submit" class="btn btn-primary" style="width:100%;margin-top:.5rem;padding:.65rem;"
+        onclick="this.disabled=true;this.textContent='Creating account...';this.form.submit();">
         Create account &amp; try demo →
       </button>
     </form>
@@ -420,9 +423,11 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
         <p style="font-weight:600;color:#dc2626;font-size:.9rem;margin-bottom:.35rem;">Something went wrong generating your demo</p>
         <p style="font-size:.82rem;color:var(--gray-600);margin-bottom:.75rem;">Don't worry — just hit the button below to try again. It usually works on the second attempt.</p>
         <p id="demo-error-detail" style="font-size:.72rem;color:var(--gray-400);font-family:monospace;word-break:break-all;display:none;margin-top:.5rem;"></p>
+        <!-- Debug info only shown when ?debug=1 is in URL -->
       </div>
       <form method="POST" action="/dashboard/generate-demo-audio">
-        <button type="submit" class="btn btn-primary" style="width:100%;font-size:1rem;padding:.85rem;">Try again →</button>
+        <button type="submit" class="btn btn-primary" style="width:100%;font-size:1rem;padding:.85rem;"
+          onclick="this.disabled=true;this.textContent='Generating...';this.form.submit();">Try again →</button>
       </form>
       <script>
         (function(){
@@ -430,7 +435,7 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
             .then(function(r){return r.json()})
             .then(function(d){
               console.error('[PickupAI] Demo audio error details:', JSON.stringify(d));
-              if(d.error){
+              if(d.error && new URLSearchParams(window.location.search).get('debug')==='1'){
                 var el=document.getElementById('demo-error-detail');
                 if(el){el.textContent='Debug: '+d.error;el.style.display='block';}
               }
@@ -443,7 +448,8 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
         We'll generate a personalised call demo using <strong>your business name</strong>, <strong>your AI receptionist name</strong>, and <strong>your trade</strong>. You'll also get a sample SMS to <strong>${escape(formatAuPhone(tenant.owner_phone))}</strong>.
       </p>
       <form method="POST" action="/dashboard/generate-demo-audio">
-        <button type="submit" class="btn btn-primary" style="width:100%;font-size:1rem;padding:.85rem;">Generate my personalised demo →</button>
+        <button type="submit" class="btn btn-primary" style="width:100%;font-size:1rem;padding:.85rem;"
+          onclick="this.disabled=true;this.textContent='Generating...';this.form.submit();">Generate my personalised demo →</button>
       </form>
       <p style="font-size:.78rem;color:var(--gray-400);margin-top:.6rem;text-align:center;">Takes about 15–30 seconds. Uses AI to create audio specific to ${escape(tenant.name)}.</p>`;
     }
@@ -487,7 +493,8 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
           <p style="font-size:.78rem;color:var(--gray-500);">Call it now from your mobile — <span id="demo-countdown" data-expires="${demoNumberExpiresAt || ""}"></span></p>
         </div>`
       : `<form method="POST" action="/dashboard/request-demo">
-          <button type="submit" class="btn btn-outline" style="width:100%;">Get a temporary number to call →</button>
+          <button type="submit" class="btn btn-outline" style="width:100%;"
+            onclick="this.disabled=true;this.textContent='Requesting number...';this.form.submit();">Get a temporary number to call →</button>
         </form>`}
   </div>` : ""}
 
@@ -512,8 +519,10 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
       var params = new URLSearchParams(window.location.search);
       var errParam = params.get('error');
       if (errParam) {
-        errEl.textContent = 'Error: ' + errParam;
+        var friendly = 'Something went wrong starting your trial. Please try again, or contact hello@getpickupai.com.au for help.';
+        errEl.textContent = friendly;
         errEl.style.display = 'block';
+        console.error('[PickupAI] Checkout error detail:', errParam);
       }
       form.addEventListener('submit', function(){
         var btn = form.querySelector('button');
@@ -598,7 +607,13 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
           <div style="margin-top:.5rem;font-size:.82rem;color:var(--gray-600);line-height:1.7;">
             <p><strong>Via your carrier app:</strong> Look for <em>Call Forwarding → No Answer</em> and enter your PickupAI number: <strong>${escape(formatAuPhone(pickupNumber!))}</strong></p>
             <p style="margin-top:.5rem;"><strong>Call your carrier:</strong> Ask for <em>conditional call forwarding (no answer) with a 20-second delay</em> to ${escape(formatAuPhone(pickupNumber!))}.</p>
-            <p style="margin-top:.5rem;"><strong>To turn it off later:</strong> Dial <code>##61#</code> and press Call.</p>
+            <p style="margin-top:.75rem;"><strong>To turn it off later:</strong></p>
+            <ul style="margin-top:.25rem;padding-left:1.2rem;line-height:1.8;">
+              <li><strong>Telstra:</strong> Dial <code>##61#</code> and press Call</li>
+              <li><strong>Optus:</strong> Dial <code>##61#</code> and press Call (or use My Optus app → Call Settings)</li>
+              <li><strong>Vodafone:</strong> Dial <code>##61#</code> and press Call (or use My Vodafone app → Call Divert)</li>
+            </ul>
+            <p style="margin-top:.35rem;font-size:.78rem;color:var(--gray-400);">The <code>##61#</code> code works on most AU carriers. If it doesn't, contact your carrier to remove call forwarding on no answer.</p>
           </div>
         </details>
       </div>`
@@ -762,7 +777,7 @@ export function leadsPage(
         <td style="white-space:nowrap;font-size:.8rem;color:var(--gray-600)">${formatDate(l.created_at)}</td>
       </tr>`).join("");
 
-  const csvQs = qs(filters.urgency, filters.status);
+  const csvQs = qs(filters.urgency, filters.status, filters.search);
   const isPending = !tenant.twilio_number || tenant.twilio_number.startsWith("+PENDING_");
   const hasLeads = leads.length > 0;
 
@@ -908,7 +923,12 @@ ${duplicateWarning ? `<div class="alert" style="background:#fef3c7;color:#92400e
     </div>
   </div>
   <div class="detail-grid">
-    ${field("Phone", (lead.phone ?? lead.from_number) ? formatAuPhone((lead.phone ?? lead.from_number)!) : "—")}
+    ${(lead.phone ?? lead.from_number)
+      ? `<div class="detail-item">
+          <label>Phone</label>
+          <p><a href="tel:${escape((lead.phone ?? lead.from_number)!)}" style="color:var(--brand);font-weight:600;text-decoration:none;">${escape(formatAuPhone((lead.phone ?? lead.from_number)!))}</a></p>
+        </div>`
+      : field("Phone", "—")}
     ${field("Address", lead.address)}
     ${field("Issue type", lead.issue_type)}
     ${field("Preferred time", lead.preferred_time)}
@@ -951,6 +971,8 @@ export type StatsData = {
   totalJobValue: number;
   totalLeads: number;
   totalCalls: number;
+  weekLabel?: string;
+  monthLabel?: string;
 };
 
 export function statsPage(tenant: TenantRow, stats: StatsData): string {
@@ -978,18 +1000,22 @@ export function statsPage(tenant: TenantRow, stats: StatsData): string {
   <div class="card" style="text-align:center;">
     <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Calls this week</p>
     <p style="font-size:2rem;font-weight:700;color:var(--brand);">${fmt(stats.callsThisWeek)}</p>
+    ${stats.weekLabel ? `<p style="font-size:.68rem;color:var(--gray-400);margin-top:.25rem;">${stats.weekLabel}</p>` : ""}
   </div>
   <div class="card" style="text-align:center;">
     <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Calls this month</p>
     <p style="font-size:2rem;font-weight:700;color:var(--brand);">${fmt(stats.callsThisMonth)}</p>
+    ${stats.monthLabel ? `<p style="font-size:.68rem;color:var(--gray-400);margin-top:.25rem;">${stats.monthLabel}</p>` : ""}
   </div>
   <div class="card" style="text-align:center;">
     <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Jobs this week</p>
     <p style="font-size:2rem;font-weight:700;color:var(--green);">${fmt(stats.leadsThisWeek)}</p>
+    ${stats.weekLabel ? `<p style="font-size:.68rem;color:var(--gray-400);margin-top:.25rem;">${stats.weekLabel}</p>` : ""}
   </div>
   <div class="card" style="text-align:center;">
     <p style="font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-600);margin-bottom:.25rem;">Jobs this month</p>
     <p style="font-size:2rem;font-weight:700;color:var(--green);">${fmt(stats.leadsThisMonth)}</p>
+    ${stats.monthLabel ? `<p style="font-size:.68rem;color:var(--gray-400);margin-top:.25rem;">${stats.monthLabel}</p>` : ""}
   </div>
 </div>
 
@@ -1268,6 +1294,8 @@ export function upgradePage(tenant?: TenantRow, stripeEnabled?: boolean, reason?
     ? { icon: "💳", headline: "Complete your signup", subtitle: "Finish setting up your payment to start your 14-day free trial." }
     : reason === "payment_failed"
     ? { icon: "⚠️", headline: "Update your payment method", subtitle: "Your last payment couldn't be processed. Update your card below to keep your AI receptionist active." }
+    : reason === "stripe_error"
+    ? { icon: "⚠️", headline: "Something went wrong", subtitle: "We couldn't complete the checkout. Please try again — if the problem persists, contact hello@getpickupai.com.au." }
     : (tenant?.payment_status === "expired" || tenant?.payment_status === "cancelled")
     ? { icon: "🔄", headline: "Reactivate your account", subtitle: "Your subscription has ended. Subscribe below to get your AI receptionist back online." }
     : { icon: "⏰", headline: "Your free trial has ended", subtitle: "Thanks for trying PickupAI! To keep your AI receptionist answering calls and capturing job enquiries, subscribe below." };
