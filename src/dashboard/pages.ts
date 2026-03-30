@@ -268,7 +268,7 @@ export function signupPage(error?: string, prefill: Record<string, string> = {})
       <div class="form-group">
         <label for="service_area">Where do you work? <span style="font-size:.8rem;font-weight:400;color:var(--gray-600);">(optional)</span></label>
         <input type="text" id="service_area" name="service_area" placeholder="e.g. All of Sydney metro, Hills District, Inner West" value="${escape(prefill.service_area ?? "")}" />
-        <p style="font-size:.78rem;color:var(--gray-500);margin-top:.25rem">Your AI will politely explain you don't cover that area</p>
+        <p style="font-size:.78rem;color:var(--gray-500);margin-top:.25rem">If left blank, your AI will accept jobs from any location. If set, out-of-area callers are still captured but flagged for you to confirm.</p>
       </div>
       <div class="form-group">
         <label for="email">Email</label>
@@ -1044,7 +1044,8 @@ ${flashHtml}
       <label for="service_area">Service area</label>
       <textarea id="service_area" name="service_area" rows="3">${escape(tenant.service_area ?? "")}</textarea>
       <p style="font-size:.8rem;color:var(--gray-500);margin-top:.25rem">
-        Describe where you work — the AI will politely decline jobs outside this area.
+        Describe where you work. If left blank, your AI will accept jobs from any location — no caller is ever turned away.
+        If set, the AI will still take every caller's details but flag out-of-area leads for you to confirm.
         Example: "All suburbs within 40km of Parramatta, including the Hills District and Inner West."
       </p>
     </div>
