@@ -2325,6 +2325,7 @@ async function main() {
   const createStripeCheckoutSession = async (req: Request, res: Response) => {
     const tenant: TenantRow = (req as any).dashTenant;
     const stripe = getStripe();
+    log.info({ hasStripe: !!stripe, hasPriceId: !!env.STRIPE_PRICE_ID, paymentStatus: tenant.payment_status }, "Checkout session requested");
     if (!stripe || !env.STRIPE_PRICE_ID) {
       if (tenant.payment_status === "demo" || tenant.payment_status === "pending") {
         const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
@@ -2356,7 +2357,11 @@ async function main() {
       res.redirect(303, session.url!);
     } catch (err: any) {
       log.error({ err }, "Stripe checkout session creation failed");
-      res.redirect(tenant.payment_status === "demo" ? "/dashboard/welcome" : "/dashboard/upgrade");
+      const errMsg = encodeURIComponent(err?.message ?? "Stripe checkout failed. Please try again.");
+      if (tenant.payment_status === "demo") {
+        return res.redirect(`/dashboard/welcome?error=${errMsg}`);
+      }
+      res.redirect(`/dashboard/upgrade?reason=stripe_error&detail=${errMsg}`);
     }
   };
 
