@@ -2395,17 +2395,38 @@ async function main() {
           });
           log.info({ tenantId: tenant.tenant_id }, "Stripe checkout complete — 14-day trial started");
 
-          // Provision a real Twilio AU number now that the user has committed
+          // Provision a real Twilio AU landline number now that the user has committed.
+          // Prefer 02 (NSW) or 03 (VIC) area codes — cheaper than mobile and more
+          // professional for business use. Fall back to any AU local, then mobile.
           let twilioNumber: string | null = null;
           if (isPendingNumber(tenant.twilio_number)) {
             try {
               const { twilioClient } = await import("./twilio/client.js");
-              const mobileNumbers = await twilioClient.availablePhoneNumbers("AU").mobile.list({ limit: 1 });
-              let chosenNumber: string | null = mobileNumbers[0]?.phoneNumber ?? null;
+              let chosenNumber: string | null = null;
+
+              // 1. Try NSW landline (02 → +612)
+              const nsw = await twilioClient.availablePhoneNumbers("AU").local.list({ contains: "+612*", limit: 1 });
+              chosenNumber = nsw[0]?.phoneNumber ?? null;
+
+              // 2. Try VIC landline (03 → +613)
               if (!chosenNumber) {
-                const localNumbers = await twilioClient.availablePhoneNumbers("AU").local.list({ limit: 1 });
-                chosenNumber = localNumbers[0]?.phoneNumber ?? null;
+                const vic = await twilioClient.availablePhoneNumbers("AU").local.list({ contains: "+613*", limit: 1 });
+                chosenNumber = vic[0]?.phoneNumber ?? null;
               }
+
+              // 3. Any AU landline
+              if (!chosenNumber) {
+                const anyLocal = await twilioClient.availablePhoneNumbers("AU").local.list({ limit: 1 });
+                chosenNumber = anyLocal[0]?.phoneNumber ?? null;
+              }
+
+              // 4. Last resort: AU mobile
+              if (!chosenNumber) {
+                log.warn({ tenantId: tenant.tenant_id }, "No AU landline numbers available — trying mobile");
+                const mobile = await twilioClient.availablePhoneNumbers("AU").mobile.list({ limit: 1 });
+                chosenNumber = mobile[0]?.phoneNumber ?? null;
+              }
+
               if (chosenNumber) {
                 const purchased = await twilioClient.incomingPhoneNumbers.create({
                   phoneNumber: chosenNumber,
