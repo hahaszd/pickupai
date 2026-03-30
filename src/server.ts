@@ -2340,7 +2340,7 @@ async function main() {
       ? `${env.PUBLIC_BASE_URL}/dashboard/welcome`
       : `${env.PUBLIC_BASE_URL}/dashboard/upgrade`;
     try {
-      const session = await stripe.checkout.sessions.create({
+      const checkoutParams: Record<string, any> = {
         mode: "subscription",
         customer_email: tenant.owner_email ?? undefined,
         line_items: [{ price: env.STRIPE_PRICE_ID, quantity: 1 }],
@@ -2351,11 +2351,13 @@ async function main() {
           trial_period_days: 14,
           metadata: { tenant_id: tenant.tenant_id }
         },
-        discounts: env.STRIPE_FOUNDING_COUPON_ID
-          ? [{ coupon: env.STRIPE_FOUNDING_COUPON_ID }]
-          : undefined,
-        allow_promotion_codes: !env.STRIPE_FOUNDING_COUPON_ID,
-      });
+      };
+      if (env.STRIPE_FOUNDING_COUPON_ID) {
+        checkoutParams.discounts = [{ coupon: env.STRIPE_FOUNDING_COUPON_ID }];
+      } else {
+        checkoutParams.allow_promotion_codes = true;
+      }
+      const session = await stripe.checkout.sessions.create(checkoutParams);
       res.redirect(303, session.url!);
     } catch (err: any) {
       log.error({ err }, "Stripe checkout session creation failed");
