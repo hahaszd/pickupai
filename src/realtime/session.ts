@@ -878,11 +878,17 @@ export class RealtimeSession {
     }
   }
 
+  // ~300ms of PCMU silence (0xFF) at 8kHz to pad the start of each AI response.
+  // Twilio's media stream needs a moment to prime its playback pipeline; without
+  // this padding the first ~0.5s of speech gets clipped.
+  private static readonly SILENCE_PAD_B64 = Buffer.alloc(2400, 0xff).toString("base64");
+
   private forwardAudioToTwilio(event: any) {
     if (!this.streamSid || !event.delta) return;
 
     if (this.responseStartTs === null) {
       this.responseStartTs = this.latestMediaTs;
+      this.sendToTwilio({ event: "media", streamSid: this.streamSid, media: { payload: RealtimeSession.SILENCE_PAD_B64 } });
     }
 
     const mark = `r-${Date.now()}`;
