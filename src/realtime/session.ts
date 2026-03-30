@@ -740,6 +740,7 @@ export class RealtimeSession {
   private endCallFallbackTimer: NodeJS.Timeout | null = null;
   private connectTimer: NodeJS.Timeout | null = null;
   private drainTimers: NodeJS.Timeout[] = [];
+  private keepaliveTimer: NodeJS.Timeout | null = null;
 
   constructor(opts: {
     twilioWs: TwilioWs;
@@ -878,17 +879,15 @@ export class RealtimeSession {
     }
   }
 
-  // ~300ms of PCMU silence (0xFF) at 8kHz to pad the start of each AI response.
-  // Twilio's media stream needs a moment to prime its playback pipeline; without
-  // this padding the first ~0.5s of speech gets clipped.
-  private static readonly SILENCE_PAD_B64 = Buffer.alloc(2400, 0xff).toString("base64");
+  // 20ms of PCMU silence (0xFF) at 8kHz = 160 samples.
+  // Sent as keepalive to keep Twilio's jitter buffer warm between AI responses.
+  private static readonly SILENCE_20MS = Buffer.alloc(160, 0xff).toString("base64");
 
   private forwardAudioToTwilio(event: any) {
     if (!this.streamSid || !event.delta) return;
 
     if (this.responseStartTs === null) {
       this.responseStartTs = this.latestMediaTs;
-      this.sendToTwilio({ event: "media", streamSid: this.streamSid, media: { payload: RealtimeSession.SILENCE_PAD_B64 } });
     }
 
     const mark = `r-${Date.now()}`;
@@ -1054,6 +1053,7 @@ export class RealtimeSession {
         log.info({ callSid: this.callSid, streamSid: this.streamSid }, "Twilio media stream started");
         this.latestMediaTs = 0;
         this.responseStartTs = null;
+        this.startKeepalive();
         break;
 
       case "media":
@@ -1089,10 +1089,36 @@ export class RealtimeSession {
     }
   }
 
+  // ── Keepalive ─────────────────────────────────────────────────────────────
+  // Send 20ms silence frames every 20ms while the AI is NOT speaking.
+  // This keeps Twilio's jitter buffer warm so the first audio chunk of each
+  // AI response plays instantly with no clipping.
+
+  private startKeepalive() {
+    this.stopKeepalive();
+    this.keepaliveTimer = setInterval(() => {
+      if (this.streamSid && this.markQueue.length === 0 && !this.ended) {
+        this.sendToTwilio({
+          event: "media",
+          streamSid: this.streamSid,
+          media: { payload: RealtimeSession.SILENCE_20MS }
+        });
+      }
+    }, 20);
+  }
+
+  private stopKeepalive() {
+    if (this.keepaliveTimer) {
+      clearInterval(this.keepaliveTimer);
+      this.keepaliveTimer = null;
+    }
+  }
+
   // ── Cleanup ───────────────────────────────────────────────────────────────
 
   cleanup() {
     this.ended = true;
+    this.stopKeepalive();
     if (this.maxCallTimer) {
       clearTimeout(this.maxCallTimer);
       this.maxCallTimer = null;
