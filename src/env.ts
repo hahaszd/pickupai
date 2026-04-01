@@ -117,7 +117,12 @@ const envSchema = z.object({
   SMTP_FROM:   z.string().optional().default("PickupAI <noreply@getpickupai.com.au>"),
 
   // Google Places API key for lead scraping (scripts/collect-leads.ts)
-  GOOGLE_PLACES_API_KEY: z.string().optional()
+  GOOGLE_PLACES_API_KEY: z.string().optional(),
+
+  // ── Google Analytics (optional) ───────────────────────────────────────────
+  // GA4 Measurement ID (e.g. G-XXXXXXXXXX). When set, the gtag.js snippet is
+  // injected into all public and dashboard pages. Leave unset to disable.
+  GA_MEASUREMENT_ID: z.string().optional()
 });
 
 export type Env = z.infer<typeof envSchema>;

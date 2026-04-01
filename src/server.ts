@@ -167,8 +167,10 @@ import {
   upgradePage,
   statsPage,
   forgotPasswordPage,
-  resetPasswordPage
+  resetPasswordPage,
+  setGaMeasurementId
 } from "./dashboard/pages.js";
+import { gaHeadSnippet } from "./analytics/ga.js";
 import Stripe from "stripe";
 
 /** Lazy Stripe client — only instantiated if STRIPE_SECRET_KEY is set */
@@ -319,6 +321,7 @@ async function main() {
   }
 
   const app = express();
+  setGaMeasurementId(env.GA_MEASUREMENT_ID);
   const crmExporters = createCrmExporters();
 
   if (crmExporters.length > 0) {
@@ -624,6 +627,21 @@ async function main() {
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
     next();
   });
+
+  // Inject GA4 snippet into static marketing pages when GA_MEASUREMENT_ID is set.
+  if (env.GA_MEASUREMENT_ID) {
+    const gaSnippet = gaHeadSnippet(env.GA_MEASUREMENT_ID);
+    const gaInject = (_req: Request, res: Response, next: NextFunction) => {
+      const filePath = path.join(PUBLIC_DIR, _req.path === "/" ? "index.html" : _req.path + ".html");
+      fs.readFile(filePath, "utf-8", (err, html) => {
+        if (err) return next();
+        res.type("html").send(html.replace("</head>", gaSnippet + "\n</head>"));
+      });
+    };
+    app.get("/", gaInject);
+    app.get("/terms", gaInject);
+    app.get("/privacy", gaInject);
+  }
 
   // Serve landing page from /public
   app.use(express.static(PUBLIC_DIR));
@@ -2646,7 +2664,17 @@ async function main() {
     } catch (err: any) {
       log.error({ err }, "Stripe session retrieval failed");
     }
-    res.redirect("/dashboard/welcome");
+
+    if (env.GA_MEASUREMENT_ID && sessionId) {
+      const gaSnip = gaHeadSnippet(env.GA_MEASUREMENT_ID);
+      res.type("html").send(`<!DOCTYPE html><html><head><meta charset="UTF-8"/>${gaSnip}
+<script>
+gtag('event','purchase',{transaction_id:${JSON.stringify(sessionId)},currency:'AUD',value:149,items:[{item_name:'PickupAI Subscription',price:149,quantity:1}]});
+setTimeout(function(){window.location.href='/dashboard/welcome';},500);
+</script></head><body><p>Redirecting…</p></body></html>`);
+    } else {
+      res.redirect("/dashboard/welcome");
+    }
   });
 
   // Stripe Customer Billing Portal — lets users cancel / update card themselves

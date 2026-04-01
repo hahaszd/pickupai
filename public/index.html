@@ -274,7 +274,7 @@
     <a href="#pricing">Pricing</a>
     <a href="#faq">FAQ</a>
     <a href="/dashboard/login" class="nav-login">Log in</a>
-    <a href="/dashboard/signup" class="nav-cta">Start free trial</a>
+    <a href="/dashboard/signup" class="nav-cta" onclick="if(typeof gtag==='function')gtag('event','click_cta_signup',{button_location:'nav'})">Start free trial</a>
   </div>
 </nav>
 
@@ -285,7 +285,7 @@
   <h1>You miss calls.<br><em>We don't.</em></h1>
   <p>PickupAI answers your phone 24/7, takes down the customer's details, and texts them straight to you — so you never lose a job while you're under a sink.</p>
   <div class="hero-cta-group">
-    <a href="/dashboard/signup" class="btn-hero-primary">Start free trial →</a>
+    <a href="/dashboard/signup" class="btn-hero-primary" onclick="if(typeof gtag==='function')gtag('event','click_cta_signup',{button_location:'hero'})">Start free trial →</a>
     <a href="#how-it-works" class="btn-hero-secondary">See how it works</a>
   </div>
   <p style="font-size:.8rem;color:#dbeafe;margin-top:.5rem;">No credit card needed to try. Start with a free demo, then 14-day trial.</p>
@@ -466,7 +466,7 @@
       <li>Flags out-of-area calls — so you don't waste time on jobs you can't take</li>
       <li>14-day free trial — start taking calls in under 10 minutes</li>
     </ul>
-    <a href="/dashboard/signup" class="btn-pricing">Secure early bird price — start free trial →</a>
+    <a href="/dashboard/signup" class="btn-pricing" onclick="if(typeof gtag==='function')gtag('event','click_cta_signup',{button_location:'pricing'})">Secure early bird price — start free trial →</a>
     <p class="pricing-note">No credit card needed to try. Start with a free demo, then add your card for the 14-day trial.</p>
   </div>
 </section>
@@ -589,7 +589,7 @@
 <section class="capture" id="contact">
   <h2>Ready to stop missing jobs?</h2>
   <p>Try your AI receptionist for free — no credit card needed. Love it? Start your 14-day trial and be live in under 10 minutes.</p>
-  <a href="/dashboard/signup" style="display:inline-block;background:#fbbf24;color:#1e3a8a;font-weight:700;padding:.9rem 2.5rem;border-radius:8px;font-size:1.1rem;text-decoration:none;margin-bottom:1rem;">Start free trial →</a>
+  <a href="/dashboard/signup" style="display:inline-block;background:#fbbf24;color:#1e3a8a;font-weight:700;padding:.9rem 2.5rem;border-radius:8px;font-size:1.1rem;text-decoration:none;margin-bottom:1rem;" onclick="if(typeof gtag==='function')gtag('event','click_cta_signup',{button_location:'bottom'})">Start free trial →</a>
   <p style="font-size:.85rem;opacity:.8;margin-bottom:2rem;">Or have us call you:</p>
   <form class="capture-form" method="POST" action="/contact" onsubmit="handleSubmit(event)">
     <label for="contact-name" class="sr-only">Your name</label>
@@ -707,6 +707,13 @@
   });
 
   updateDemoPlayer(); // initialise with plumber + emergency
+
+  var demoAudio = document.getElementById("demo-audio");
+  if (demoAudio) {
+    demoAudio.addEventListener("play", function() {
+      if (typeof gtag === "function") gtag("event", "demo_audio_play", { trade: currentTrade, scenario: currentScenario });
+    });
+  }
   // ── End demo selector ──────────────────────────────────────────────────────
 
   async function handleSubmit(e) {
@@ -727,6 +734,7 @@
         })
       });
       if (res.ok) {
+        if(typeof gtag==='function')gtag('event','contact_form_submit');
         form.innerHTML = '<p style="font-size:1.1rem;font-weight:600;">Thanks! We\'ll be in touch within 24 hours.</p>';
       } else {
         btn.disabled = false;
@@ -780,7 +788,7 @@
 
 <!-- Sticky mobile CTA -->
 <div class="sticky-cta" id="sticky-cta">
-  <a href="/dashboard/signup">Try it free — no card needed for demo</a>
+  <a href="/dashboard/signup" onclick="if(typeof gtag==='function')gtag('event','click_cta_signup',{button_location:'sticky_mobile'})">Try it free — no card needed for demo</a>
 </div>
 
 <script>
@@ -806,6 +814,16 @@
     window.addEventListener('scroll', check, { passive: true });
     check();
   })();
+</script>
+<script>
+document.querySelectorAll('#faq details').forEach(function(d){
+  d.addEventListener('toggle',function(){
+    if(d.open&&typeof gtag==='function'){
+      var q=d.querySelector('summary');
+      gtag('event','faq_expand',{question:q?q.textContent.trim():''});
+    }
+  });
+});
 </script>
 <script src="/chat-widget.js" defer></script>
 </body>

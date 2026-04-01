@@ -1,6 +1,7 @@
 import type { LeadRow, TenantRow } from "../db/repo.js";
 import { generateForwardingCode } from "../twilio/sms.js";
 import { formatAuPhone } from "../utils/phone.js";
+import { gaHeadSnippet, gaUserProperties, gaEvent } from "../analytics/ga.js";
 
 // ─── Trial helpers ────────────────────────────────────────────────────────────
 
@@ -37,15 +38,32 @@ function trialBannerHtml(tenant: TenantRow): string {
 
 // ─── Shared shell ─────────────────────────────────────────────────────────────
 
-function shell(title: string, body: string, tenant?: TenantRow) {
+let _gaMeasurementId: string | undefined;
+
+/** Call once at startup to set the GA4 Measurement ID for all dashboard pages. */
+export function setGaMeasurementId(id: string | undefined) {
+  _gaMeasurementId = id;
+}
+
+function shell(title: string, body: string, tenant?: TenantRow, extraHeadScripts?: string) {
   const tenantName = tenant?.name ?? "";
   const banner = tenant ? trialBannerHtml(tenant) : "";
+  const gaSnippet = gaHeadSnippet(_gaMeasurementId);
+  const gaUser = tenant
+    ? gaUserProperties(_gaMeasurementId, {
+        user_id: tenant.tenant_id,
+        payment_status: tenant.payment_status,
+        trade_type: tenant.trade_type,
+        signup_date: tenant.created_at,
+      })
+    : "";
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${escape(title)} — PickupAI</title>
+  ${gaSnippet}
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -180,6 +198,8 @@ ${tenant ? `<script>window.__pickupai_chat_context=${JSON.stringify({ name: tena
 document.addEventListener('click',function(e){var n=document.querySelector('nav'),l=document.querySelector('.nav-links'),t=document.querySelector('.nav-toggle');if(l&&l.classList.contains('open')&&n&&!n.contains(e.target)){l.classList.remove('open');if(t)t.setAttribute('aria-expanded','false');}});
 document.addEventListener('keydown',function(e){if(e.key==='Escape'){var l=document.querySelector('.nav-links'),t=document.querySelector('.nav-toggle');if(l&&l.classList.contains('open')){l.classList.remove('open');if(t){t.setAttribute('aria-expanded','false');t.focus();}}}});
 </script>
+${gaUser}
+${extraHeadScripts ?? ""}
 </body>
 </html>`;
 }
@@ -219,7 +239,7 @@ export function loginPage(error?: string, flash?: string) {
     <h2 style="text-align:center;margin-bottom:1.5rem;">Sign in to Dashboard</h2>
     ${flash ? `<div class="alert alert-success">${escape(flash)}</div>` : ""}
     ${error ? `<div class="alert alert-error">${escape(error)}</div>` : ""}
-    <form method="POST" action="/dashboard/login">
+    <form method="POST" action="/dashboard/login" onsubmit="if(typeof gtag==='function')gtag('event','login',{method:'email'})">
       <div class="form-group">
         <label for="email">Email</label>
         <input type="email" id="email" name="email" required placeholder="owner@example.com" />
@@ -300,7 +320,7 @@ export function signupPage(error?: string, prefill: Record<string, string> = {})
         </label>
       </div>
       <button type="submit" class="btn btn-primary" style="width:100%;margin-top:.5rem;padding:.65rem;"
-        onclick="this.disabled=true;this.textContent='Creating account...';this.form.submit();">
+        onclick="if(typeof gtag==='function')gtag('event','sign_up',{method:'email'});this.disabled=true;this.textContent='Creating account...';this.form.submit();">
         Create account &amp; try demo →
       </button>
     </form>
@@ -504,7 +524,7 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
         </div>`
       : `<form method="POST" action="/dashboard/request-demo">
           <button type="submit" class="btn btn-outline" style="width:100%;"
-            onclick="this.disabled=true;this.textContent='Requesting number...';this.form.submit();">Get a temporary number to call →</button>
+            onclick="if(typeof gtag==='function')gtag('event','request_demo');this.disabled=true;this.textContent='Requesting number...';this.form.submit();">Get a temporary number to call →</button>
         </form>`}
   </div>` : ""}
 
@@ -592,7 +612,7 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
         <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:1rem;">
           Add your card to start your 14-day free trial. You won't be charged today — cancel any time before day 14 and pay nothing.
         </p>
-        <form method="POST" action="/dashboard/create-checkout-session">
+        <form method="POST" action="/dashboard/create-checkout-session" onsubmit="if(typeof gtag==='function')gtag('event','begin_checkout',{currency:'AUD',value:149})">
           <button type="submit" class="btn btn-primary" style="width:100%;font-size:1rem;padding:.85rem;">Start free trial — add card →</button>
         </form>
         <p style="font-size:.8rem;color:var(--gray-500);margin-top:.75rem;text-align:center;">Secure payment via Stripe. Cancel any time from your account.</p>
@@ -696,7 +716,7 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
   <div style="text-align:center;">
     ${isPendingPayment
       ? `<p style="font-size:.9rem;color:var(--gray-600);margin-bottom:1rem;">Once your card is on file, you can test the AI and start taking calls.</p>
-         <form method="POST" action="/dashboard/create-checkout-session">
+         <form method="POST" action="/dashboard/create-checkout-session" onsubmit="if(typeof gtag==='function')gtag('event','begin_checkout',{currency:'AUD',value:149})">
            <button type="submit" class="btn btn-primary" style="padding:.75rem 2rem;font-size:1rem;">Add card and start free trial →</button>
          </form>`
       : `<a href="/dashboard/leads" class="btn btn-primary" style="padding:.75rem 2rem;font-size:1rem;">View your jobs →</a>`}
@@ -837,7 +857,7 @@ ${setupBanner}
 ${statsBar}
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;flex-wrap:wrap;gap:.75rem;">
   <h1 style="margin:0">Jobs</h1>
-  <a href="/dashboard/leads/export.csv${csvQs}" class="btn btn-outline btn-sm">Export CSV</a>
+  <a href="/dashboard/leads/export.csv${csvQs}" class="btn btn-outline btn-sm" onclick="if(typeof gtag==='function')gtag('event','export_leads',{format:'csv'})">Export CSV</a>
 </div>
 <div class="card">
   <form method="GET" action="/dashboard/leads" style="margin-bottom:.75rem;">
@@ -1065,7 +1085,7 @@ export function settingsPage(tenant: TenantRow, flash?: string): string {
 <h1>Account Settings</h1>
 ${flashHtml}
 <div class="card">
-  <form method="POST" action="/dashboard/settings">
+  <form method="POST" action="/dashboard/settings" onsubmit="if(typeof gtag==='function')gtag('event','update_settings')">
     <div class="settings-grid">
       <div class="form-group">
         <label for="name">Business name</label>
@@ -1284,7 +1304,7 @@ export function upgradePage(tenant?: TenantRow, stripeEnabled?: boolean, reason?
        </div>`
     : "";
   const ctaHtml = stripeEnabled
-    ? `<form method="POST" action="/dashboard/create-checkout-session">
+    ? `<form method="POST" action="/dashboard/create-checkout-session" onsubmit="if(typeof gtag==='function')gtag('event','begin_checkout',{currency:'AUD',value:149})">
         <button type="submit" class="btn btn-primary" style="font-size:1rem;padding:.8rem 2.25rem;cursor:pointer">
           Subscribe — $149 / month →
         </button>
