@@ -92,6 +92,11 @@ const envSchema = z.object({
     .default("false")
     .transform((v) => v === "true"),
 
+  // Twilio Messaging Service SID (e.g. MGxxxxxxxx).  When set, all outbound
+  // SMS uses this service instead of a raw "from" number — enabling Alphanumeric
+  // Sender IDs (e.g. "GetpickupAI") so texts display a business name.
+  TWILIO_MESSAGING_SERVICE_SID: z.string().optional(),
+
   // ── Stripe (optional — set when ABN is confirmed and Stripe is live) ────────
   // Leave unset to keep the upgrade page in "contact us" mode.
   // Set STRIPE_SECRET_KEY to sk_test_... to enable test-mode Stripe Checkout.

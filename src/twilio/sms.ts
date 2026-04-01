@@ -202,6 +202,12 @@ export async function sendOwnerSms(
     log.warn("skipping SMS — no recipient phone number");
     return { status: "skipped", reason: "no_recipient" };
   }
+  if (env.TWILIO_MESSAGING_SERVICE_SID) {
+    const message = await twilioClient.messages.create({
+      to, body, messagingServiceSid: env.TWILIO_MESSAGING_SERVICE_SID
+    });
+    return { status: "sent", sid: message.sid, to, from: env.TWILIO_MESSAGING_SERVICE_SID };
+  }
   const from = nextSmsNumber(db);
   if (!from) {
     log.warn("skipping SMS — no sender numbers configured");
