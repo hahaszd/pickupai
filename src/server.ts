@@ -1416,6 +1416,78 @@ async function main() {
     }
   });
 
+  // Auto-provision: buy an AU Twilio number, assign it, configure webhooks, and notify
+  app.post("/admin/users/:id/auto-provision", adminHtmlAuth, express.urlencoded({ extended: false }), async (req, res) => {
+    const tenant = getTenantById(db, req.params.id);
+    if (!tenant) return res.status(404).send("User not found");
+
+    const b = req.body ?? {};
+
+    try {
+      const { twilioClient } = await import("./twilio/client.js");
+      let chosenNumber: string | null = null;
+
+      const nsw = await twilioClient.availablePhoneNumbers("AU").local.list({ contains: "+612*", limit: 1 });
+      chosenNumber = nsw[0]?.phoneNumber ?? null;
+
+      if (!chosenNumber) {
+        const vic = await twilioClient.availablePhoneNumbers("AU").local.list({ contains: "+613*", limit: 1 });
+        chosenNumber = vic[0]?.phoneNumber ?? null;
+      }
+
+      if (!chosenNumber) {
+        const anyLocal = await twilioClient.availablePhoneNumbers("AU").local.list({ limit: 1 });
+        chosenNumber = anyLocal[0]?.phoneNumber ?? null;
+      }
+
+      if (!chosenNumber) {
+        const mobile = await twilioClient.availablePhoneNumbers("AU").mobile.list({ limit: 1 });
+        chosenNumber = mobile[0]?.phoneNumber ?? null;
+      }
+
+      if (!chosenNumber) {
+        return res.redirect(`/admin/users/${req.params.id}?flash=⚠ No AU numbers available on Twilio. Try again later or assign manually.`);
+      }
+
+      const purchased = await twilioClient.incomingPhoneNumbers.create({
+        phoneNumber: chosenNumber,
+        voiceUrl: `${env.PUBLIC_BASE_URL}/twilio/voice/incoming`,
+        voiceMethod: "POST",
+        statusCallback: `${env.PUBLIC_BASE_URL}/twilio/voice/status`,
+        statusCallbackMethod: "POST",
+        friendlyName: `PickupAI – ${tenant.name}`,
+      });
+
+      const newNumber = purchased.phoneNumber;
+      const patch: Record<string, any> = { twilio_number: newNumber };
+      if (b.mark_active) patch.payment_status = "active";
+      updateTenant(db, req.params.id, patch);
+      log.info({ number: newNumber, tenantId: req.params.id }, "Admin auto-provisioned Twilio number");
+
+      if (!b.send_sms) {
+        return res.redirect(`/admin/users/${req.params.id}?flash=✓ Bought ${formatAuPhone(newNumber)} and assigned (SMS not sent)`);
+      }
+
+      const updated = getTenantById(db, req.params.id)!;
+      try {
+        const smsFrom = env.TWILIO_SMS_NUMBERS[0] ?? env.TWILIO_DEFAULT_VOICE_NUMBER;
+        const smsBody = buildProvisionSms(updated.name, newNumber, env.PUBLIC_BASE_URL);
+        await twilioClient.messages.create({ from: smsFrom, to: updated.owner_phone, body: smsBody });
+        res.redirect(
+          `/admin/users/${req.params.id}?flash=✓ Bought ${formatAuPhone(newNumber)}, assigned & setup SMS sent to ${formatAuPhone(updated.owner_phone)}`
+        );
+      } catch (smsErr: any) {
+        log.error({ err: smsErr }, "auto-provision SMS failed");
+        res.redirect(
+          `/admin/users/${req.params.id}?flash=⚠ Bought ${formatAuPhone(newNumber)} & assigned, but SMS notification failed. Check logs.`
+        );
+      }
+    } catch (err: any) {
+      log.error({ err, tenantId: req.params.id }, "Admin auto-provision failed");
+      res.redirect(`/admin/users/${req.params.id}?flash=⚠ Auto-provision failed: ${err.message ?? "unknown error"}. Try again or assign manually.`);
+    }
+  });
+
   // Reset password → generate temp password, save hash, SMS it
   app.post("/admin/users/:id/reset-password", adminHtmlAuth, async (req, res) => {
     const tenant = getTenantById(db, req.params.id);

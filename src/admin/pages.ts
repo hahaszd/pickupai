@@ -740,8 +740,25 @@ export function adminUserDetailPage(detail: TenantDetail, publicBaseUrl: string,
     <div class="card" style="border:1.5px solid #7c3aed22;background:linear-gradient(135deg,#faf5ff 0%,#fff 100%)">
       <div class="section-title" style="color:#7c3aed">Provision Number</div>
       ${isPending(t.twilio_number)
-        ? `<div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;padding:.65rem .85rem;font-size:.82rem;color:#92400e;margin-bottom:1rem">
-             ⏳ No number assigned yet. Buy one in Twilio Console then enter it below.
+        ? `<form method="POST" action="/admin/users/${t.tenant_id}/auto-provision" style="margin-bottom:1.25rem">
+             <p style="font-size:.85rem;color:#475569;margin-bottom:.75rem">Automatically buy an AU landline number from Twilio, assign it, configure webhooks, and notify the owner.</p>
+             <div class="check-row" style="margin-bottom:.6rem">
+               <input type="checkbox" id="auto_mark_active" name="mark_active" value="1" checked />
+               <label for="auto_mark_active" style="margin:0;font-weight:500;font-size:.84rem">Set payment status → Active</label>
+             </div>
+             <div class="check-row" style="margin-bottom:1rem">
+               <input type="checkbox" id="auto_send_sms" name="send_sms" value="1" checked />
+               <label for="auto_send_sms" style="margin:0;font-weight:500;font-size:.84rem">Send setup SMS to ${esc(t.owner_phone)}</label>
+             </div>
+             <button type="submit" class="btn btn-primary" style="width:100%;background:#7c3aed"
+               onclick="this.disabled=true;this.textContent='Buying number...';this.form.submit();">
+               Auto-buy AU number &amp; assign →
+             </button>
+           </form>
+           <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.25rem">
+             <hr style="flex:1;border:none;border-top:1px solid #e2e8f0" />
+             <span style="font-size:.75rem;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:.5px">or assign manually</span>
+             <hr style="flex:1;border:none;border-top:1px solid #e2e8f0" />
            </div>`
         : `<div class="info-row" style="margin-bottom:.75rem">
              <span class="info-label">Current number</span>
