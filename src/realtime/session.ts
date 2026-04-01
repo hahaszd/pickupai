@@ -741,6 +741,8 @@ export class RealtimeSession {
   private connectTimer: NodeJS.Timeout | null = null;
   private drainTimers: NodeJS.Timeout[] = [];
   private keepaliveTimer: NodeJS.Timeout | null = null;
+  private greetingTriggered = false;
+  private sessionReady = false;
 
   constructor(opts: {
     twilioWs: TwilioWs;
@@ -823,8 +825,19 @@ export class RealtimeSession {
       }
     };
     this.send(sessionUpdate);
+    this.sessionReady = true;
+    this.maybeGreet();
+  }
 
-    // Inject the initial greeting as a user turn so the AI speaks first.
+  /**
+   * Trigger the greeting only once both the OpenAI session is configured AND
+   * the Twilio media stream has started.  This prevents the first audio chunks
+   * from being dropped because `streamSid` was still null.
+   */
+  private maybeGreet() {
+    if (this.greetingTriggered || !this.sessionReady || !this.streamSid) return;
+    this.greetingTriggered = true;
+
     setTimeout(() => {
       this.send({
         type: "conversation.item.create",
@@ -1054,6 +1067,7 @@ export class RealtimeSession {
         this.latestMediaTs = 0;
         this.responseStartTs = null;
         this.startKeepalive();
+        this.maybeGreet();
         break;
 
       case "media":

@@ -135,6 +135,7 @@ function shell(title: string, body: string, tenant?: TenantRow, extraHeadScripts
     label { display: block; font-size: .85rem; font-weight: 600; margin-bottom: .3rem; }
     input, select, textarea { width: 100%; padding: .5rem .75rem; border: 1.5px solid var(--gray-200);
                     border-radius: 6px; font-size: 1rem; font-family: inherit; min-height: 44px; }
+    input[type="checkbox"] { width: auto; min-height: auto; }
     input:focus, select:focus, textarea:focus { border-color: var(--brand); outline: 2px solid var(--brand); outline-offset: 1px; }
     textarea { resize: vertical; min-height: 80px; }
     .filters { display: flex; gap: .75rem; flex-wrap: wrap; margin-bottom: 1rem; }
