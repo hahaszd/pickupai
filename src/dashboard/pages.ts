@@ -650,12 +650,53 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
       </div>`
     : `<div class="card" style="border:2px solid #fde68a;margin-bottom:1rem;">
         <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;">
-          <div style="width:40px;height:40px;border-radius:50%;background:var(--amber);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;">1</div>
-          <h2 style="margin:0;font-size:1.05rem;">Your number is being set up</h2>
+          <div style="width:40px;height:40px;border-radius:50%;background:var(--amber);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;">
+            <div style="width:20px;height:20px;border:3px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div>
+          </div>
+          <h2 style="margin:0;font-size:1.05rem;">Setting up your number...</h2>
         </div>
-        <p style="font-size:.9rem;color:var(--gray-600);">
-          We're setting up your phone number. You'll receive an SMS with your activation code shortly. In the meantime, try a demo below!
+        <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:.75rem;">
+          We're provisioning a dedicated phone number for <strong>${escape(tenant.name)}</strong>. This usually takes less than a minute.
         </p>
+        <p style="font-size:.85rem;color:var(--gray-500);">
+          This page will update automatically once your number is ready. You'll also receive an SMS with your activation code.
+        </p>
+      </div>
+      <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+      <script>
+      (function(){
+        var poll=setInterval(function(){
+          fetch("/dashboard/number-status",{credentials:"same-origin"})
+            .then(function(r){return r.json()})
+            .then(function(d){if(d.ready){clearInterval(poll);location.reload();}})
+            .catch(function(){});
+        },5000);
+      })();
+      </script>`;
+
+  const postPaymentSteps = isPendingPayment ? "" : isNumberReady
+    ? `<div class="card" style="margin-bottom:1.5rem;">
+        <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;">
+          <div style="width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;">2</div>
+          <h2 style="margin:0;font-size:1.05rem;">Start getting jobs</h2>
+        </div>
+        <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:.75rem;">
+          Once call forwarding is active, every missed call is answered by your AI. You'll get a text to <strong>${escape(tenant.owner_phone ? formatAuPhone(tenant.owner_phone) : "your mobile")}</strong> straight away with the caller's details.
+        </p>
+        <p style="font-size:.9rem;color:var(--gray-600);">
+          All leads also appear in your dashboard so you can follow up when it suits you.
+        </p>
+      </div>`
+    : `<div class="card" style="margin-bottom:1.5rem;">
+        <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;">
+          <div style="width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;">2</div>
+          <h2 style="margin:0;font-size:1.05rem;">What happens next</h2>
+        </div>
+        <div style="font-size:.9rem;color:var(--gray-600);line-height:1.7;">
+          <p style="margin-bottom:.5rem;"><strong>1.</strong> We'll text you a short activation code to dial from your phone.</p>
+          <p style="margin-bottom:.5rem;"><strong>2.</strong> That code sets up call forwarding so missed calls go to your AI receptionist.</p>
+          <p><strong>3.</strong> From then on, every call your AI answers shows up in your dashboard and you get a text with the details.</p>
+        </div>
       </div>`;
 
   const body = `
@@ -666,7 +707,7 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
     <span style="font-size:2rem;">🎉</span>
     <div>
       <div style="font-weight:700;font-size:1.15rem;">Welcome, ${escape(tenant.name)}!</div>
-      <div style="opacity:.85;font-size:.9rem;margin-top:.2rem;">${isPendingPayment ? "One more step to activate your AI receptionist." : isNumberReady ? "Your AI receptionist is ready. Follow the steps below to go live." : "Your account is set up. We're getting your number ready."}</div>
+      <div style="opacity:.85;font-size:.9rem;margin-top:.2rem;">${isPendingPayment ? "One more step to activate your AI receptionist." : isNumberReady ? "Your AI receptionist is ready. Follow the steps below to go live." : "Your account is set up. We're getting your AI receptionist number ready — hang tight!"}</div>
     </div>
   </div>
 
@@ -674,45 +715,7 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
 
   ${activationCard}
 
-  ${isPendingPayment ? "" : `<div class="card" style="margin-bottom:1rem;">
-    <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;">
-      <div style="width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;">2</div>
-      <h2 style="margin:0;font-size:1.05rem;">Test it</h2>
-    </div>
-    <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:1rem;">
-      Ask a mate to call your business number and don't answer. After ~20 seconds your AI picks up. You should get a text on <strong>${escape(tenant.owner_phone ? formatAuPhone(tenant.owner_phone) : "your mobile")}</strong> within a minute.
-    </p>
-    <p style="font-size:.85rem;color:var(--gray-500);">Or try a quick demo right now:</p>
-    <div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-top:.75rem;">
-      ${simulationStarted
-        ? `<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:1rem;flex:1;min-width:200px;">
-            <p style="font-weight:600;color:#16a34a;margin-bottom:.4rem;">Demo call in progress!</p>
-            <p style="font-size:.82rem;color:var(--gray-600);">Check your phone for the SMS when it's done.</p>
-          </div>`
-        : `<form method="POST" action="/dashboard/simulate-demo-call" style="flex:1;">
-            <button type="submit" class="btn btn-outline" style="width:100%;">Run a demo call (AI simulates a customer)</button>
-          </form>`}
-      ${demoNumber
-        ? `<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:1rem;flex:1;min-width:200px;">
-            <p style="font-weight:600;color:#16a34a;font-size:.9rem;margin-bottom:.3rem;">Demo number ready:</p>
-            <p style="font-family:monospace;font-size:1rem;margin-bottom:.3rem;">${escape(demoNumberFormatted ?? demoNumber)}</p>
-            <p style="font-size:.8rem;color:var(--gray-500);">Call it from your mobile to hear your AI receptionist.</p>
-          </div>`
-        : `<form method="POST" action="/dashboard/request-demo" style="flex:1;">
-            <button type="submit" class="btn btn-ghost" style="width:100%;">Get a number to call yourself</button>
-          </form>`}
-    </div>
-  </div>
-
-  <div class="card" style="margin-bottom:1.5rem;">
-    <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;">
-      <div style="width:40px;height:40px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;">3</div>
-      <h2 style="margin:0;font-size:1.05rem;">Start getting jobs</h2>
-    </div>
-    <p style="font-size:.9rem;color:var(--gray-600);">
-      Every call your AI answers shows up in your account with the customer's details. You'll also get a text to your phone straight away.
-    </p>
-  </div>`}
+  ${postPaymentSteps}
 
   <div style="text-align:center;">
     ${isPendingPayment
