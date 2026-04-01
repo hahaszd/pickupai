@@ -650,25 +650,38 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
       </div>`
     : `<div class="card" style="border:2px solid #fde68a;margin-bottom:1rem;">
         <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;">
-          <div style="width:40px;height:40px;border-radius:50%;background:var(--amber);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;">
+          <div id="provision-icon" style="width:40px;height:40px;border-radius:50%;background:var(--amber);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;">
             <div style="width:20px;height:20px;border:3px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div>
           </div>
-          <h2 style="margin:0;font-size:1.05rem;">Setting up your number...</h2>
+          <h2 id="provision-title" style="margin:0;font-size:1.05rem;">Setting up your number...</h2>
         </div>
-        <p style="font-size:.9rem;color:var(--gray-600);margin-bottom:.75rem;">
+        <p id="provision-msg" style="font-size:.9rem;color:var(--gray-600);margin-bottom:.75rem;">
           We're provisioning a dedicated phone number for <strong>${escape(tenant.name)}</strong>. This usually takes less than a minute.
         </p>
-        <p style="font-size:.85rem;color:var(--gray-500);">
+        <p id="provision-sub" style="font-size:.85rem;color:var(--gray-500);">
           This page will update automatically once your number is ready. You'll also receive an SMS with your activation code.
         </p>
+        <div id="provision-error" style="display:none;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:.75rem 1rem;margin-top:.75rem;">
+          <p style="font-weight:600;color:#dc2626;font-size:.85rem;margin-bottom:.35rem;">Provisioning issue</p>
+          <p id="provision-error-msg" style="font-size:.82rem;color:var(--gray-600);margin-bottom:.5rem;"></p>
+          <p style="font-size:.8rem;color:var(--gray-500);">We'll keep retrying automatically. If this persists, contact <a href="mailto:hello@getpickupai.com.au">hello@getpickupai.com.au</a>.</p>
+        </div>
       </div>
       <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
       <script>
       (function(){
+        var errorShown = false;
         var poll=setInterval(function(){
           fetch("/dashboard/number-status",{credentials:"same-origin"})
             .then(function(r){return r.json()})
-            .then(function(d){if(d.ready){clearInterval(poll);location.reload();}})
+            .then(function(d){
+              if(d.ready){clearInterval(poll);location.reload();return;}
+              if(d.error && !errorShown){
+                errorShown = true;
+                document.getElementById('provision-error').style.display='block';
+                document.getElementById('provision-error-msg').textContent=d.error;
+              }
+            })
             .catch(function(){});
         },5000);
       })();

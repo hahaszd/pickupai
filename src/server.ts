@@ -191,6 +191,63 @@ function isPendingNumber(twilio_number: string | null | undefined): boolean {
   return !twilio_number || twilio_number.startsWith("+PENDING_");
 }
 
+/**
+ * Search for and purchase an AU Twilio number.  Tries NSW landline → VIC
+ * landline → any AU local → AU mobile.  Returns the E.164 number on success,
+ * or null if no number could be acquired (with the reason logged).
+ */
+async function provisionAuNumber(tenantName: string): Promise<{ number: string | null; error?: string }> {
+  const { twilioClient } = await import("./twilio/client.js");
+
+  const searches: Array<{ label: string; fn: () => Promise<any[]> }> = [
+    { label: "NSW landline (+612)", fn: () => twilioClient.availablePhoneNumbers("AU").local.list({ contains: "+612*", limit: 1 }) },
+    { label: "VIC landline (+613)", fn: () => twilioClient.availablePhoneNumbers("AU").local.list({ contains: "+613*", limit: 1 }) },
+    { label: "any AU local",       fn: () => twilioClient.availablePhoneNumbers("AU").local.list({ limit: 1 }) },
+    { label: "AU mobile",          fn: () => twilioClient.availablePhoneNumbers("AU").mobile.list({ limit: 1 }) },
+  ];
+
+  let chosenNumber: string | null = null;
+  for (const { label, fn } of searches) {
+    try {
+      const results = await fn();
+      log.info({ label, count: results.length, first: results[0]?.phoneNumber ?? null }, "Twilio number search");
+      if (results.length > 0) {
+        chosenNumber = results[0].phoneNumber;
+        break;
+      }
+    } catch (searchErr: any) {
+      log.error({ label, err: searchErr?.message ?? searchErr }, "Twilio number search failed");
+      return { number: null, error: `Search failed (${label}): ${searchErr?.message ?? "unknown error"}` };
+    }
+  }
+
+  if (!chosenNumber) {
+    const msg = "No AU numbers available on Twilio — check Regulatory Bundle and address compliance in Twilio Console";
+    log.warn(msg);
+    return { number: null, error: msg };
+  }
+
+  try {
+    const purchased = await twilioClient.incomingPhoneNumbers.create({
+      phoneNumber: chosenNumber,
+      voiceUrl: `${env.PUBLIC_BASE_URL}/twilio/voice/incoming`,
+      voiceMethod: "POST",
+      statusCallback: `${env.PUBLIC_BASE_URL}/twilio/voice/status`,
+      statusCallbackMethod: "POST",
+      friendlyName: `PickupAI – ${tenantName}`,
+    });
+    log.info({ number: purchased.phoneNumber }, "Twilio number purchased");
+    return { number: purchased.phoneNumber };
+  } catch (buyErr: any) {
+    const msg = `Purchase failed for ${chosenNumber}: ${buyErr?.message ?? "unknown error"}`;
+    log.error({ chosenNumber, err: buyErr?.message ?? buyErr }, "Twilio number purchase failed");
+    return { number: null, error: msg };
+  }
+}
+
+const provisionInFlight = new Set<string>();
+const provisionLastError = new Map<string, string>();
+
 function parseCookies(req: Request): Record<string, string> {
   const cookies: Record<string, string> = {};
   const header = req.headers.cookie ?? "";
@@ -1422,69 +1479,36 @@ async function main() {
     if (!tenant) return res.status(404).send("User not found");
 
     const b = req.body ?? {};
+    const result = await provisionAuNumber(tenant.name);
 
+    if (!result.number) {
+      return res.redirect(`/admin/users/${req.params.id}?flash=⚠ ${result.error ?? "No AU numbers available"}. Try again or assign manually.`);
+    }
+
+    const newNumber = result.number;
+    const patch: Record<string, any> = { twilio_number: newNumber };
+    if (b.mark_active) patch.payment_status = "active";
+    updateTenant(db, req.params.id, patch);
+    log.info({ number: newNumber, tenantId: req.params.id }, "Admin auto-provisioned Twilio number");
+
+    if (!b.send_sms) {
+      return res.redirect(`/admin/users/${req.params.id}?flash=✓ Bought ${formatAuPhone(newNumber)} and assigned (SMS not sent)`);
+    }
+
+    const updated = getTenantById(db, req.params.id)!;
     try {
       const { twilioClient } = await import("./twilio/client.js");
-      let chosenNumber: string | null = null;
-
-      const nsw = await twilioClient.availablePhoneNumbers("AU").local.list({ contains: "+612*", limit: 1 });
-      chosenNumber = nsw[0]?.phoneNumber ?? null;
-
-      if (!chosenNumber) {
-        const vic = await twilioClient.availablePhoneNumbers("AU").local.list({ contains: "+613*", limit: 1 });
-        chosenNumber = vic[0]?.phoneNumber ?? null;
-      }
-
-      if (!chosenNumber) {
-        const anyLocal = await twilioClient.availablePhoneNumbers("AU").local.list({ limit: 1 });
-        chosenNumber = anyLocal[0]?.phoneNumber ?? null;
-      }
-
-      if (!chosenNumber) {
-        const mobile = await twilioClient.availablePhoneNumbers("AU").mobile.list({ limit: 1 });
-        chosenNumber = mobile[0]?.phoneNumber ?? null;
-      }
-
-      if (!chosenNumber) {
-        return res.redirect(`/admin/users/${req.params.id}?flash=⚠ No AU numbers available on Twilio. Try again later or assign manually.`);
-      }
-
-      const purchased = await twilioClient.incomingPhoneNumbers.create({
-        phoneNumber: chosenNumber,
-        voiceUrl: `${env.PUBLIC_BASE_URL}/twilio/voice/incoming`,
-        voiceMethod: "POST",
-        statusCallback: `${env.PUBLIC_BASE_URL}/twilio/voice/status`,
-        statusCallbackMethod: "POST",
-        friendlyName: `PickupAI – ${tenant.name}`,
-      });
-
-      const newNumber = purchased.phoneNumber;
-      const patch: Record<string, any> = { twilio_number: newNumber };
-      if (b.mark_active) patch.payment_status = "active";
-      updateTenant(db, req.params.id, patch);
-      log.info({ number: newNumber, tenantId: req.params.id }, "Admin auto-provisioned Twilio number");
-
-      if (!b.send_sms) {
-        return res.redirect(`/admin/users/${req.params.id}?flash=✓ Bought ${formatAuPhone(newNumber)} and assigned (SMS not sent)`);
-      }
-
-      const updated = getTenantById(db, req.params.id)!;
-      try {
-        const smsFrom = env.TWILIO_SMS_NUMBERS[0] ?? env.TWILIO_DEFAULT_VOICE_NUMBER;
-        const smsBody = buildProvisionSms(updated.name, newNumber, env.PUBLIC_BASE_URL);
-        await twilioClient.messages.create({ from: smsFrom, to: updated.owner_phone, body: smsBody });
-        res.redirect(
-          `/admin/users/${req.params.id}?flash=✓ Bought ${formatAuPhone(newNumber)}, assigned & setup SMS sent to ${formatAuPhone(updated.owner_phone)}`
-        );
-      } catch (smsErr: any) {
-        log.error({ err: smsErr }, "auto-provision SMS failed");
-        res.redirect(
-          `/admin/users/${req.params.id}?flash=⚠ Bought ${formatAuPhone(newNumber)} & assigned, but SMS notification failed. Check logs.`
-        );
-      }
-    } catch (err: any) {
-      log.error({ err, tenantId: req.params.id }, "Admin auto-provision failed");
-      res.redirect(`/admin/users/${req.params.id}?flash=⚠ Auto-provision failed: ${err.message ?? "unknown error"}. Try again or assign manually.`);
+      const smsFrom = env.TWILIO_SMS_NUMBERS[0] ?? env.TWILIO_DEFAULT_VOICE_NUMBER;
+      const smsBody = buildProvisionSms(updated.name, newNumber, env.PUBLIC_BASE_URL);
+      await twilioClient.messages.create({ from: smsFrom, to: updated.owner_phone, body: smsBody });
+      res.redirect(
+        `/admin/users/${req.params.id}?flash=✓ Bought ${formatAuPhone(newNumber)}, assigned & setup SMS sent to ${formatAuPhone(updated.owner_phone)}`
+      );
+    } catch (smsErr: any) {
+      log.error({ err: smsErr }, "auto-provision SMS failed");
+      res.redirect(
+        `/admin/users/${req.params.id}?flash=⚠ Bought ${formatAuPhone(newNumber)} & assigned, but SMS notification failed. Check logs.`
+      );
     }
   });
 
@@ -1992,10 +2016,39 @@ async function main() {
     res.redirect("/dashboard/welcome");
   });
 
-  app.get("/dashboard/number-status", dashAuth, (req, res) => {
-    const tenant: TenantRow = (req as any).dashTenant;
-    const ready = !isPendingNumber(tenant.twilio_number);
-    res.json({ ready, number: ready ? formatAuPhone(tenant.twilio_number) : null });
+  app.get("/dashboard/number-status", dashAuth, async (req, res) => {
+    const freshTenant = getTenantById(db, ((req as any).dashTenant as TenantRow).tenant_id);
+    if (!freshTenant) return res.json({ ready: false, error: "Tenant not found" });
+
+    const ready = !isPendingNumber(freshTenant.twilio_number);
+    if (ready) {
+      provisionLastError.delete(freshTenant.tenant_id);
+      return res.json({ ready: true, number: formatAuPhone(freshTenant.twilio_number) });
+    }
+
+    // Attempt provisioning if not already in-flight and tenant has paid
+    const hasPaid = freshTenant.payment_status === "trial" || freshTenant.payment_status === "active";
+    if (hasPaid && !provisionInFlight.has(freshTenant.tenant_id)) {
+      provisionInFlight.add(freshTenant.tenant_id);
+      log.info({ tenantId: freshTenant.tenant_id }, "number-status: triggering provisioning retry");
+      provisionAuNumber(freshTenant.name).then(result => {
+        if (result.number) {
+          updateTenant(db, freshTenant.tenant_id, { twilio_number: result.number });
+          provisionLastError.delete(freshTenant.tenant_id);
+          log.info({ number: result.number, tenantId: freshTenant.tenant_id }, "Provisioned Twilio number via polling retry");
+        } else {
+          provisionLastError.set(freshTenant.tenant_id, result.error ?? "Unknown error");
+        }
+      }).catch(err => {
+        provisionLastError.set(freshTenant.tenant_id, err?.message ?? "Unknown error");
+        log.error({ err, tenantId: freshTenant.tenant_id }, "number-status provisioning retry failed");
+      }).finally(() => {
+        provisionInFlight.delete(freshTenant.tenant_id);
+      });
+    }
+
+    const lastError = provisionLastError.get(freshTenant.tenant_id) ?? null;
+    res.json({ ready: false, error: lastError });
   });
 
   // ── Welcome / demo routes ─────────────────────────────────────────────────
@@ -2674,46 +2727,16 @@ async function main() {
         // and cause the old code to skip provisioning entirely).
         let twilioNumber: string | null = null;
         if (isPendingNumber(tenant.twilio_number)) {
-          try {
-            const { twilioClient } = await import("./twilio/client.js");
-            let chosenNumber: string | null = null;
-
-            const nsw = await twilioClient.availablePhoneNumbers("AU").local.list({ contains: "+612*", limit: 1 });
-            chosenNumber = nsw[0]?.phoneNumber ?? null;
-
-            if (!chosenNumber) {
-              const vic = await twilioClient.availablePhoneNumbers("AU").local.list({ contains: "+613*", limit: 1 });
-              chosenNumber = vic[0]?.phoneNumber ?? null;
-            }
-
-            if (!chosenNumber) {
-              const anyLocal = await twilioClient.availablePhoneNumbers("AU").local.list({ limit: 1 });
-              chosenNumber = anyLocal[0]?.phoneNumber ?? null;
-            }
-
-            if (!chosenNumber) {
-              log.warn({ tenantId: tenant.tenant_id }, "No AU landline numbers available — trying mobile");
-              const mobile = await twilioClient.availablePhoneNumbers("AU").mobile.list({ limit: 1 });
-              chosenNumber = mobile[0]?.phoneNumber ?? null;
-            }
-
-            if (chosenNumber) {
-              const purchased = await twilioClient.incomingPhoneNumbers.create({
-                phoneNumber: chosenNumber,
-                voiceUrl: `${env.PUBLIC_BASE_URL}/twilio/voice/incoming`,
-                voiceMethod: "POST",
-                statusCallback: `${env.PUBLIC_BASE_URL}/twilio/voice/status`,
-                statusCallbackMethod: "POST",
-                friendlyName: `PickupAI – ${tenant.name}`,
-              });
-              twilioNumber = purchased.phoneNumber;
-              updateTenant(db, tenant.tenant_id, { twilio_number: twilioNumber });
-              log.info({ number: twilioNumber, tenantId: tenant.tenant_id }, "Provisioned Twilio number after Stripe checkout");
-            } else {
-              log.warn({ tenantId: tenant.tenant_id }, "No AU numbers available after checkout — staying PENDING");
-            }
-          } catch (provisionErr: any) {
-            log.warn({ err: provisionErr, tenantId: tenant.tenant_id }, "Twilio provisioning failed after checkout — staying PENDING");
+          log.info({ tenantId: tenant.tenant_id }, "stripe-success: number still pending, attempting provisioning");
+          const result = await provisionAuNumber(tenant.name);
+          if (result.number) {
+            twilioNumber = result.number;
+            updateTenant(db, tenant.tenant_id, { twilio_number: twilioNumber });
+            provisionLastError.delete(tenant.tenant_id);
+            log.info({ number: twilioNumber, tenantId: tenant.tenant_id }, "Provisioned Twilio number after Stripe checkout");
+          } else {
+            provisionLastError.set(tenant.tenant_id, result.error ?? "Unknown provisioning error");
+            log.warn({ tenantId: tenant.tenant_id, error: result.error }, "Twilio provisioning failed after checkout — staying PENDING");
           }
         } else {
           twilioNumber = tenant.twilio_number;
