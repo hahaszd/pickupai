@@ -589,6 +589,32 @@ async function main() {
                 if (sms.status === "skipped") log.warn({ reason: sms.reason }, "founder trial notification SMS skipped");
               } catch (e) { log.warn({ e }, "founder trial notification SMS failed"); }
             }
+
+            if (isPendingNumber(existing.twilio_number) && !provisionInFlight.has(tenantId)) {
+              provisionInFlight.add(tenantId);
+              log.info({ tenantId }, "checkout.session.completed: number pending, triggering background provisioning");
+              updateTenant(db, tenantId, { provision_status: "pending", provision_error: null } as any);
+              provisionAuNumber(existing.name).then(async result => {
+                if (result.number) {
+                  updateTenant(db, tenantId, { twilio_number: result.number, provision_status: "success", provision_error: null } as any);
+                  provisionLastError.delete(tenantId);
+                  log.info({ number: result.number, tenantId }, "Provisioned Twilio number via checkout webhook");
+                } else {
+                  const errMsg = result.error ?? "Unknown error";
+                  updateTenant(db, tenantId, { provision_status: "failed", provision_error: errMsg } as any);
+                  provisionLastError.set(tenantId, errMsg);
+                  if (env.OWNER_PHONE_NUMBER) {
+                    try { await sendOwnerSms(db, `ALERT: Number provisioning failed (webhook) for ${existing.name}.\nError: ${errMsg}\nFix: ${env.PUBLIC_BASE_URL}/admin/users/${tenantId}`); }
+                    catch (_) { /* logged elsewhere */ }
+                  }
+                }
+              }).catch(async err => {
+                const errMsg = err?.message ?? "Unknown error";
+                updateTenant(db, tenantId, { provision_status: "failed", provision_error: errMsg } as any);
+                provisionLastError.set(tenantId, errMsg);
+                log.error({ err, tenantId }, "checkout webhook provisioning failed");
+              }).finally(() => { provisionInFlight.delete(tenantId); });
+            }
           } else {
             log.info({ tenantId, currentStatus: existing?.payment_status }, "checkout.session.completed received but tenant not demo/pending — skipping (idempotent)");
           }
@@ -1007,7 +1033,7 @@ async function main() {
         website: null,
         trade_type: trade || null,
         suburb: null,
-        state: "NSW",
+        state: null,
         source: "website_contact",
         google_rating: null,
         review_count: null,
@@ -1715,7 +1741,7 @@ async function main() {
     for (const p of targets) {
       const body = message
         .replace(/\{name\}/gi, p.business_name)
-        + (message.toLowerCase().includes("stop") || message.toLowerCase().includes("opt out") ? "" : "\nTo opt out, email hello@getpickupai.com.au");
+        + (message.includes("To opt out, email hello@getpickupai.com.au") ? "" : "\nTo opt out, email hello@getpickupai.com.au");
       try {
         const sms = await sendOwnerSms(db, body, p.phone!);
         if (sms.status === "sent") {
@@ -1764,8 +1790,13 @@ async function main() {
   app.post("/admin/prospects/:id/sms", adminHtmlAuth, express.urlencoded({ extended: false }), async (req, res) => {
     const p = getProspectById(db, req.params.id);
     if (!p || !p.phone) return res.redirect(`/admin/prospects/${req.params.id}?flash=⚠ No phone number`);
-    const message = req.body?.message?.trim();
+    let message = req.body?.message?.trim();
     if (!message) return res.redirect(`/admin/prospects/${req.params.id}?flash=⚠ Message is required`);
+
+    const OPT_OUT_LINE = "\nTo opt out, email hello@getpickupai.com.au";
+    if (!message.includes("To opt out, email hello@getpickupai.com.au")) {
+      message += OPT_OUT_LINE;
+    }
 
     try {
       const sms = await sendOwnerSms(db, message, p.phone);

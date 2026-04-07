@@ -974,7 +974,7 @@ export type ProspectRow = {
   website: string | null;
   trade_type: string | null;
   suburb: string | null;
-  state: string;
+  state: string | null;
   source: string;
   status: string;
   google_rating: number | null;
@@ -1136,26 +1136,29 @@ export function createOutreachLog(
 // ─── Onboarding nudge helpers ─────────────────────────────────────────────────
 
 /**
- * Find tenants who signed up, have a provisioned number, but haven't received
- * any real calls yet. Used for automated onboarding nudge SMS.
+ * Find tenants who paid (have trial_ends_at), have a provisioned number, but
+ * haven't received any real calls yet. Used for automated onboarding nudge SMS.
+ * Time windows are relative to trial start (trial_ends_at minus 14 days).
  */
 export function getTenantsNeedingNudge(
   db: Db,
   minAgeMs: number,
   maxAgeMs: number
 ): TenantRow[] {
-  const oldestCreated = new Date(Date.now() - maxAgeMs).toISOString();
-  const newestCreated = new Date(Date.now() - minAgeMs).toISOString();
+  const TRIAL_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
+  const oldestTrialStart = new Date(Date.now() - maxAgeMs + TRIAL_DAYS_MS).toISOString();
+  const newestTrialStart = new Date(Date.now() - minAgeMs + TRIAL_DAYS_MS).toISOString();
   return db.all<TenantRow>(
     `SELECT t.* FROM tenants t
      WHERE t.active = 1
        AND t.twilio_number NOT LIKE '+PENDING%'
-       AND t.created_at >= ? AND t.created_at <= ?
+       AND t.trial_ends_at IS NOT NULL
+       AND t.trial_ends_at >= ? AND t.trial_ends_at <= ?
        AND t.payment_status IN ('trial', 'active')
        AND NOT EXISTS (
          SELECT 1 FROM calls c WHERE c.tenant_id = t.tenant_id AND c.status IS NOT NULL AND c.is_demo = 0
        )`,
-    [oldestCreated, newestCreated]
+    [oldestTrialStart, newestTrialStart]
   );
 }
 
