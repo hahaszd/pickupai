@@ -1244,3 +1244,33 @@ export function listChatLogs(
 export function countChatLogs(db: Db): number {
   return db.get<{ n: number }>("SELECT COUNT(*) AS n FROM chat_logs")?.n ?? 0;
 }
+
+// ─── Tenant SMS log ──────────────────────────────────────────────────────────
+
+export type TenantSmsRow = {
+  sms_id: string;
+  tenant_id: string;
+  to_phone: string;
+  body: string;
+  status: string;
+  twilio_sid: string | null;
+  sent_at: string;
+};
+
+export function logTenantSms(
+  db: Db,
+  data: { tenant_id: string; to_phone: string; body: string; status?: string; twilio_sid?: string }
+): void {
+  db.run(
+    `INSERT INTO tenant_sms_log (sms_id, tenant_id, to_phone, body, status, twilio_sid, sent_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [randomUUID(), data.tenant_id, data.to_phone, data.body, data.status ?? "sent", data.twilio_sid ?? null, new Date().toISOString()]
+  );
+}
+
+export function listTenantSmsLog(db: Db, tenantId: string, limit = 20): TenantSmsRow[] {
+  return db.all<TenantSmsRow>(
+    `SELECT * FROM tenant_sms_log WHERE tenant_id = ? ORDER BY sent_at DESC LIMIT ?`,
+    [tenantId, limit]
+  );
+}

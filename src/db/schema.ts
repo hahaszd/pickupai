@@ -172,5 +172,15 @@ export const migrationStatements = [
   `CREATE INDEX IF NOT EXISTS idx_chat_logs_created ON chat_logs(created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_chat_logs_tenant ON chat_logs(tenant_id) WHERE tenant_id IS NOT NULL`,
   `ALTER TABLE tenants ADD COLUMN provision_status TEXT DEFAULT 'none'`,
-  `ALTER TABLE tenants ADD COLUMN provision_error TEXT`
+  `ALTER TABLE tenants ADD COLUMN provision_error TEXT`,
+  `CREATE TABLE IF NOT EXISTS tenant_sms_log (
+    sms_id     TEXT PRIMARY KEY,
+    tenant_id  TEXT NOT NULL REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+    to_phone   TEXT NOT NULL,
+    body       TEXT NOT NULL,
+    status     TEXT DEFAULT 'sent',
+    twilio_sid TEXT,
+    sent_at    TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_tenant_sms_log_tenant ON tenant_sms_log(tenant_id, sent_at)`
 ];

@@ -1,6 +1,7 @@
 import type {
   TenantWithStats,
   TenantDetail,
+  TenantSmsRow,
   OverviewStats,
   DemoSessionRow,
   ProspectRow,
@@ -161,7 +162,7 @@ function adminShell(title: string, activeTab: string, content: string, flash?: s
       padding: 0 1.5rem; height: 54px; gap: 1rem;
     }
     .logo { font-weight: 800; font-size: 1rem; color: #fff; letter-spacing: -.2px; }
-    .logo span { color: var(--brand); }
+    .logo span:not(.logo-badge) { color: var(--brand); }
     .logo-badge { font-size: .7rem; background: var(--brand); color: #fff; border-radius: 4px; padding: .1rem .4rem; margin-left: .4rem; font-weight: 700; }
     header .spacer { flex: 1; }
     header a.logout { color: rgba(255,255,255,.6); font-size: .85rem; }
@@ -589,7 +590,7 @@ export function adminUsersPage(tenants: TenantWithStats[], flash?: string): stri
 
 // ─── User detail page ──────────────────────────────────────────────────────────
 
-export function adminUserDetailPage(detail: TenantDetail, publicBaseUrl: string, flash?: string): string {
+export function adminUserDetailPage(detail: TenantDetail, publicBaseUrl: string, flash?: string, smsLog?: TenantSmsRow[]): string {
   const t = detail;
   const setupBadge = isPending(t.twilio_number)
     ? `<span class="badge badge-pending">Pending setup</span>`
@@ -858,6 +859,49 @@ export function adminUserDetailPage(detail: TenantDetail, publicBaseUrl: string,
         Download leads CSV
       </a>
     </div>
+  </div>
+
+  <!-- SMS Management -->
+  <div class="card" style="margin-top:1.25rem">
+    <div class="section-title">Send SMS to ${esc(t.name)}</div>
+    <form method="POST" action="/admin/users/${t.tenant_id}/send-sms">
+      <div style="margin-bottom:.75rem">
+        <label style="font-size:.82rem;font-weight:600;color:var(--gray-600)">Preset templates</label>
+        <select id="sms-preset-${t.tenant_id}" style="width:100%;padding:.45rem .6rem;border:1px solid var(--gray-200);border-radius:6px;font-size:.85rem;margin-top:.3rem"
+          onchange="var v=this.value;if(v){document.getElementById('sms-body-${t.tenant_id}').value=v;this.selectedIndex=0;}">
+          <option value="">— Choose a template to pre-fill —</option>
+          <option value="${esc(buildProvisionSms(t.name, t.twilio_number && !isPending(t.twilio_number) ? t.twilio_number : "+61XXXXXXXXX", publicBaseUrl))}">Setup instructions (forwarding code)</option>
+          <option value="Welcome to PickupAI, ${esc(t.name)}! Your AI receptionist is ready. Log in to your dashboard: ${esc(publicBaseUrl)}/dashboard/welcome">Welcome message</option>
+          <option value="PickupAI reminder: Your payment is overdue. Please update your payment method at ${esc(publicBaseUrl)}/dashboard/upgrade to keep your AI receptionist active.">Payment reminder</option>
+        </select>
+      </div>
+      <textarea id="sms-body-${t.tenant_id}" name="sms_body" rows="4" required
+        style="width:100%;padding:.6rem;border:1px solid var(--gray-200);border-radius:6px;font-size:.85rem;font-family:inherit;resize:vertical;box-sizing:border-box"
+        placeholder="Type your message here..."></textarea>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:.5rem">
+        <span style="font-size:.78rem;color:var(--gray-400)">To: ${esc(formatAuPhone(t.owner_phone))}</span>
+        <button type="submit" class="btn btn-primary" style="padding:.45rem 1.25rem"
+          onclick="this.disabled=true;this.textContent='Sending...';this.form.submit();">
+          Send SMS
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card" style="margin-top:1.25rem">
+    <div class="section-title">SMS History</div>
+    ${(smsLog && smsLog.length > 0)
+      ? `<div class="table-wrap"><table>
+          <thead><tr><th style="width:140px">Date</th><th>Message</th><th style="width:70px">Status</th></tr></thead>
+          <tbody>
+            ${smsLog.map(s => `<tr>
+              <td style="font-size:.78rem;white-space:nowrap">${fmtDateTime(s.sent_at)}</td>
+              <td><details style="cursor:pointer"><summary style="font-size:.82rem;color:var(--gray-800);max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.body.slice(0, 80))}${s.body.length > 80 ? "…" : ""}</summary><pre style="font-size:.78rem;white-space:pre-wrap;color:var(--gray-600);margin-top:.4rem;background:var(--gray-50);padding:.5rem;border-radius:4px">${esc(s.body)}</pre></details></td>
+              <td><span class="badge ${s.status === "sent" ? "badge-active" : "badge-expired"}" style="font-size:.7rem">${esc(s.status)}</span></td>
+            </tr>`).join("")}
+          </tbody>
+        </table></div>`
+      : `<p class="empty">No SMS messages sent yet</p>`}
   </div>
 
 </div>

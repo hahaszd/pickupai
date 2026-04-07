@@ -129,9 +129,11 @@ import {
   insertChatLog,
   updateChatLogResponse,
   listChatLogs,
-  countChatLogs
+  countChatLogs,
+  logTenantSms,
+  listTenantSmsLog
 } from "./db/repo.js";
-import type { TenantRow, CallRow, SystemConfigRow, ProspectRow, ChatLogRow } from "./db/repo.js";
+import type { TenantRow, CallRow, SystemConfigRow, ProspectRow, ChatLogRow, TenantSmsRow } from "./db/repo.js";
 import {
   adminLoginPage,
   adminOverviewPage,
@@ -249,6 +251,20 @@ async function provisionAuNumber(tenantName: string): Promise<{ number: string |
 
 const provisionInFlight = new Set<string>();
 const provisionLastError = new Map<string, string>();
+
+/** Send SMS to a tenant's owner and log it in tenant_sms_log. */
+async function sendTenantSms(
+  db: import("./db/db.js").Db,
+  tenantId: string,
+  body: string,
+  ownerPhone: string
+) {
+  const sms = await sendOwnerSms(db, body, ownerPhone);
+  if (sms.status === "sent") {
+    logTenantSms(db, { tenant_id: tenantId, to_phone: sms.to, body, status: "sent", twilio_sid: sms.sid });
+  }
+  return sms;
+}
 
 function parseCookies(req: Request): Record<string, string> {
   const cookies: Record<string, string> = {};
@@ -445,6 +461,7 @@ async function main() {
       const sms = await sendOwnerSms(db, firstCallPrefix + body, ownerPhone);
       if (sms.status === "sent") {
         markNotification(db, id, { status: "sent", error: null });
+        if (lead.tenant_id) logTenantSms(db, { tenant_id: lead.tenant_id, to_phone: sms.to, body: firstCallPrefix + body, status: "sent", twilio_sid: sms.sid });
         trackEvent("owner_sms_sent", { call_id: callId, tenant_id: lead.tenant_id });
         if (isFirstCall) {
           trackEvent("first_call_celebration", { tenant_id: lead.tenant_id, call_id: callId });
@@ -595,7 +612,7 @@ async function main() {
                 const activationBody = hasNumber
                   ? `Your PickupAI subscription is now active, ${t.name}! Your number: ${formatAuPhone(t.twilio_number)}. If you haven't already, set up call forwarding from your welcome page: ${env.PUBLIC_BASE_URL}/dashboard/welcome`
                   : `Your PickupAI subscription is now active, ${t.name}! We're setting up your dedicated number - you'll get an SMS with your activation code shortly.`;
-                const sms = await sendOwnerSms(db, activationBody, t.owner_phone);
+                const sms = await sendTenantSms(db, t.tenant_id, activationBody, t.owner_phone);
                 if (sms.status === "skipped") log.warn({ reason: sms.reason }, "customer activation SMS skipped");
               } catch (e) { log.warn({ e }, "customer activation SMS failed"); }
               if (env.OWNER_PHONE_NUMBER) {
@@ -628,7 +645,7 @@ async function main() {
             updateTenant(db, t.tenant_id, { payment_status: "cancelling" });
             const periodEnd = new Date((sub as any).current_period_end * 1000).toLocaleDateString("en-AU");
             try {
-              await sendOwnerSms(db,
+              await sendTenantSms(db, t.tenant_id,
                 `PickupAI: Your subscription is set to cancel on ${periodEnd}. Your AI receptionist will stay active until then.`,
                 t.owner_phone
               );
@@ -648,7 +665,7 @@ async function main() {
           updateTenant(db, t.tenant_id, { payment_status: "payment_failed" });
           log.warn({ tenantId: t.tenant_id }, "Stripe payment failed — marking account, notifying customer");
           try {
-            const sms = await sendOwnerSms(db,
+            const sms = await sendTenantSms(db, t.tenant_id,
               `PickupAI: Your payment failed. Your AI receptionist may stop answering calls soon. Please update your payment method at ${env.PUBLIC_BASE_URL}/dashboard/upgrade or contact us at hello@getpickupai.com.au`,
               t.owner_phone
             );
@@ -1408,8 +1425,9 @@ async function main() {
   app.get("/admin/users/:id", adminHtmlAuth, (req, res) => {
     const detail = getAdminTenantDetail(db, req.params.id);
     if (!detail) return res.status(404).send("User not found");
+    const smsLog = listTenantSmsLog(db, req.params.id, 30);
     const flash = (req.query.flash as string | undefined) ?? undefined;
-    res.send(adminUserDetailPage(detail, env.PUBLIC_BASE_URL, flash));
+    res.send(adminUserDetailPage(detail, env.PUBLIC_BASE_URL, flash, smsLog));
   });
 
   // User edit (POST)
@@ -1465,9 +1483,10 @@ async function main() {
       const { twilioClient: tc } = await import("./twilio/client.js");
       const smsBody = buildProvisionSms(updated.name, newNumber, env.PUBLIC_BASE_URL);
       const toPhone = toE164Au(updated.owner_phone);
-      await tc.messages.create(env.TWILIO_MESSAGING_SERVICE_SID
+      const msg = await tc.messages.create(env.TWILIO_MESSAGING_SERVICE_SID
         ? { to: toPhone, body: smsBody, messagingServiceSid: env.TWILIO_MESSAGING_SERVICE_SID }
         : { to: toPhone, body: smsBody, from: env.TWILIO_SMS_NUMBERS[0] ?? env.TWILIO_DEFAULT_VOICE_NUMBER });
+      logTenantSms(db, { tenant_id: req.params.id, to_phone: toPhone, body: smsBody, status: "sent", twilio_sid: msg.sid });
       log.info({ tenantId: req.params.id, number: newNumber }, "provision-number SMS sent");
       res.redirect(
         `/admin/users/${req.params.id}?flash=✓ Number ${formatAuPhone(newNumber)} assigned & setup SMS sent to ${formatAuPhone(updated.owner_phone)}`
@@ -1509,9 +1528,10 @@ async function main() {
       const { twilioClient: tc2 } = await import("./twilio/client.js");
       const smsBody2 = buildProvisionSms(updated.name, newNumber, env.PUBLIC_BASE_URL);
       const toPhone2 = toE164Au(updated.owner_phone);
-      await tc2.messages.create(env.TWILIO_MESSAGING_SERVICE_SID
+      const msg2 = await tc2.messages.create(env.TWILIO_MESSAGING_SERVICE_SID
         ? { to: toPhone2, body: smsBody2, messagingServiceSid: env.TWILIO_MESSAGING_SERVICE_SID }
         : { to: toPhone2, body: smsBody2, from: env.TWILIO_SMS_NUMBERS[0] ?? env.TWILIO_DEFAULT_VOICE_NUMBER });
+      logTenantSms(db, { tenant_id: req.params.id, to_phone: toPhone2, body: smsBody2, status: "sent", twilio_sid: msg2.sid });
       res.redirect(
         `/admin/users/${req.params.id}?flash=✓ Bought ${formatAuPhone(newNumber)}, assigned & setup SMS sent to ${formatAuPhone(updated.owner_phone)}`
       );
@@ -1534,13 +1554,33 @@ async function main() {
       const { twilioClient: tc3 } = await import("./twilio/client.js");
       const pwBody = `PickupAI: Your temporary password is: ${tempPw}\nLogin at ${env.PUBLIC_BASE_URL}/dashboard/login`;
       const toPhone3 = toE164Au(tenant.owner_phone);
-      await tc3.messages.create(env.TWILIO_MESSAGING_SERVICE_SID
+      const msg3 = await tc3.messages.create(env.TWILIO_MESSAGING_SERVICE_SID
         ? { to: toPhone3, body: pwBody, messagingServiceSid: env.TWILIO_MESSAGING_SERVICE_SID }
         : { to: toPhone3, body: pwBody, from: env.TWILIO_SMS_NUMBERS[0] ?? env.TWILIO_DEFAULT_VOICE_NUMBER });
+      logTenantSms(db, { tenant_id: req.params.id, to_phone: toPhone3, body: pwBody, status: "sent", twilio_sid: msg3.sid });
       res.redirect(`/admin/users/${req.params.id}?flash=✓ Temp password sent by SMS to ${formatAuPhone(tenant.owner_phone)}`);
     } catch (err: any) {
       log.error({ err }, "admin reset-password SMS failed");
       res.redirect(`/admin/users/${req.params.id}?flash=⚠ Password reset in DB but SMS notification failed. Check server logs for details.`);
+    }
+  });
+
+  // Send custom SMS to tenant owner
+  app.post("/admin/users/:id/send-sms", adminHtmlAuth, express.urlencoded({ extended: false }), async (req, res) => {
+    const tenant = getTenantById(db, req.params.id);
+    if (!tenant) return res.status(404).send("User not found");
+    const smsBody = (req.body?.sms_body as string)?.trim();
+    if (!smsBody) return res.redirect(`/admin/users/${req.params.id}?flash=⚠ Message body is required`);
+    try {
+      const sms = await sendTenantSms(db, tenant.tenant_id, smsBody, tenant.owner_phone);
+      if (sms.status === "sent") {
+        res.redirect(`/admin/users/${req.params.id}?flash=✓ SMS sent to ${formatAuPhone(tenant.owner_phone)}`);
+      } else {
+        res.redirect(`/admin/users/${req.params.id}?flash=⚠ SMS skipped: ${sms.reason}`);
+      }
+    } catch (err: any) {
+      log.error({ err }, "admin send-sms failed");
+      res.redirect(`/admin/users/${req.params.id}?flash=⚠ SMS send failed. Check server logs.`);
     }
   });
 
@@ -1841,8 +1881,8 @@ async function main() {
       if (!tenant) return res.redirect(`/dashboard/forgot-password?flash=${encodeURIComponent(successMsg)}`);
       const code = createPasswordResetToken(db, tenant.tenant_id);
       try {
-        await sendOwnerSms(
-          db,
+        await sendTenantSms(
+          db, tenant.tenant_id,
           `PickupAI password reset: Your 6-digit code is ${code}. Valid for 15 minutes. If you didn't request this, ignore this message.`,
           tenant.owner_phone
         );
@@ -1966,7 +2006,7 @@ async function main() {
 
     try {
       const welcomeBody = `Welcome to PickupAI, ${name}! Try your personalised AI receptionist demo now: ${env.PUBLIC_BASE_URL}/dashboard/welcome\n\nYou'll hear how your AI answers calls and see the SMS alerts you'd get. No commitment yet!`;
-      const sms = await sendOwnerSms(db, welcomeBody, owner_phone as string);
+      const sms = await sendTenantSms(db, tenant.tenant_id, welcomeBody, owner_phone as string);
       if (sms.status === "skipped") log.warn({ reason: sms.reason }, "Welcome SMS skipped");
     } catch (e) { log.warn({ e }, "Welcome SMS failed"); }
 
@@ -2004,7 +2044,7 @@ async function main() {
             `⬆️ THIS IS A DEMO — here's what you'd get when your AI takes a call for ${tenant.name}.`,
           ].join("\n");
           try {
-            await sendOwnerSms(db, smsBody, owner_phone as string);
+            await sendTenantSms(db, tenant.tenant_id, smsBody, owner_phone as string);
             trackEvent("demo_sms_sent", { tenant_id: tenant.tenant_id });
           } catch (smsErr) {
             log.warn({ err: smsErr }, "Demo SMS after auto-generation failed");
@@ -2497,7 +2537,7 @@ async function main() {
           `⬆️ THIS IS A DEMO — here's what you'd get when your AI takes a call for ${tenant.name}.`,
         ].join("\n");
         try {
-          await sendOwnerSms(db, smsBody, tenant.owner_phone);
+          await sendTenantSms(db, tenant.tenant_id, smsBody, tenant.owner_phone);
           trackEvent("demo_sms_sent", { tenant_id: tenant.tenant_id });
         } catch (smsErr) {
           log.warn({ err: smsErr }, "Demo SMS after audio generation failed");
@@ -2784,7 +2824,7 @@ async function main() {
             const body = twilioNumber
               ? `Your 14-day free trial has started, ${tenant.name}! Your AI receptionist number: ${formatAuPhone(twilioNumber)}\n\nTo activate, open your phone dialler and type:\n${fwdCode}\nThen press Call. That's it - you're live!\n\nNeed help? Reply to this text.`
               : `Your 14-day free trial has started, ${tenant.name}! We're setting up your number - you'll get an SMS with your activation code shortly.\n\nIn the meantime, check your dashboard: ${env.PUBLIC_BASE_URL}/dashboard/welcome`;
-            const sms = await sendOwnerSms(db, body, tenant.owner_phone);
+            const sms = await sendTenantSms(db, tenant.tenant_id, body, tenant.owner_phone);
             if (sms.status === "skipped") log.warn({ reason: sms.reason }, "Post-checkout welcome SMS skipped");
           } catch (e: any) {
             log.warn({ e }, "Post-checkout welcome SMS failed");
@@ -3077,7 +3117,7 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
           const sentKey = `${nudge.configKey}:${t.tenant_id}`;
           if (getSystemConfig(db, sentKey)) continue;
           try {
-            const smsResult = await sendOwnerSms(db, nudge.message(t), t.owner_phone);
+            const smsResult = await sendTenantSms(db, t.tenant_id, nudge.message(t), t.owner_phone);
             if (smsResult.status === "sent") {
               setSystemConfig(db, sentKey, new Date().toISOString());
               trackEvent("onboarding_nudge_sent", { tenant_id: t.tenant_id, payload: { nudge: nudge.configKey } });
