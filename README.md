@@ -9,7 +9,7 @@ An AI receptionist that answers inbound calls via Twilio, collects job details i
 - **Multi-tenant** — each business gets its own AI personality, trade-specific prompts, and service area rules
 - **Owner dashboard** — leads list, lead detail with recordings/transcripts, settings, trial management
 - **Admin panel** — tenant management, number provisioning, stats overview, config
-- **Stripe integration** (test mode) — checkout, webhooks, subscription lifecycle
+- **Stripe integration** — checkout, webhooks, subscription lifecycle, 14-day free trial
 - **Demo flow** — hands-free AI-simulated demo + call-it-yourself demo for new signups
 - **Landing page** — interactive demo player, revenue calculator, FAQ, pricing
 
@@ -87,16 +87,23 @@ See `src/env.ts` for the full schema. Key variables:
 | `TWILIO_SMS_NUMBERS` | Yes | Comma-separated SMS sender numbers |
 | `OPENAI_API_KEY` | Yes* | OpenAI API key for voice AI |
 | `ADMIN_TOKEN` | No | Admin panel auth token |
+| `SQLITE_PATH` | No | Path to SQLite file (default: `./data/app.sqlite`) |
+| `OWNER_PHONE_NUMBER` | No | Admin mobile for system alerts |
+| `TWILIO_MESSAGING_SERVICE_SID` | No | Twilio Messaging Service SID (alphanumeric sender ID) |
+| `TWILIO_ADDRESS_SID` | No | Twilio Address SID (required for AU number purchases) |
 | `STRIPE_SECRET_KEY` | No | Stripe secret key (test or live) |
+| `STRIPE_PUBLISHABLE_KEY` | No | Stripe publishable key |
 | `STRIPE_PRICE_ID` | No | Stripe subscription price ID |
 | `STRIPE_WEBHOOK_SECRET` | No | Stripe webhook signing secret |
-| `DATABASE_URL` | No | PostgreSQL URL for persistence |
+| `DATABASE_URL` | No | PostgreSQL URL for backup persistence |
 
 *The server starts without `OPENAI_API_KEY` but will log a warning and voice calls will fail.
 
 ## Documentation
 
-- [Product workflow](docs/product-workflow.md) — architecture, data flow, deployment
+- [Product workflow](docs/product-workflow.md) — architecture, data flow, deployment (English)
+- [产品工作流程说明](docs/产品工作流程说明.md) — architecture, data flow, deployment (Chinese)
 - [Tradie setup guide](docs/tradie-setup-guide.md) — customer-facing setup instructions
+- [Deployment guide](DEPLOY.md) — deploying to Railway
 - [Pricing strategy](docs/core-pricing-gtm.md) — pricing tiers and positioning
 - [GTM playbook](docs/gtm-playbook.md) — go-to-market strategy and outreach scripts

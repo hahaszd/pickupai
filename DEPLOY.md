@@ -41,18 +41,24 @@ In your service → **Variables**, add:
 
 | Variable | Value |
 |---|---|
+| `PUBLIC_BASE_URL` | Your Railway public URL — **must be set manually** (e.g. `https://your-app-production.up.railway.app`) |
 | `TWILIO_ACCOUNT_SID` | Your Twilio Account SID |
 | `TWILIO_AUTH_TOKEN` | Your Twilio Auth Token |
 | `TWILIO_DEFAULT_VOICE_NUMBER` | Your local geographic number for the default tenant and demo calls (e.g. `+61268000835`) |
-| `TWILIO_SMS_NUMBERS` | One or more mobile numbers for SMS notifications, comma-separated (e.g. `+61412000111` or `+61412000111,+61412000222`) |
+| `TWILIO_SMS_NUMBERS` | One or more mobile numbers for SMS notifications, comma-separated (e.g. `+61412000111`) |
+| `TWILIO_MESSAGING_SERVICE_SID` | Twilio Messaging Service SID for alphanumeric sender ID (e.g. `MG...`) |
+| `TWILIO_ADDRESS_SID` | Twilio Address SID for purchasing AU numbers (e.g. `AD...`) |
 | `OPENAI_API_KEY` | Your OpenAI key |
 | `OPENAI_VOICE` | `marin` (or `sage`, `alloy`, etc.) |
 | `ADMIN_TOKEN` | A strong random secret (generate with `openssl rand -hex 32`) |
+| `OWNER_PHONE_NUMBER` | Admin mobile for system alerts (e.g. `+61412000000`) |
 | `TWILIO_VALIDATE_SIGNATURE` | `true` |
 | `SQLITE_PATH` | `/app/data/app.sqlite` |
 | `PORT` | `3000` |
-
-Railway sets `PUBLIC_BASE_URL` for you — or you can set it manually after you get the domain.
+| `STRIPE_SECRET_KEY` | Stripe secret key (`sk_live_...` or `sk_test_...`) |
+| `STRIPE_PUBLISHABLE_KEY` | Stripe publishable key (`pk_live_...` or `pk_test_...`) |
+| `STRIPE_PRICE_ID` | Stripe subscription price ID |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret |
 
 ---
 
@@ -60,7 +66,7 @@ Railway sets `PUBLIC_BASE_URL` for you — or you can set it manually after you 
 
 After deploy, Railway gives you a URL like `https://your-app-production.up.railway.app`.
 
-Set `PUBLIC_BASE_URL` to this URL in Railway variables.
+Set `PUBLIC_BASE_URL` to this URL in Railway variables (it is not set automatically).
 
 ---
 
@@ -73,9 +79,17 @@ In the Twilio console, for your phone number:
 
 ---
 
-## Step 7 — Create your first tenant
+## Step 7 — Customer onboarding
 
-Use the Admin API to register your business:
+New customers sign up through the self-service flow:
+
+1. They visit `https://your-app.up.railway.app/dashboard/signup`
+2. They fill in their business details, email, and password
+3. They complete payment via Stripe Checkout (14-day free trial)
+4. The system automatically purchases an AU landline number and assigns it
+5. The customer receives an SMS with their number and call-forwarding instructions
+
+Alternatively, admins can create tenants manually via the Admin API:
 
 ```bash
 curl -X POST https://your-app.up.railway.app/admin/tenants \
@@ -85,7 +99,7 @@ curl -X POST https://your-app.up.railway.app/admin/tenants \
     "name": "Gary'\''s Plumbing",
     "trade_type": "plumber",
     "ai_name": "Olivia",
-    "twilio_number": "+61468000835",
+    "twilio_number": "+61268000835",
     "owner_phone": "+61420555555",
     "owner_email": "gary@example.com",
     "password": "secure-password-here"
@@ -96,17 +110,18 @@ curl -X POST https://your-app.up.railway.app/admin/tenants \
 
 ## Step 8 — Log in to the owner dashboard
 
-Navigate to `https://your-app.up.railway.app/dashboard/login` and sign in with the email + password you set above.
+Navigate to `https://your-app.up.railway.app/dashboard/login` and sign in with the email + password.
 
 ---
 
 ## Adding a new customer (tenant)
 
-For each new tradie business you onboard:
-1. Buy/provision a Twilio number for them
-2. Point that Twilio number's webhook to your Railway URL
-3. Run the `POST /admin/tenants` API call above with their details
-4. Give them their dashboard login URL + credentials
+For most customers, the self-service signup handles everything automatically (number purchase, webhook configuration, welcome SMS). Admins can monitor onboarding status and intervene via the admin panel at `/admin`.
+
+For manual onboarding:
+1. Use the admin panel's auto-provision feature (one-click number purchase + assignment)
+2. Or run the `POST /admin/tenants` API call above with their details
+3. Give them their dashboard login URL + credentials
 
 ---
 

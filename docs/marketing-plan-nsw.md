@@ -153,7 +153,7 @@ Comprehensive marketing strategy for acquiring tradie customers across New South
 ### Spam Act 2003 (Cth)
 
 - [x] All SMS include sender identification
-- [x] All SMS include opt-out mechanism ("Reply STOP to opt out")
+- [x] All SMS include opt-out mechanism ("To opt out, email hello@getpickupai.com.au" — SMS uses alphanumeric sender ID and cannot receive replies)
 - [x] Opt-out register maintained (prospect status = "do_not_contact")
 - [x] Messages sent only to publicly listed business numbers
 - [x] Messages are relevant to the recipient's business

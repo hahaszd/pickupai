@@ -11,7 +11,7 @@ This guide shows you how to keep your existing phone number and have PickupAI au
 
 Your PickupAI team will provide you with:
 
-- **Your PickupAI number** — the number calls will forward to (e.g. `+61 4XX XXX XXX`)
+- **Your PickupAI number** — the number calls will forward to (e.g. `+61 2XX XXX XXX`)
 - **Your dashboard login link** — where you can view your leads
 - **Your email and password** — to log in to the dashboard
 
@@ -101,7 +101,7 @@ If anything doesn't work as expected, contact your PickupAI support contact.
 
 View all your leads, play call recordings, and mark jobs as handled:
 
-**Dashboard:** `https://your-server.com/dashboard/login`
+**Dashboard:** `https://www.getpickupai.com.au/dashboard/login`
 
 | | |
 |---|---|
@@ -179,4 +179,4 @@ Recordings are stored securely and accessible in your dashboard. They are kept f
 
 ---
 
-*Questions? Contact your PickupAI setup contact or email support.*
+*Questions? Email hello@getpickupai.com.au*

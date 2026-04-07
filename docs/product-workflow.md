@@ -46,9 +46,11 @@ Before setting up an account, we need the following from the tradie:
 | **Twilio number** (assigned to this tradie) | `+61 468 000 835` | The number clients call / forward to |
 | **Email + Password** | ???| Dashboard login credentials |
 
-### 1.2 Admin Creates the Tenant Account
+### 1.2 Account Creation
 
-An admin uses the protected Admin API to create the tradie's account:
+Accounts are primarily created through **self-service signup**. The tradie visits `https://www.getpickupai.com.au/dashboard/signup`, enters their business info, email, and password, then completes payment via Stripe Checkout. After payment, the system automatically purchases an AU landline number and assigns it to the tenant.
+
+Admins can also create accounts manually via the Admin API:
 
 ```
 POST /admin/tenants
@@ -57,8 +59,10 @@ x-admin-token: <ADMIN_TOKEN>
 {
   "name": "Mike's Plumbing",
   "ai_name": "Olivia",
-  "phone_number": "+61468000835",   ???Twilio number assigned to this tradie
-  "owner_phone": "+61412000000",    ???Tradie's personal mobile (for SMS)
+  "twilio_number": "+61268000835",   <- Twilio number assigned to this tradie
+  "owner_phone": "+61412000000",     <- Tradie's personal mobile (for SMS)
+  "owner_email": "mike@example.com", <- Dashboard login email
+  "password": "secure-password",     <- Dashboard login password
   "trade_type": "plumber,gasfitter",
   "service_area": "Sydney metro, within 50km of Parramatta"
 }
@@ -68,6 +72,7 @@ The system:
 - Creates a tenant record in the database
 - Stores a hashed password for the dashboard
 - Associates the Twilio number with the tenant so inbound calls are routed correctly
+- In self-service flow: automatically purchases an AU landline number and notifies the user via SMS
 
 ### 1.3 Tradie Sets Up Call Forwarding
 
@@ -213,14 +218,14 @@ On `save_lead`, the server:
 Within seconds of the call ending, an SMS is sent to the tradie's mobile:
 
 ```
-???? New lead ???Mike's Plumbing
-
-Caller: Sarah (+61400123456)
+NEW JOB (EMERGENCY):
+Name: Sarah
+Phone: 0400 123 456
 Address: 12 Main St, Parramatta NSW 2150
-Issue: Burst pipe under kitchen sink ???URGENT
+Details: Burst pipe under kitchen sink, water actively leaking
 Preferred time: ASAP
-
-Log in to review: https://getpickupai.com.au/dashboard
+Next: Call back immediately
+View: https://www.getpickupai.com.au/dashboard/leads/abc123
 ```
 
 Emergency calls are flagged clearly so the tradie knows to call back immediately.
@@ -284,30 +289,37 @@ The dashboard has a **Download CSV** button that exports all leads to a spreadsh
 
 ```
 tenants
-  ????????? tenant_id (primary key)
-  ????????? name, ai_name, phone_number, owner_phone
-  ????????? trade_type, service_area
-  ????????? password_hash, session_token
+  +-- tenant_id (primary key)
+  +-- name, ai_name, twilio_number, owner_phone, owner_email
+  +-- trade_type, service_area
+  +-- password_hash, session_token
+  +-- payment_status, stripe_customer_id, stripe_subscription_id
+  +-- provision_status, provision_error
 
 calls
-  ????????? call_sid (Twilio identifier)
-  ????????? tenant_id (foreign key ???tenants)
-  ????????? from_number, to_number
-  ????????? transcript (full conversation text)
-  ????????? recording_url
-  ????????? call_status, started_at, ended_at
+  +-- call_sid (Twilio identifier)
+  +-- tenant_id (foreign key -> tenants)
+  +-- from_number, to_number
+  +-- transcript (full conversation text)
+  +-- recording_url
+  +-- call_status, started_at, ended_at
 
 leads
-  ????????? lead_id
-  ????????? call_sid (foreign key ???calls)
-  ????????? tenant_id (foreign key ???tenants)
-  ????????? caller_name, address, issue_description
-  ????????? urgency, caller_intent, preferred_time
-  ????????? lead_status (new / called_back / booked / handled)
-  ????????? created_at
+  +-- lead_id
+  +-- call_sid (foreign key -> calls)
+  +-- tenant_id (foreign key -> tenants)
+  +-- caller_name, address, issue_description
+  +-- urgency, caller_intent, preferred_time
+  +-- lead_status (new / called_back / booked / handled)
+  +-- created_at
 
 notifications
-  ????????? Log of all SMS messages sent
+  +-- Log of all SMS notifications sent per call
+
+tenant_sms_log
+  +-- sms_id, tenant_id (foreign key -> tenants)
+  +-- to_phone, body, status, twilio_sid
+  +-- sent_at
 ```
 
 ---
@@ -317,7 +329,7 @@ notifications
 | Protection | Implementation |
 |---|---|
 | Webhook authenticity | Twilio signature validation on every incoming request |
-| Admin API | Bearer token (`ADMIN_TOKEN`) required for all `/admin/*` routes |
+| Admin API | `x-admin-token` header or `?token=` query param (`ADMIN_TOKEN`) required for all `/admin/*` routes |
 | Dashboard sessions | HTTP-only cookie with UUID session token, stored in DB |
 | Passwords | `pbkdf2Sync` hashing with per-user salt |
 | Multi-tenant isolation | All queries filter by `tenant_id`; tenants cannot see each other's data |
@@ -333,7 +345,8 @@ notifications
 | **Backend** | Node.js + Express + TypeScript |
 | **WebSocket bridge** | `ws` package |
 | **Database** | SQLite via `sql.js` (WASM, zero native dependencies) |
-| **SMS** | Twilio Programmable Messaging |
+| **SMS** | Twilio Programmable Messaging (via Messaging Service + alphanumeric sender ID) |
+| **Payments** | Stripe Checkout (subscriptions, 14-day free trial) |
 | **Dashboard** | Server-side rendered HTML (built into Express) |
 | **Deployment** | Docker / Railway ? live at `https://www.getpickupai.com.au` |
 | **Dev tunnelling** | ngrok |
@@ -370,8 +383,16 @@ TWILIO_AUTH_TOKEN=...
 OPENAI_API_KEY=...
 OPENAI_VOICE=marin
 ADMIN_TOKEN=...
-PUBLIC_BASE_URL=https://getpickupai.com.au
+PUBLIC_BASE_URL=https://www.getpickupai.com.au
 PORT=3000
+SQLITE_PATH=/app/data/app.sqlite
+OWNER_PHONE_NUMBER=+61...              # Admin mobile for system alerts
+TWILIO_MESSAGING_SERVICE_SID=MG...     # Messaging Service (alphanumeric sender ID)
+TWILIO_ADDRESS_SID=AD...               # Address SID for AU number purchases
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_PUBLISHABLE_KEY=pk_live_...
+STRIPE_PRICE_ID=price_...
+STRIPE_WEBHOOK_SECRET=whsec_...
 ```
 
 ---

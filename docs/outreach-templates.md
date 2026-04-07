@@ -22,10 +22,10 @@ within seconds. No app needed.
 
 Quick demo: getpickupai.com.au
 
-Reply STOP to opt out
+To opt out, email hello@getpickupai.com.au
 ```
 
-**Character count:** ~280 (fits in 2 SMS segments)
+**Character count:** ~300 (fits in 2 SMS segments)
 
 ---
 
@@ -42,7 +42,7 @@ straight to you.
 
 14-day free trial, cancel anytime: getpickupai.com.au
 
-Reply STOP to opt out
+To opt out, email hello@getpickupai.com.au
 ```
 
 **Character count:** ~310
@@ -61,7 +61,7 @@ to our first 20 customers. After that it's $199/mo.
 If missed calls are costing you jobs, it's worth a 2-min look:
 getpickupai.com.au
 
-No hard feelings if it's not for you. Reply STOP to opt out
+No hard feelings if it's not for you. To opt out, email hello@getpickupai.com.au
 ```
 
 **Character count:** ~270
@@ -193,7 +193,7 @@ your phone and hear it in action. What's the best mobile for you?"
 
 ## Opt-out Handling
 
-- All SMS include "Reply STOP to opt out"
-- When a prospect replies STOP, update their status to `do_not_contact` in the admin panel
+- All SMS include "To opt out, email hello@getpickupai.com.au" (SMS is sent from an alphanumeric sender ID and cannot receive replies)
+- When a prospect emails to opt out, update their status to `do_not_contact` in the admin panel
 - The bulk SMS system automatically skips prospects with `do_not_contact` or `not_interested` status
 - Keep an opt-out register — this is a legal requirement under the Spam Act 2003
