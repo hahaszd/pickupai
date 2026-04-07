@@ -1715,7 +1715,7 @@ async function main() {
     for (const p of targets) {
       const body = message
         .replace(/\{name\}/gi, p.business_name)
-        + (message.toLowerCase().includes("stop") ? "" : "\nReply STOP to opt out");
+        + (message.toLowerCase().includes("stop") || message.toLowerCase().includes("opt out") ? "" : "\nTo opt out, email hello@getpickupai.com.au");
       try {
         const sms = await sendOwnerSms(db, body, p.phone!);
         if (sms.status === "sent") {
@@ -2822,7 +2822,7 @@ async function main() {
           const fwdCode = twilioNumber ? generateForwardingCode(twilioNumber) : null;
           try {
             const body = twilioNumber
-              ? `Your 14-day free trial has started, ${tenant.name}! Your AI receptionist number: ${formatAuPhone(twilioNumber)}\n\nTo activate, open your phone dialler and type:\n${fwdCode}\nThen press Call. That's it - you're live!\n\nNeed help? Reply to this text.`
+              ? `Your 14-day free trial has started, ${tenant.name}! Your AI receptionist number: ${formatAuPhone(twilioNumber)}\n\nTo activate, open your phone dialler and type:\n${fwdCode}\nThen press Call. That's it - you're live!\n\nNeed help? Email hello@getpickupai.com.au`
               : `Your 14-day free trial has started, ${tenant.name}! We're setting up your number - you'll get an SMS with your activation code shortly.\n\nIn the meantime, check your dashboard: ${env.PUBLIC_BASE_URL}/dashboard/welcome`;
             const sms = await sendTenantSms(db, tenant.tenant_id, body, tenant.owner_phone);
             if (sms.status === "skipped") log.warn({ reason: sms.reason }, "Post-checkout welcome SMS skipped");
@@ -3090,7 +3090,7 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
         const code = !t.twilio_number.startsWith("+PENDING")
           ? `\n\nJust dial this from your phone:\n${generateForwardingCode(t.twilio_number)}\nThen press Call.`
           : "";
-        return `Hey ${t.name} - did you get a chance to set up call forwarding?${code}\n\nOnce it's on, every missed call gets answered automatically and you'll get a text with the details. Takes 2 minutes!\n\nQuestions? Just reply to this text.`;
+        return `Hey ${t.name} - did you get a chance to set up call forwarding?${code}\n\nOnce it's on, every missed call gets answered automatically and you'll get a text with the details. Takes 2 minutes!\n\nQuestions? Email hello@getpickupai.com.au`;
       }
     },
     {
@@ -3098,14 +3098,14 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
       maxAge: 1.5 * DAY,
       configKey: "nudge_24h",
       message: (t: TenantRow) =>
-        `Your AI receptionist is ready and waiting, ${t.name}! You're 2 minutes away from never missing a call again.\n\nSet up guide: ${env.PUBLIC_BASE_URL}/dashboard/welcome\n\nNeed a hand? Reply here or call us.`
+        `Your AI receptionist is ready and waiting, ${t.name}! You're 2 minutes away from never missing a call again.\n\nSet up guide: ${env.PUBLIC_BASE_URL}/dashboard/welcome\n\nNeed a hand? Email hello@getpickupai.com.au`
     },
     {
       minAge: 3 * DAY,
       maxAge: 3.5 * DAY,
       configKey: "nudge_72h",
       message: (t: TenantRow) =>
-        `Hi ${t.name} - you've been on your free trial for 3 days but your AI receptionist isn't active yet. Every missed call is a potential job lost!\n\nWant us to help you set it up? Just reply "HELP" and we'll sort it out for you.`
+        `Hi ${t.name} - you've been on your free trial for 3 days but your AI receptionist isn't active yet. Every missed call is a potential job lost!\n\nNeed help setting up? Email hello@getpickupai.com.au and we'll sort it out for you.`
     }
   ];
 

@@ -44,7 +44,7 @@ ${publicBaseUrl}/dashboard/welcome
 Login to your dashboard:
 ${publicBaseUrl}/dashboard/login
 
-Questions? Just reply to this message — PickupAI`;
+Questions? Email hello@getpickupai.com.au — PickupAI`;
 }
 
 function esc(s: string | null | undefined): string {
@@ -1257,9 +1257,9 @@ export function adminBulkSmsPage(
   ).join("");
 
   const templates = [
-    { label: "First touch", text: "Hey {name} — I built an AI receptionist for NSW tradies. It answers missed calls 24/7, captures the job details, and texts you a lead summary. 14-day free trial. Want to hear a demo? getpickupai.com.au Reply STOP to opt out" },
-    { label: "Follow-up", text: "Quick follow-up {name} — do you miss calls on the tools? PickupAI picks up when you can't, captures the lead, and texts it to you. 14-day free trial, cancel anytime. getpickupai.com.au Reply STOP to opt out" },
-    { label: "Final touch", text: "Last one {name} — we're offering founding pricing ($149/mo locked) to our first 20 customers. After that it's $199/mo. If missed calls cost you jobs, worth a look: getpickupai.com.au Reply STOP to opt out" }
+    { label: "First touch", text: "Hey {name} — I built an AI receptionist for NSW tradies. It answers missed calls 24/7, captures the job details, and texts you a lead summary. 14-day free trial. Want to hear a demo? getpickupai.com.au" },
+    { label: "Follow-up", text: "Quick follow-up {name} — do you miss calls on the tools? PickupAI picks up when you can't, captures the lead, and texts it to you. 14-day free trial, cancel anytime. getpickupai.com.au" },
+    { label: "Final touch", text: "Last one {name} — we're offering founding pricing ($149/mo locked) to our first 20 customers. After that it's $199/mo. If missed calls cost you jobs, worth a look: getpickupai.com.au" }
   ];
 
   const templateButtons = templates.map((t, i) =>
@@ -1292,7 +1292,7 @@ export function adminBulkSmsPage(
       <textarea id="sms-body" name="message" rows="5" required placeholder="Type your SMS here. Use {name} for business name."
         style="width:100%;background:var(--navy-mid);color:#fff;border:1px solid var(--navy-light);border-radius:6px;padding:.5rem;font-family:inherit"></textarea>
       <p style="font-size:.78rem;color:var(--gray-400);margin-top:.25rem">
-        Use <code>{name}</code> to insert the business name. "Reply STOP to opt out" will be appended automatically if not included.
+        Use <code>{name}</code> to insert the business name. An opt-out line will be appended automatically if not included.
       </p>
     </div>
 
