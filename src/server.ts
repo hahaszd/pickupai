@@ -610,8 +610,8 @@ async function main() {
               try {
                 const hasNumber = !t.twilio_number.startsWith("+PENDING");
                 const activationBody = hasNumber
-                  ? `Your PickupAI subscription is now active, ${t.name}! Your number: ${formatAuPhone(t.twilio_number)}. If you haven't already, set up call forwarding from your welcome page: ${env.PUBLIC_BASE_URL}/dashboard/welcome`
-                  : `Your PickupAI subscription is now active, ${t.name}! We're setting up your dedicated number - you'll get an SMS with your activation code shortly.`;
+                  ? `Your PickupAI subscription is now active, ${t.name}! Your number: ${formatAuPhone(t.twilio_number)}. If you haven't already, set up call forwarding from your welcome page: ${env.PUBLIC_BASE_URL}/dashboard/welcome\n\nNeed help? Email hello@getpickupai.com.au`
+                  : `Your PickupAI subscription is now active, ${t.name}! We're setting up your dedicated number - you'll get an SMS with your activation code shortly.\n\nNeed help? Email hello@getpickupai.com.au`;
                 const sms = await sendTenantSms(db, t.tenant_id, activationBody, t.owner_phone);
                 if (sms.status === "skipped") log.warn({ reason: sms.reason }, "customer activation SMS skipped");
               } catch (e) { log.warn({ e }, "customer activation SMS failed"); }
@@ -646,7 +646,7 @@ async function main() {
             const periodEnd = new Date((sub as any).current_period_end * 1000).toLocaleDateString("en-AU");
             try {
               await sendTenantSms(db, t.tenant_id,
-                `PickupAI: Your subscription is set to cancel on ${periodEnd}. Your AI receptionist will stay active until then.`,
+                `PickupAI: Your subscription is set to cancel on ${periodEnd}. Your AI receptionist will stay active until then.\n\nChanged your mind? Log in to reactivate: ${env.PUBLIC_BASE_URL}/dashboard/settings\nQuestions? Email hello@getpickupai.com.au`,
                 t.owner_phone
               );
             } catch (e) { log.warn({ e }, "cancelling notification SMS failed"); }

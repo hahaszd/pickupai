@@ -182,14 +182,7 @@ export function buildCallerConfirmationSms(opts: {
     ? ` about your ${ref.length > 40 ? ref.slice(0, 37) + "..." : ref}`
     : "";
 
-  const VISUAL_TRADES = new Set(["plumber", "plumbing", "electrician", "electrical", "roofer", "roofing", "painter", "painting", "tiler", "tiling", "builder", "building", "handyman"]);
-  const trades = (opts.tradeType ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-  const isVisualTrade = trades.length === 0 || trades.some((t) => VISUAL_TRADES.has(t));
-  const photoLine = isVisualTrade
-    ? "\nIf you have photos of the issue, feel free to text them to this number - it helps the team prepare."
-    : "";
-
-  return `${greeting} for calling ${biz}!${refSnippet}\nThe team will call you back ${timing}.${photoLine} - ${biz}`;
+  return `${greeting} for calling ${biz}!${refSnippet}\nThe team will call you back ${timing}. - ${biz}`;
 }
 
 export async function sendOwnerSms(
