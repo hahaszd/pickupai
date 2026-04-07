@@ -154,7 +154,7 @@ import { getOrInitCallState, setCallState, clearCallState } from "./twilio/state
 import { startCallRecording } from "./twilio/recording.js";
 import { formatOwnerSms, NO_SMS_INTENTS, sendOwnerSms, generateForwardingCode, FIRST_CALL_CELEBRATION_PREFIX, buildCallerConfirmationSms } from "./twilio/sms.js";
 import { isEmailConfigured, sendEmail, formatLeadEmail } from "./utils/email.js";
-import { formatAuPhone } from "./utils/phone.js";
+import { formatAuPhone, toE164Au } from "./utils/phone.js";
 import { createCrmExporters, exportLeadToCrm } from "./crm/index.js";
 import { RealtimeSession } from "./realtime/session.js";
 import {
@@ -1460,9 +1460,10 @@ async function main() {
     try {
       const { twilioClient: tc } = await import("./twilio/client.js");
       const smsBody = buildProvisionSms(updated.name, newNumber, env.PUBLIC_BASE_URL);
+      const toPhone = toE164Au(updated.owner_phone);
       await tc.messages.create(env.TWILIO_MESSAGING_SERVICE_SID
-        ? { to: updated.owner_phone, body: smsBody, messagingServiceSid: env.TWILIO_MESSAGING_SERVICE_SID }
-        : { to: updated.owner_phone, body: smsBody, from: env.TWILIO_SMS_NUMBERS[0] ?? env.TWILIO_DEFAULT_VOICE_NUMBER });
+        ? { to: toPhone, body: smsBody, messagingServiceSid: env.TWILIO_MESSAGING_SERVICE_SID }
+        : { to: toPhone, body: smsBody, from: env.TWILIO_SMS_NUMBERS[0] ?? env.TWILIO_DEFAULT_VOICE_NUMBER });
       log.info({ tenantId: req.params.id, number: newNumber }, "provision-number SMS sent");
       res.redirect(
         `/admin/users/${req.params.id}?flash=✓ Number ${formatAuPhone(newNumber)} assigned & setup SMS sent to ${formatAuPhone(updated.owner_phone)}`
@@ -1501,9 +1502,10 @@ async function main() {
     try {
       const { twilioClient: tc2 } = await import("./twilio/client.js");
       const smsBody2 = buildProvisionSms(updated.name, newNumber, env.PUBLIC_BASE_URL);
+      const toPhone2 = toE164Au(updated.owner_phone);
       await tc2.messages.create(env.TWILIO_MESSAGING_SERVICE_SID
-        ? { to: updated.owner_phone, body: smsBody2, messagingServiceSid: env.TWILIO_MESSAGING_SERVICE_SID }
-        : { to: updated.owner_phone, body: smsBody2, from: env.TWILIO_SMS_NUMBERS[0] ?? env.TWILIO_DEFAULT_VOICE_NUMBER });
+        ? { to: toPhone2, body: smsBody2, messagingServiceSid: env.TWILIO_MESSAGING_SERVICE_SID }
+        : { to: toPhone2, body: smsBody2, from: env.TWILIO_SMS_NUMBERS[0] ?? env.TWILIO_DEFAULT_VOICE_NUMBER });
       res.redirect(
         `/admin/users/${req.params.id}?flash=✓ Bought ${formatAuPhone(newNumber)}, assigned & setup SMS sent to ${formatAuPhone(updated.owner_phone)}`
       );
@@ -1524,9 +1526,10 @@ async function main() {
     try {
       const { twilioClient: tc3 } = await import("./twilio/client.js");
       const pwBody = `PickupAI: Your temporary password is: ${tempPw}\nLogin at ${env.PUBLIC_BASE_URL}/dashboard/login`;
+      const toPhone3 = toE164Au(tenant.owner_phone);
       await tc3.messages.create(env.TWILIO_MESSAGING_SERVICE_SID
-        ? { to: tenant.owner_phone, body: pwBody, messagingServiceSid: env.TWILIO_MESSAGING_SERVICE_SID }
-        : { to: tenant.owner_phone, body: pwBody, from: env.TWILIO_SMS_NUMBERS[0] ?? env.TWILIO_DEFAULT_VOICE_NUMBER });
+        ? { to: toPhone3, body: pwBody, messagingServiceSid: env.TWILIO_MESSAGING_SERVICE_SID }
+        : { to: toPhone3, body: pwBody, from: env.TWILIO_SMS_NUMBERS[0] ?? env.TWILIO_DEFAULT_VOICE_NUMBER });
       res.redirect(`/admin/users/${req.params.id}?flash=✓ Temp password sent by SMS to ${formatAuPhone(tenant.owner_phone)}`);
     } catch (err: any) {
       log.error({ err }, "admin reset-password SMS failed");

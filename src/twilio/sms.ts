@@ -4,7 +4,7 @@ import type { Db } from "../db/db.js";
 import type { LeadRow } from "../db/repo.js";
 import { getSystemConfig } from "../db/repo.js";
 import { twilioClient } from "./client.js";
-import { formatAuPhone } from "../utils/phone.js";
+import { formatAuPhone, toE164Au } from "../utils/phone.js";
 import { isWithinHours } from "../utils/time.js";
 
 const log = pino({ level: "info" });
@@ -197,11 +197,12 @@ export async function sendOwnerSms(
   body: string,
   ownerPhone?: string
 ): Promise<SendOwnerSmsResult> {
-  const to = ownerPhone ?? env.OWNER_PHONE_NUMBER;
-  if (!to) {
+  const raw = ownerPhone ?? env.OWNER_PHONE_NUMBER;
+  if (!raw) {
     log.warn("skipping SMS — no recipient phone number");
     return { status: "skipped", reason: "no_recipient" };
   }
+  const to = toE164Au(raw);
   if (env.TWILIO_MESSAGING_SERVICE_SID) {
     const message = await twilioClient.messages.create({
       to, body, messagingServiceSid: env.TWILIO_MESSAGING_SERVICE_SID
