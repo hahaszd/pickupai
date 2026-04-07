@@ -228,8 +228,10 @@ async function provisionAuNumber(tenantName: string): Promise<{ number: string |
   }
 
   try {
+    log.info({ addressSid: env.TWILIO_ADDRESS_SID ?? "(not set)", chosenNumber }, "Purchasing AU number");
     const purchased = await twilioClient.incomingPhoneNumbers.create({
       phoneNumber: chosenNumber,
+      ...(env.TWILIO_ADDRESS_SID ? { addressSid: env.TWILIO_ADDRESS_SID } : {}),
       voiceUrl: `${env.PUBLIC_BASE_URL}/twilio/voice/incoming`,
       voiceMethod: "POST",
       statusCallback: `${env.PUBLIC_BASE_URL}/twilio/voice/status`,

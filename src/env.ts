@@ -97,6 +97,10 @@ const envSchema = z.object({
   // Sender IDs (e.g. "GetpickupAI") so texts display a business name.
   TWILIO_MESSAGING_SERVICE_SID: z.string().optional(),
 
+  // Address SID (e.g. ADxxxxxxxx) required for purchasing AU phone numbers.
+  // Find it in Twilio Console → Phone Numbers → Addresses.
+  TWILIO_ADDRESS_SID: z.string().optional(),
+
   // ── Stripe (optional — set when ABN is confirmed and Stripe is live) ────────
   // Leave unset to keep the upgrade page in "contact us" mode.
   // Set STRIPE_SECRET_KEY to sk_test_... to enable test-mode Stripe Checkout.
