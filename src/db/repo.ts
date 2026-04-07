@@ -28,6 +28,8 @@ export type TenantRow = {
   payment_status: string | null;
   trial_ends_at: string | null;
   stripe_customer_id: string | null;
+  provision_status: string | null;
+  provision_error: string | null;
 };
 
 export type CallRow = {
@@ -572,6 +574,7 @@ export function listTenantsWithStats(db: Db): TenantWithStats[] {
       t.owner_email, t.business_hours_start, t.business_hours_end, t.timezone,
       t.enable_warm_transfer, t.service_area, t.active, t.created_at,
       t.last_login_at, t.payment_status, t.trial_ends_at,
+      t.provision_status, t.provision_error,
       COUNT(DISTINCT l.lead_id) AS lead_count,
       COUNT(DISTINCT c.call_id) AS call_count,
       COUNT(DISTINCT CASE WHEN n.channel='sms' AND n.status='sent' THEN n.id END) AS sms_count
@@ -790,6 +793,7 @@ export function getAdminTenantDetail(db: Db, tenantId: string): TenantDetail | n
       t.owner_email, t.business_hours_start, t.business_hours_end, t.timezone,
       t.enable_warm_transfer, t.service_area, t.active, t.created_at,
       t.last_login_at, t.payment_status, t.trial_ends_at,
+      t.provision_status, t.provision_error,
       COUNT(DISTINCT l.lead_id) AS lead_count,
       COUNT(DISTINCT c.call_id) AS call_count,
       COUNT(DISTINCT CASE WHEN n.channel='sms' AND n.status='sent' THEN n.id END) AS sms_count

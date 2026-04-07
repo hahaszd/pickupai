@@ -296,7 +296,8 @@ export function signupPage(error?: string, prefill: Record<string, string> = {})
       </div>
       <div class="form-group">
         <label for="owner_phone">Your mobile number <span style="font-size:.8rem;font-weight:400;color:var(--gray-600);">— for SMS job alerts</span></label>
-        <input type="tel" id="owner_phone" name="owner_phone" required placeholder="+61 4XX XXX XXX" value="${escape(prefill.owner_phone ?? "")}" />
+        <input type="tel" id="owner_phone" name="owner_phone" required placeholder="0412 345 678" value="${escape(prefill.owner_phone ?? "")}" />
+        <p id="phone-hint" style="font-size:.8rem;color:var(--gray-500);margin-top:.25rem;display:none;"></p>
       </div>
       <div class="form-group">
         <label for="service_area">Where do you work? <span style="font-size:.8rem;font-weight:400;color:var(--gray-600);">(optional)</span></label>
@@ -320,11 +321,53 @@ export function signupPage(error?: string, prefill: Record<string, string> = {})
           </span>
         </label>
       </div>
-      <button type="submit" class="btn btn-primary" style="width:100%;margin-top:.5rem;padding:.65rem;"
-        onclick="if(typeof gtag==='function')gtag('event','sign_up',{method:'email'});this.disabled=true;this.textContent='Creating account...';this.form.submit();">
+      <button type="submit" class="btn btn-primary" style="width:100%;margin-top:.5rem;padding:.65rem;">
         Create account &amp; try demo →
       </button>
     </form>
+    <script>
+    (function(){
+      var phoneInput = document.getElementById('owner_phone');
+      var hint = document.getElementById('phone-hint');
+      var form = phoneInput.closest('form');
+      function strip(v){ return v.replace(/[\\s\\-()]+/g,''); }
+      function isValid(v){
+        var d = strip(v);
+        return /^(\\+?61[2-9]\\d{8}|0[2-9]\\d{8}|[2-9]\\d{8})$/.test(d);
+      }
+      phoneInput.addEventListener('blur', function(){
+        var v = phoneInput.value.trim();
+        if(!v){ hint.style.display='none'; return; }
+        if(isValid(v)){
+          hint.textContent='✓ Valid Australian number';
+          hint.style.color='#16a34a';
+          hint.style.display='block';
+          phoneInput.style.borderColor='';
+        } else {
+          hint.textContent='Enter a valid AU number, e.g. 0412 345 678 or +61412345678';
+          hint.style.color='#dc2626';
+          hint.style.display='block';
+          phoneInput.style.borderColor='#dc2626';
+        }
+      });
+      form.addEventListener('submit', function(e){
+        var v = phoneInput.value.trim();
+        if(!isValid(v)){
+          e.preventDefault();
+          hint.textContent='Enter a valid AU number, e.g. 0412 345 678 or +61412345678';
+          hint.style.color='#dc2626';
+          hint.style.display='block';
+          phoneInput.style.borderColor='#dc2626';
+          phoneInput.focus();
+          return false;
+        }
+        if(typeof gtag==='function') gtag('event','sign_up',{method:'email'});
+        var btn = form.querySelector('button[type=submit]');
+        btn.disabled=true;
+        btn.textContent='Creating account...';
+      });
+    })();
+    </script>
     <p style="text-align:center;margin-top:1.25rem;font-size:.85rem;color:var(--gray-600);">
       Already have an account? <a href="/dashboard/login">Sign in</a>
     </p>
@@ -1119,8 +1162,8 @@ ${flashHtml}
       </div>
       <div class="form-group">
         <label for="owner_phone">Your callback number</label>
-        <input type="tel" id="owner_phone" name="owner_phone" value="${escape(tenant.owner_phone)}" required />
-        <p style="font-size:.8rem;color:var(--gray-500);margin-top:.25rem">SMS job summaries are sent here</p>
+        <input type="tel" id="owner_phone" name="owner_phone" value="${escape(tenant.owner_phone)}" required placeholder="0412 345 678" />
+        <p id="settings-phone-hint" style="font-size:.8rem;color:var(--gray-500);margin-top:.25rem">SMS job summaries are sent here</p>
       </div>
       <div class="form-group">
         <label for="business_hours_start">Business hours start</label>
@@ -1181,6 +1224,20 @@ ${flashHtml}
       <a href="/dashboard/leads" class="btn btn-ghost">Cancel</a>
     </div>
   </form>
+  <script>
+  (function(){
+    var p=document.getElementById('owner_phone'), h=document.getElementById('settings-phone-hint'), f=p.closest('form');
+    function ok(v){return /^(\\+?61[2-9]\\d{8}|0[2-9]\\d{8}|[2-9]\\d{8})$/.test(v.replace(/[\\s\\-()]+/g,''));}
+    p.addEventListener('blur',function(){
+      var v=p.value.trim();if(!v)return;
+      if(ok(v)){h.textContent='SMS job summaries are sent here';h.style.color='var(--gray-500)';p.style.borderColor='';}
+      else{h.textContent='Enter a valid AU number, e.g. 0412 345 678';h.style.color='#dc2626';p.style.borderColor='#dc2626';}
+    });
+    f.addEventListener('submit',function(e){
+      if(!ok(p.value.trim())){e.preventDefault();h.textContent='Enter a valid AU number, e.g. 0412 345 678';h.style.color='#dc2626';p.style.borderColor='#dc2626';p.focus();}
+    });
+  })();
+  </script>
 </div>
 
 <div class="card" style="margin-top:1.25rem">

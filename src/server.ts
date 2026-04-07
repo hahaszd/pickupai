@@ -154,7 +154,7 @@ import { getOrInitCallState, setCallState, clearCallState } from "./twilio/state
 import { startCallRecording } from "./twilio/recording.js";
 import { formatOwnerSms, NO_SMS_INTENTS, sendOwnerSms, generateForwardingCode, FIRST_CALL_CELEBRATION_PREFIX, buildCallerConfirmationSms } from "./twilio/sms.js";
 import { isEmailConfigured, sendEmail, formatLeadEmail } from "./utils/email.js";
-import { formatAuPhone, toE164Au } from "./utils/phone.js";
+import { formatAuPhone, toE164Au, isValidAuPhone } from "./utils/phone.js";
 import { createCrmExporters, exportLeadToCrm } from "./crm/index.js";
 import { RealtimeSession } from "./realtime/session.js";
 import {
@@ -342,7 +342,9 @@ function buildFallbackTenant(): TenantRow {
     last_login_at: null,
     payment_status: null,
     trial_ends_at: null,
-    stripe_customer_id: null
+    stripe_customer_id: null,
+    provision_status: null,
+    provision_error: null
   };
 }
 
@@ -1254,7 +1256,7 @@ async function main() {
     try {
       const tenant = createTenant(db, {
         name, trade_type: trade_type ?? "tradie", ai_name, twilio_number,
-        owner_phone, owner_email, password, business_hours_start,
+        owner_phone: toE164Au(owner_phone), owner_email, password, business_hours_start,
         business_hours_end, timezone,
         enable_warm_transfer: enable_warm_transfer ? 1 : 0,
         service_area: service_area ?? undefined
@@ -1382,9 +1384,11 @@ async function main() {
   // Overview
   app.get("/admin", adminHtmlAuth, (_req, res) => {
     const stats = getOverviewStats(db);
-    const recent = listTenantsWithStats(db).slice(0, 10);
+    const allTenants = listTenantsWithStats(db);
+    const recent = allTenants.slice(0, 10);
     const foundingCount = getFoundingCustomerCount(db);
-    res.send(adminOverviewPage(stats, recent, foundingCount));
+    const failedProv = allTenants.filter(t => t.provision_status === "failed");
+    res.send(adminOverviewPage(stats, recent, foundingCount, undefined, failedProv));
   });
 
   app.get("/admin/funnel", adminHtmlAuth, (req, res) => {
@@ -1482,14 +1486,16 @@ async function main() {
     if (!tenant) return res.status(404).send("User not found");
 
     const b = req.body ?? {};
+    updateTenant(db, req.params.id, { provision_status: "pending", provision_error: null } as any);
     const result = await provisionAuNumber(tenant.name);
 
     if (!result.number) {
+      updateTenant(db, req.params.id, { provision_status: "failed", provision_error: result.error ?? "No AU numbers available" } as any);
       return res.redirect(`/admin/users/${req.params.id}?flash=⚠ ${result.error ?? "No AU numbers available"}. Try again or assign manually.`);
     }
 
     const newNumber = result.number;
-    const patch: Record<string, any> = { twilio_number: newNumber };
+    const patch: Record<string, any> = { twilio_number: newNumber, provision_status: "success", provision_error: null };
     if (b.mark_active) patch.payment_status = "active";
     updateTenant(db, req.params.id, patch);
     log.info({ number: newNumber, tenantId: req.params.id }, "Admin auto-provisioned Twilio number");
@@ -1511,6 +1517,7 @@ async function main() {
       );
     } catch (smsErr: any) {
       log.error({ err: smsErr }, "auto-provision SMS failed");
+      updateTenant(db, req.params.id, { provision_status: "failed", provision_error: `Number bought but SMS failed: ${smsErr?.message ?? "unknown"}` } as any);
       res.redirect(
         `/admin/users/${req.params.id}?flash=⚠ Bought ${formatAuPhone(newNumber)} & assigned, but SMS notification failed. Check logs.`
       );
@@ -1921,11 +1928,11 @@ async function main() {
       trackEvent("signup_validation_failed", { payload: { reason: "invalid_trade_type" } });
       return res.send(signupPage("Please select a valid trade type.", prefill));
     }
-    const phoneClean = (owner_phone as string).replace(/[\s\-()]/g, "");
-    if (!/^(\+?61\d{9}|0[2-9]\d{8})$/.test(phoneClean)) {
+    if (!isValidAuPhone(owner_phone as string)) {
       trackEvent("signup_validation_failed", { payload: { reason: "invalid_phone" } });
-      return res.send(signupPage("Please enter a valid Australian phone number (e.g. 0412345678 or +61412345678).", prefill));
+      return res.send(signupPage("Please enter a valid Australian phone number (e.g. 0412 345 678 or +61412345678).", prefill));
     }
+    const phoneE164 = toE164Au(owner_phone as string);
 
     // Check if email already in use
     const existing = listTenants(db).find(t => t.owner_email?.toLowerCase() === (email as string).toLowerCase());
@@ -1944,7 +1951,7 @@ async function main() {
       trade_type: trade_type as string,
       ai_name: ai_name || "Olivia",
       twilio_number: twilioNumber,
-      owner_phone: owner_phone as string,
+      owner_phone: phoneE164,
       owner_email: email as string,
       password: password as string,
       service_area: serviceArea ?? undefined,
@@ -2026,6 +2033,9 @@ async function main() {
     const ready = !isPendingNumber(freshTenant.twilio_number);
     if (ready) {
       provisionLastError.delete(freshTenant.tenant_id);
+      if (freshTenant.provision_status !== "success") {
+        updateTenant(db, freshTenant.tenant_id, { provision_status: "success", provision_error: null } as any);
+      }
       return res.json({ ready: true, number: formatAuPhone(freshTenant.twilio_number) });
     }
 
@@ -2034,23 +2044,38 @@ async function main() {
     if (hasPaid && !provisionInFlight.has(freshTenant.tenant_id)) {
       provisionInFlight.add(freshTenant.tenant_id);
       log.info({ tenantId: freshTenant.tenant_id }, "number-status: triggering provisioning retry");
-      provisionAuNumber(freshTenant.name).then(result => {
+      if (freshTenant.provision_status !== "pending") {
+        updateTenant(db, freshTenant.tenant_id, { provision_status: "pending", provision_error: null } as any);
+      }
+      provisionAuNumber(freshTenant.name).then(async result => {
         if (result.number) {
-          updateTenant(db, freshTenant.tenant_id, { twilio_number: result.number });
+          updateTenant(db, freshTenant.tenant_id, { twilio_number: result.number, provision_status: "success", provision_error: null } as any);
           provisionLastError.delete(freshTenant.tenant_id);
           log.info({ number: result.number, tenantId: freshTenant.tenant_id }, "Provisioned Twilio number via polling retry");
         } else {
-          provisionLastError.set(freshTenant.tenant_id, result.error ?? "Unknown error");
+          const errMsg = result.error ?? "Unknown error";
+          updateTenant(db, freshTenant.tenant_id, { provision_status: "failed", provision_error: errMsg } as any);
+          provisionLastError.set(freshTenant.tenant_id, errMsg);
+          if (env.OWNER_PHONE_NUMBER) {
+            try { await sendOwnerSms(db, `ALERT: Number retry failed for ${freshTenant.name} (${formatAuPhone(freshTenant.owner_phone)}).\nError: ${errMsg}\nFix: ${env.PUBLIC_BASE_URL}/admin/users/${freshTenant.tenant_id}`); }
+            catch (e) { log.warn({ e }, "Admin alert SMS failed"); }
+          }
         }
-      }).catch(err => {
-        provisionLastError.set(freshTenant.tenant_id, err?.message ?? "Unknown error");
+      }).catch(async err => {
+        const errMsg = err?.message ?? "Unknown error";
+        updateTenant(db, freshTenant.tenant_id, { provision_status: "failed", provision_error: errMsg } as any);
+        provisionLastError.set(freshTenant.tenant_id, errMsg);
         log.error({ err, tenantId: freshTenant.tenant_id }, "number-status provisioning retry failed");
+        if (env.OWNER_PHONE_NUMBER) {
+          try { await sendOwnerSms(db, `ALERT: Number retry error for ${freshTenant.name} (${formatAuPhone(freshTenant.owner_phone)}).\nError: ${errMsg}\nFix: ${env.PUBLIC_BASE_URL}/admin/users/${freshTenant.tenant_id}`); }
+          catch (e) { log.warn({ e }, "Admin alert SMS failed"); }
+        }
       }).finally(() => {
         provisionInFlight.delete(freshTenant.tenant_id);
       });
     }
 
-    const lastError = provisionLastError.get(freshTenant.tenant_id) ?? null;
+    const lastError = provisionLastError.get(freshTenant.tenant_id) ?? freshTenant.provision_error ?? null;
     res.json({ ready: false, error: lastError });
   });
 
@@ -2731,15 +2756,22 @@ async function main() {
         let twilioNumber: string | null = null;
         if (isPendingNumber(tenant.twilio_number)) {
           log.info({ tenantId: tenant.tenant_id }, "stripe-success: number still pending, attempting provisioning");
+          updateTenant(db, tenant.tenant_id, { provision_status: "pending", provision_error: null } as any);
           const result = await provisionAuNumber(tenant.name);
           if (result.number) {
             twilioNumber = result.number;
-            updateTenant(db, tenant.tenant_id, { twilio_number: twilioNumber });
+            updateTenant(db, tenant.tenant_id, { twilio_number: twilioNumber, provision_status: "success", provision_error: null } as any);
             provisionLastError.delete(tenant.tenant_id);
             log.info({ number: twilioNumber, tenantId: tenant.tenant_id }, "Provisioned Twilio number after Stripe checkout");
           } else {
-            provisionLastError.set(tenant.tenant_id, result.error ?? "Unknown provisioning error");
+            const provErr = result.error ?? "Unknown provisioning error";
+            updateTenant(db, tenant.tenant_id, { provision_status: "failed", provision_error: provErr } as any);
+            provisionLastError.set(tenant.tenant_id, provErr);
             log.warn({ tenantId: tenant.tenant_id, error: result.error }, "Twilio provisioning failed after checkout — staying PENDING");
+            if (env.OWNER_PHONE_NUMBER) {
+              try { await sendOwnerSms(db, `ALERT: Number purchase failed for ${tenant.name} (${formatAuPhone(tenant.owner_phone)}).\nError: ${provErr}\nFix: ${env.PUBLIC_BASE_URL}/admin/users/${tenant.tenant_id}`); }
+              catch (e) { log.warn({ e }, "Admin alert SMS failed"); }
+            }
           }
         } else {
           twilioNumber = tenant.twilio_number;
@@ -2754,7 +2786,14 @@ async function main() {
               : `Your 14-day free trial has started, ${tenant.name}! We're setting up your number - you'll get an SMS with your activation code shortly.\n\nIn the meantime, check your dashboard: ${env.PUBLIC_BASE_URL}/dashboard/welcome`;
             const sms = await sendOwnerSms(db, body, tenant.owner_phone);
             if (sms.status === "skipped") log.warn({ reason: sms.reason }, "Post-checkout welcome SMS skipped");
-          } catch (e) { log.warn({ e }, "Post-checkout welcome SMS failed"); }
+          } catch (e: any) {
+            log.warn({ e }, "Post-checkout welcome SMS failed");
+            updateTenant(db, tenant.tenant_id, { provision_status: "failed", provision_error: `Welcome SMS failed: ${e?.message ?? "unknown"}` } as any);
+            if (env.OWNER_PHONE_NUMBER) {
+              try { await sendOwnerSms(db, `ALERT: Welcome SMS failed for ${tenant.name} (${formatAuPhone(tenant.owner_phone)}).\nError: ${e?.message ?? "unknown"}\nFix: ${env.PUBLIC_BASE_URL}/admin/users/${tenant.tenant_id}`); }
+              catch (e2) { log.warn({ e: e2 }, "Admin alert SMS failed"); }
+            }
+          }
 
           if (env.OWNER_PHONE_NUMBER) {
             try {
@@ -2816,10 +2855,10 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
     if (!b.name || !b.owner_phone) {
       return res.send(settingsPage(tenant, "Business name and phone are required."));
     }
-    const settingsPhoneClean = (b.owner_phone as string).replace(/[\s\-()]/g, "");
-    if (!/^(\+?61\d{9}|0[2-9]\d{8})$/.test(settingsPhoneClean)) {
-      return res.send(settingsPage(tenant, "Please enter a valid Australian phone number (e.g. 0412345678 or +61412345678)."));
+    if (!isValidAuPhone(b.owner_phone as string)) {
+      return res.send(settingsPage(tenant, "Please enter a valid Australian phone number (e.g. 0412 345 678 or +61412345678)."));
     }
+    const settingsPhoneE164 = toE164Au(b.owner_phone as string);
     const SETTINGS_VALID_TRADES = new Set(["plumber","electrician","roofer","handyman","painter","carpenter","tiler","builder","other"]);
     if (b.trade_type && !SETTINGS_VALID_TRADES.has(b.trade_type)) {
       return res.send(settingsPage(tenant, "Please select a valid trade type."));
@@ -2828,7 +2867,7 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
       name: b.name,
       trade_type: b.trade_type || tenant.trade_type,
       ai_name: b.ai_name || tenant.ai_name,
-      owner_phone: b.owner_phone,
+      owner_phone: settingsPhoneE164,
       service_area: b.service_area || null,
       custom_instructions: b.custom_instructions || null,
       enable_warm_transfer: b.enable_warm_transfer ? 1 : 0,

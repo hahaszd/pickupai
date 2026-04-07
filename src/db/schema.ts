@@ -170,5 +170,7 @@ export const migrationStatements = [
     created_at   TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_chat_logs_created ON chat_logs(created_at)`,
-  `CREATE INDEX IF NOT EXISTS idx_chat_logs_tenant ON chat_logs(tenant_id) WHERE tenant_id IS NOT NULL`
+  `CREATE INDEX IF NOT EXISTS idx_chat_logs_tenant ON chat_logs(tenant_id) WHERE tenant_id IS NOT NULL`,
+  `ALTER TABLE tenants ADD COLUMN provision_status TEXT DEFAULT 'none'`,
+  `ALTER TABLE tenants ADD COLUMN provision_error TEXT`
 ];

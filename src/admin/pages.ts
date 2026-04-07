@@ -105,6 +105,15 @@ function paymentBadge(status: string | null | undefined): string {
   }
 }
 
+function provisionBadge(status: string | null | undefined): string {
+  switch (status) {
+    case "success": return `<span class="badge badge-active">Success</span>`;
+    case "pending": return `<span class="badge badge-trial">Pending</span>`;
+    case "failed":  return `<span class="badge badge-expired" style="border-color:#dc2626;color:#dc2626">Failed</span>`;
+    default:        return `<span class="badge badge-none">Not started</span>`;
+  }
+}
+
 // ─── Shell ─────────────────────────────────────────────────────────────────────
 
 function adminShell(title: string, activeTab: string, content: string, flash?: string): string {
@@ -332,8 +341,23 @@ export function adminOverviewPage(
   stats: OverviewStats,
   recentSignups: TenantWithStats[],
   foundingCustomerCount?: number,
-  flash?: string
+  flash?: string,
+  failedProvisionTenants?: TenantWithStats[]
 ): string {
+  const alertBanner = (failedProvisionTenants && failedProvisionTenants.length > 0)
+    ? `<div style="background:#fee2e2;border:1.5px solid #fca5a5;border-radius:8px;padding:.85rem 1rem;margin-bottom:1.25rem;display:flex;align-items:flex-start;gap:.65rem;">
+        <span style="font-size:1.25rem;line-height:1;">&#9888;</span>
+        <div>
+          <strong style="color:#991b1b;font-size:.9rem;">${failedProvisionTenants.length} user${failedProvisionTenants.length > 1 ? "s" : ""} with provisioning issues</strong>
+          <div style="font-size:.82rem;color:#7f1d1d;margin-top:.35rem;">
+            ${failedProvisionTenants.map(t =>
+              `<a href="/admin/users/${t.tenant_id}" style="color:#dc2626;font-weight:600;text-decoration:underline;">${esc(t.name)}</a>${t.provision_error ? ` — <span style="color:#991b1b">${esc(t.provision_error.slice(0, 80))}</span>` : ""}`
+            ).join("<br/>")}
+          </div>
+        </div>
+      </div>`
+    : "";
+
   const recentRows = recentSignups.slice(0, 10).map(t => `
     <tr>
       <td><a href="/admin/users/${t.tenant_id}">${esc(t.name)}</a></td>
@@ -348,7 +372,7 @@ export function adminOverviewPage(
 
   const content = `
 <div class="page-title">Overview</div>
-
+${alertBanner}
 <div class="stat-grid">
   <div class="stat-card brand">
     <div class="stat-label">Total Accounts</div>
@@ -734,6 +758,12 @@ export function adminUserDetailPage(detail: TenantDetail, publicBaseUrl: string,
       <div class="info-row"><span class="info-label">Last login</span><span>${fmtDateTime(t.last_login_at)}</span></div>
       <div class="info-row"><span class="info-label">Trial ends</span><span>${fmtDate(t.trial_ends_at)}</span></div>
       <div class="info-row"><span class="info-label">Tenant ID</span><span class="mono" style="font-size:.72rem">${t.tenant_id.slice(0,18)}…</span></div>
+      <div class="info-row"><span class="info-label">Provisioning</span><span>${provisionBadge(t.provision_status)}</span></div>
+      ${t.provision_status === "failed" && t.provision_error
+        ? `<div style="background:#fee2e2;border:1px solid #fecaca;border-radius:6px;padding:.6rem .75rem;margin-top:.5rem;font-size:.8rem;color:#991b1b;word-break:break-word;">
+             <strong>Error:</strong> ${esc(t.provision_error)}
+           </div>`
+        : ""}
     </div>
 
     <!-- Provision number -->
