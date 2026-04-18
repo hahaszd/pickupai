@@ -850,7 +850,14 @@ export class RealtimeSession {
    * and OpenAI will create a response automatically when they finish speaking.
    */
   private enableNormalTurnTaking() {
-    log.info({ callSid: this.callSid }, "greeting complete — enabling semantic_vad for normal turn-taking");
+    log.info({ callSid: this.callSid }, "greeting complete — clearing audio buffer + enabling semantic_vad");
+    // CRITICAL: flush the input audio buffer first. While turn_detection was
+    // null we kept appending caller audio (line noise, AI echo bleed-through)
+    // for the entire greeting. The moment we re-enable semantic_vad, OpenAI
+    // analyses whatever's in the buffer, decides it heard "speech", and
+    // create_response:true auto-fires a second response — which sounds like
+    // a duplicate greeting because the user has not actually spoken yet.
+    this.send({ type: "input_audio_buffer.clear" });
     this.send({
       type: "session.update",
       session: {
@@ -916,7 +923,9 @@ export class RealtimeSession {
       case "response.done":
         log.info({
           callSid: this.callSid,
+          response_id: event?.response?.id,
           status: event?.response?.status,
+          status_details: event?.response?.status_details,
           firstAlreadyComplete: this.firstResponseComplete
         }, "[diag] response.done received");
         if (!this.firstResponseComplete) {
@@ -933,9 +942,12 @@ export class RealtimeSession {
         break;
 
       case "input_audio_buffer.speech_started":
-        if (!this.firstResponseComplete) {
-          log.warn({ callSid: this.callSid }, "speech_started fired during greeting — should not happen with turn_detection=null");
-        }
+        log.info({
+          callSid: this.callSid,
+          firstResponseComplete: this.firstResponseComplete
+        }, this.firstResponseComplete
+          ? "[diag] OpenAI input_audio_buffer.speech_started"
+          : "[diag] WARN speech_started fired during greeting (should not happen with turn_detection=null)");
         this.handleBargein();
         break;
 
@@ -947,10 +959,19 @@ export class RealtimeSession {
         log.error({ callSid: this.callSid, event }, "OpenAI Realtime error event");
         break;
 
+      case "response.created":
       case "response.cancelled":
       case "response.audio.done":
       case "response.output_item.added":
-        log.info({ callSid: this.callSid, type: event.type, response_id: event?.response_id }, "[diag] OpenAI event");
+      case "input_audio_buffer.speech_stopped":
+      case "input_audio_buffer.committed":
+      case "input_audio_buffer.cleared":
+        log.info({
+          callSid: this.callSid,
+          type: event.type,
+          response_id: event?.response?.id ?? event?.response_id,
+          firstResponseComplete: this.firstResponseComplete
+        }, `[diag] OpenAI ${event.type}`);
         break;
 
       case "session.created":

@@ -1049,7 +1049,7 @@ async function main() {
   // production. If the deployed value lags behind your local commit, Railway
   // hasn't finished redeploying yet (or the deploy failed).
   app.get("/version", (_req, res) => res.json({
-    build: "greeting-fix-v5-wait-for-session-updated",
+    build: "greeting-fix-v6-clear-buffer-before-vad",
     commit: "pending",
     deployedAt: BUILD_TIME
   }));
