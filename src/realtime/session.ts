@@ -850,29 +850,54 @@ export class RealtimeSession {
    * and OpenAI will create a response automatically when they finish speaking.
    */
   private enableNormalTurnTaking() {
-    log.info({ callSid: this.callSid }, "greeting complete — clearing audio buffer + enabling semantic_vad");
-    // CRITICAL: flush the input audio buffer first. While turn_detection was
-    // null we kept appending caller audio (line noise, AI echo bleed-through)
-    // for the entire greeting. The moment we re-enable semantic_vad, OpenAI
-    // analyses whatever's in the buffer, decides it heard "speech", and
-    // create_response:true auto-fires a second response — which sounds like
-    // a duplicate greeting because the user has not actually spoken yet.
-    this.send({ type: "input_audio_buffer.clear" });
-    this.send({
-      type: "session.update",
-      session: {
-        type: "realtime",
-        audio: {
-          input: {
-            turn_detection: {
-              type: "semantic_vad",
-              interrupt_response: true,
-              create_response: true
+    // CRITICAL TIMING: response.done fires when OpenAI has finished GENERATING
+    // audio, but Twilio is still PLAYING that audio out the caller's earpiece.
+    // The caller's mic picks up the AI's voice (echo / bleed-through), Twilio
+    // sends it back to us as media, and if we re-enable VAD now it will fire
+    // speech_started on that echo and auto-create a duplicate greeting.
+    //
+    // So we wait until Twilio has actually played all the audio (mark queue
+    // drains), add a small tail buffer for the final chunk in transit, THEN
+    // clear OpenAI's input buffer (to throw away anything that arrived during
+    // the wait) and finally re-enable semantic_vad.
+    const TAIL_MS = 600;
+    const POLL_MS = 150;
+    const MAX_WAIT_MS = 12_000;
+    const start = Date.now();
+
+    const finish = () => {
+      log.info({ callSid: this.callSid }, "[diag] greeting fully drained — clearing buffer + enabling semantic_vad");
+      this.send({ type: "input_audio_buffer.clear" });
+      this.send({
+        type: "session.update",
+        session: {
+          type: "realtime",
+          audio: {
+            input: {
+              turn_detection: {
+                type: "semantic_vad",
+                interrupt_response: true,
+                create_response: true
+              }
             }
           }
         }
+      });
+    };
+
+    const waitForPlayback = () => {
+      if (this.ended) return;
+      if (this.markQueue.length === 0 || Date.now() - start > MAX_WAIT_MS) {
+        const t = setTimeout(() => { if (!this.ended) finish(); }, TAIL_MS);
+        this.drainTimers.push(t);
+      } else {
+        const t = setTimeout(waitForPlayback, POLL_MS);
+        this.drainTimers.push(t);
       }
-    });
+    };
+
+    log.info({ callSid: this.callSid, queued: this.markQueue.length }, "[diag] greeting response.done — waiting for Twilio playback to drain");
+    waitForPlayback();
   }
 
   /**
