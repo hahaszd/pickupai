@@ -182,6 +182,7 @@ function getStripe(): Stripe | null {
 }
 
 const log = pino({ level: "info" });
+const BUILD_TIME = new Date().toISOString();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
@@ -1043,6 +1044,15 @@ async function main() {
   // ── Health ────────────────────────────────────────────────────────────────
 
   app.get("/health", (_req, res) => res.json({ ok: true, mode: "realtime", multiTenant: true }));
+
+  // Bumped manually on every commit so we can confirm which build is live in
+  // production. If the deployed value lags behind your local commit, Railway
+  // hasn't finished redeploying yet (or the deploy failed).
+  app.get("/version", (_req, res) => res.json({
+    build: "greeting-fix-v3-turn-detection-null",
+    commit: "0c69869",
+    deployedAt: BUILD_TIME
+  }));
 
   // Public stats for landing page social proof
   app.get("/api/stats", (_req, res) => {
@@ -3789,7 +3799,12 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
   setInterval(() => { void runNumberReleaseSweep(); }, NUMBER_RELEASE_INTERVAL_MS);
 
   server.listen(env.PORT, () => {
-    log.info({ port: env.PORT }, "server listening");
+    log.info({
+      port: env.PORT,
+      build: "greeting-fix-v3-turn-detection-null",
+      commit: "0c69869",
+      bootedAt: BUILD_TIME
+    }, "===== SERVER LISTENING =====");
   });
 }
 
