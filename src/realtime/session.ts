@@ -820,15 +820,12 @@ export class RealtimeSession {
         audio: {
           input: {
             format: { type: "audio/pcmu" },
-            // During the greeting we disable OpenAI's server-side auto-interrupt
-            // and auto-response so a false speech_started (carrier noise on call
-            // pickup) cannot kill our first response. Re-enabled in
-            // enableNormalTurnTaking() after response.done fires for the greeting.
-            turn_detection: {
-              type: "semantic_vad",
-              interrupt_response: false,
-              create_response: false
-            }
+            // VAD is OFF during the greeting so carrier noise on call pickup
+            // cannot fire speech_started → cancel response → auto re-create a
+            // new response (which sounded like a greeting cut off + restart).
+            // enableNormalTurnTaking() turns semantic_vad back on once
+            // response.done fires for the greeting.
+            turn_detection: null
           },
           output: {
             format: { type: "audio/pcmu" },
@@ -848,6 +845,7 @@ export class RealtimeSession {
    * and OpenAI will create a response automatically when they finish speaking.
    */
   private enableNormalTurnTaking() {
+    log.info({ callSid: this.callSid }, "greeting complete — enabling semantic_vad for normal turn-taking");
     this.send({
       type: "session.update",
       session: {
@@ -914,6 +912,9 @@ export class RealtimeSession {
         break;
 
       case "input_audio_buffer.speech_started":
+        if (!this.firstResponseComplete) {
+          log.warn({ callSid: this.callSid }, "speech_started fired during greeting — should not happen with turn_detection=null");
+        }
         this.handleBargein();
         break;
 
@@ -926,7 +927,11 @@ export class RealtimeSession {
         break;
 
       case "session.created":
-      case "session.updated":
+      case "session.updated": {
+        const td = event?.session?.audio?.input?.turn_detection;
+        log.info({ callSid: this.callSid, type: event.type, turn_detection: td }, "OpenAI session config applied");
+        break;
+      }
       case "rate_limits.updated":
         break;
     }
