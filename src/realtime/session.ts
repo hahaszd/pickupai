@@ -742,6 +742,12 @@ export class RealtimeSession {
   private keepaliveTimer: NodeJS.Timeout | null = null;
   private greetingTriggered = false;
   private sessionReady = false;
+  // Set true once the FIRST assistant response has fully played.
+  // Used to suppress spurious barge-ins triggered by line noise during the
+  // greeting (semantic_vad sometimes mis-detects connection click / codec
+  // wake-up as caller speech, which would otherwise truncate the greeting
+  // and cause it to restart from scratch).
+  private firstResponseComplete = false;
 
   constructor(opts: {
     twilioWs: TwilioWs;
@@ -863,6 +869,7 @@ export class RealtimeSession {
         break;
 
       case "response.done":
+        this.firstResponseComplete = true;
         // If end_call was requested, now that the farewell response is fully
         // generated we wait for Twilio to finish playing it before hanging up.
         if (this.pendingEndReason !== null) {
@@ -916,6 +923,9 @@ export class RealtimeSession {
   private handleBargein() {
     if (!this.streamSid || this.markQueue.length === 0 || this.responseStartTs === null) return;
     if (this.endCallPending) return;
+    // Block barge-in until the greeting has finished playing — protects
+    // against semantic_vad false positives on the carrier connection noise.
+    if (!this.firstResponseComplete) return;
 
     const elapsed = this.latestMediaTs - this.responseStartTs;
     if (this.lastAssistantItemId) {

@@ -252,6 +252,193 @@ async function provisionAuNumber(tenantName: string): Promise<{ number: string |
 const provisionInFlight = new Set<string>();
 const provisionLastError = new Map<string, string>();
 
+/**
+ * Single source of truth for whether an inbound call should be served by the
+ * AI receptionist. Used by the voice route gate AND the dashboard guard.
+ *
+ *   serve   → answer normally (AI session opens)
+ *   cutoff  → play "not in service" TwiML and hang up; do not open OpenAI WS
+ */
+export type ServiceState = "serve" | "cutoff";
+
+export function getTenantServiceState(tenant: { payment_status: string | null; trial_ends_at: string | null }): ServiceState {
+  const s = tenant.payment_status;
+  // Active subscription, or "cancelling" (still within paid-up period), or
+  // legacy seed accounts with no payment record, or demo accounts.
+  if (!s || s === "none" || s === "active" || s === "cancelling" || s === "demo") return "serve";
+  // Trial: serve only if the trial hasn't passed its end date yet.
+  if (s === "trial") {
+    if (tenant.trial_ends_at && new Date(tenant.trial_ends_at) > new Date()) return "serve";
+    return "cutoff";
+  }
+  // Soft grace for failed-payment retries — Stripe usually resolves within
+  // ~3 dunning attempts.  Continue serving so we don't immediately blackhole
+  // a paying customer over a transient card issue.
+  if (s === "payment_failed") return "serve";
+  // expired, trial_expired, or any unknown future status → block.
+  return "cutoff";
+}
+
+/**
+ * Repoint an existing Twilio number's voice webhook to the "out of service"
+ * endpoint.  Used when a subscription expires so subsequent calls cost only a
+ * Twilio per-minute charge (no OpenAI Realtime tokens).
+ *
+ * Idempotent: if Twilio doesn't have the number (already released, or never
+ * purchased through this account), this no-ops with a warn log.
+ */
+async function repointTwilioNumberToOutOfService(twilioNumber: string): Promise<void> {
+  if (!twilioNumber || twilioNumber.startsWith("+PENDING") || twilioNumber.startsWith("+RELEASED")) return;
+  try {
+    const { twilioClient } = await import("./twilio/client.js");
+    const list = await twilioClient.incomingPhoneNumbers.list({ phoneNumber: twilioNumber, limit: 1 });
+    if (!list[0]) {
+      log.warn({ twilioNumber }, "repoint: Twilio number not found in this account — skipping");
+      return;
+    }
+    await twilioClient.incomingPhoneNumbers(list[0].sid).update({
+      voiceUrl: `${env.PUBLIC_BASE_URL}/twilio/voice/out-of-service`,
+      voiceMethod: "POST",
+      statusCallback: `${env.PUBLIC_BASE_URL}/twilio/voice/status`,
+      statusCallbackMethod: "POST"
+    });
+    log.info({ twilioNumber }, "Twilio voiceUrl repointed to out-of-service");
+  } catch (err: any) {
+    log.error({ twilioNumber, err: err?.message ?? err }, "repointTwilioNumberToOutOfService failed");
+  }
+}
+
+/**
+ * Reverse of the above — used on reactivation to point the voice webhook back
+ * at the live AI receptionist endpoint.
+ */
+async function repointTwilioNumberToIncoming(twilioNumber: string): Promise<void> {
+  if (!twilioNumber || twilioNumber.startsWith("+PENDING") || twilioNumber.startsWith("+RELEASED")) return;
+  try {
+    const { twilioClient } = await import("./twilio/client.js");
+    const list = await twilioClient.incomingPhoneNumbers.list({ phoneNumber: twilioNumber, limit: 1 });
+    if (!list[0]) {
+      log.warn({ twilioNumber }, "repoint-back: Twilio number not found in this account — skipping");
+      return;
+    }
+    await twilioClient.incomingPhoneNumbers(list[0].sid).update({
+      voiceUrl: `${env.PUBLIC_BASE_URL}/twilio/voice/incoming`,
+      voiceMethod: "POST",
+      statusCallback: `${env.PUBLIC_BASE_URL}/twilio/voice/status`,
+      statusCallbackMethod: "POST"
+    });
+    log.info({ twilioNumber }, "Twilio voiceUrl repointed back to /incoming (reactivated)");
+  } catch (err: any) {
+    log.error({ twilioNumber, err: err?.message ?? err }, "repointTwilioNumberToIncoming failed");
+  }
+}
+
+/**
+ * Flip a tenant to expired/trial_expired, stamp expired_at, repoint their
+ * Twilio number to out-of-service, and send customer + founder SMS.
+ *
+ * Idempotent: safe to call multiple times — a second call will short-circuit
+ * because expired_at is already set and payment_status already matches.
+ */
+async function markTenantExpired(
+  db: import("./db/db.js").Db,
+  t: TenantRow,
+  newStatus: "expired" | "trial_expired"
+): Promise<void> {
+  if (t.payment_status === newStatus && t.expired_at) {
+    log.info({ tenantId: t.tenant_id, status: newStatus }, "markTenantExpired: already expired — skipping");
+    return;
+  }
+
+  const now = new Date().toISOString();
+  updateTenant(db, t.tenant_id, {
+    payment_status: newStatus,
+    expired_at: t.expired_at ?? now
+  });
+  log.info({ tenantId: t.tenant_id, status: newStatus }, "Tenant marked expired");
+
+  // Repoint Twilio number to skip our infra on subsequent calls.
+  if (t.twilio_number) {
+    await repointTwilioNumberToOutOfService(t.twilio_number);
+  }
+
+  // Customer SMS — softer wording for trial vs hard cancellation.
+  const reactivateUrl = `${env.PUBLIC_BASE_URL}/dashboard/upgrade`;
+  const numberFmt = t.twilio_number ? formatAuPhone(t.twilio_number) : "your number";
+  const body = newStatus === "trial_expired"
+    ? `PickupAI: Your trial has ended and your AI receptionist (${numberFmt}) is now off. Reactivate within 7 days to keep this number: ${reactivateUrl}\n\nQuestions? hello@getpickupai.com.au`
+    : `PickupAI: Your subscription has ended and your AI receptionist (${numberFmt}) is now off. Reactivate within 7 days to keep this number: ${reactivateUrl}\n\nQuestions? hello@getpickupai.com.au`;
+  try {
+    const sms = await sendTenantSms(db, t.tenant_id, body, t.owner_phone);
+    if (sms.status === "skipped") log.warn({ reason: sms.reason }, "expired notification SMS skipped");
+  } catch (e) { log.warn({ e }, "expired notification SMS failed"); }
+
+  // Founder ping.
+  if (env.OWNER_PHONE_NUMBER) {
+    try {
+      await sendOwnerSms(db,
+        `PickupAI: ${newStatus} for ${t.name} (${formatAuPhone(t.owner_phone)}). 7-day grace then number release. Admin: ${env.PUBLIC_BASE_URL}/admin/users/${t.tenant_id}`
+      );
+    } catch (e) { log.warn({ e }, "founder expired notification SMS failed"); }
+  }
+}
+
+/**
+ * Reactivate a tenant whose number is still in the 7-day grace window
+ * (expired_at set, number_released_at NOT set).  Flips status back to active,
+ * repoints Twilio voiceUrl to /incoming, clears expired_at.
+ *
+ * If the number has already been released, this returns false and the caller
+ * should treat the reactivation as a fresh provisioning instead.
+ */
+async function reactivateTenantWithinGrace(
+  db: import("./db/db.js").Db,
+  t: TenantRow
+): Promise<boolean> {
+  if (t.number_released_at) {
+    log.info({ tenantId: t.tenant_id }, "reactivate: number already released — caller should re-provision");
+    return false;
+  }
+  updateTenant(db, t.tenant_id, {
+    payment_status: "active",
+    expired_at: null
+  });
+  if (t.twilio_number) {
+    await repointTwilioNumberToIncoming(t.twilio_number);
+  }
+  log.info({ tenantId: t.tenant_id }, "Tenant reactivated within 7-day grace");
+  try {
+    await sendTenantSms(db, t.tenant_id,
+      `PickupAI: Welcome back! Your AI receptionist is active again on ${t.twilio_number ? formatAuPhone(t.twilio_number) : "your number"}.`,
+      t.owner_phone
+    );
+  } catch (e) { log.warn({ e }, "reactivation SMS failed"); }
+  return true;
+}
+
+/**
+ * Release a Twilio number back to the pool (stops monthly rental).
+ * Returns true if the deletion succeeded (or the number was already absent),
+ * false on a transient error so the caller can retry on the next sweep.
+ */
+async function releaseTwilioNumber(twilioNumber: string): Promise<boolean> {
+  if (!twilioNumber || twilioNumber.startsWith("+PENDING") || twilioNumber.startsWith("+RELEASED")) return true;
+  try {
+    const { twilioClient } = await import("./twilio/client.js");
+    const list = await twilioClient.incomingPhoneNumbers.list({ phoneNumber: twilioNumber, limit: 1 });
+    if (!list[0]) {
+      log.info({ twilioNumber }, "release: Twilio number not in account (already released?) — treating as success");
+      return true;
+    }
+    await twilioClient.incomingPhoneNumbers(list[0].sid).remove();
+    log.info({ twilioNumber }, "Twilio number released back to pool");
+    return true;
+  } catch (err: any) {
+    log.error({ twilioNumber, err: err?.message ?? err }, "releaseTwilioNumber failed");
+    return false;
+  }
+}
+
 /** Send SMS to a tenant's owner and log it in tenant_sms_log. */
 async function sendTenantSms(
   db: import("./db/db.js").Db,
@@ -360,7 +547,9 @@ function buildFallbackTenant(): TenantRow {
     trial_ends_at: null,
     stripe_customer_id: null,
     provision_status: null,
-    provision_error: null
+    provision_error: null,
+    expired_at: null,
+    number_released_at: null
   };
 }
 
@@ -629,8 +818,33 @@ async function main() {
           const tenants = listTenants(db);
           const t = tenants.find(x => x.stripe_customer_id === customerId);
           if (t) {
-            updateTenant(db, t.tenant_id, { payment_status: "active" });
-            log.info({ tenantId: t.tenant_id, billingReason }, "Stripe payment succeeded — account active");
+            const wasExpired = t.payment_status === "expired" || t.payment_status === "trial_expired";
+            updateTenant(db, t.tenant_id, { payment_status: "active", expired_at: null });
+            log.info({ tenantId: t.tenant_id, billingReason, wasExpired }, "Stripe payment succeeded — account active");
+
+            // Returning expired customer: either repoint the still-grace-window
+            // number, or re-provision a brand-new one if it was already released.
+            if (wasExpired) {
+              if (t.number_released_at || t.twilio_number?.startsWith("+RELEASED")) {
+                log.info({ tenantId: t.tenant_id }, "Returning customer past grace — provisioning new number");
+                if (!provisionInFlight.has(t.tenant_id)) {
+                  provisionInFlight.add(t.tenant_id);
+                  updateTenant(db, t.tenant_id, { provision_status: "pending", provision_error: null, number_released_at: null } as any);
+                  provisionAuNumber(t.name).then(async result => {
+                    if (result.number) {
+                      updateTenant(db, t.tenant_id, { twilio_number: result.number, provision_status: "success", provision_error: null } as any);
+                      log.info({ tenantId: t.tenant_id, number: result.number }, "Re-provisioned number for returning customer");
+                    } else {
+                      updateTenant(db, t.tenant_id, { provision_status: "failed", provision_error: result.error ?? "unknown" } as any);
+                    }
+                  }).catch(err => {
+                    log.error({ tenantId: t.tenant_id, err }, "Re-provisioning failed");
+                  }).finally(() => { provisionInFlight.delete(t.tenant_id); });
+                }
+              } else if (t.twilio_number) {
+                await repointTwilioNumberToIncoming(t.twilio_number);
+              }
+            }
 
             if (billingReason === "subscription_create") {
               try {
@@ -658,8 +872,7 @@ async function main() {
         const tenants = listTenants(db);
         const t = tenants.find(x => x.stripe_customer_id === customerId);
         if (t) {
-          updateTenant(db, t.tenant_id, { payment_status: "expired" });
-          log.info({ tenantId: t.tenant_id }, "Stripe subscription cancelled — account expired");
+          await markTenantExpired(db, t, "expired");
         }
       } else if (event.type === "customer.subscription.updated") {
         const sub = event.data.object as Stripe.Subscription;
@@ -680,6 +893,9 @@ async function main() {
           } else if (t.payment_status === "cancelling") {
             updateTenant(db, t.tenant_id, { payment_status: "active" });
             log.info({ tenantId: t.tenant_id }, "Subscription reactivated — cancellation reversed");
+          } else if (t.payment_status === "expired" || t.payment_status === "trial_expired") {
+            // Reactivation within the 7-day grace window: restore service.
+            await reactivateTenantWithinGrace(db, t);
           }
         }
       } else if (event.type === "invoice.payment_failed") {
@@ -812,23 +1028,15 @@ async function main() {
     const tenant: TenantRow = (req as any).dashTenant;
     if (!tenant) return next();
     const status = tenant.payment_status;
-    if (status === "active" || status === "cancelling") return next();
-    if (!status || status === "none") return next(); // legacy / seed accounts
-    if (status === "demo") {
-      return res.redirect("/dashboard/welcome");
-    }
-    if (status === "pending") {
-      return res.redirect("/dashboard/upgrade?reason=pending");
-    }
-    if (status === "payment_failed") {
-      return res.redirect("/dashboard/upgrade?reason=payment_failed");
-    }
-    if (status === "trial" && tenant.trial_ends_at) {
-      if (new Date(tenant.trial_ends_at) > new Date()) return next(); // still in trial
-    }
-    if (status === "trial" || status === "expired" || status === "cancelled") {
-      return res.redirect("/dashboard/upgrade");
-    }
+    // "pending" and "demo" still drive their own dashboard redirects regardless
+    // of the call-time service state — those are signup-flow states, not
+    // billing failures, so we keep the existing UX.
+    if (status === "pending") return res.redirect("/dashboard/upgrade?reason=pending");
+    if (status === "demo") return res.redirect("/dashboard/welcome");
+    if (status === "payment_failed") return res.redirect("/dashboard/upgrade?reason=payment_failed");
+    // Everyone else: if the AI would refuse to serve this tenant on a real
+    // call, also block the dashboard.
+    if (getTenantServiceState(tenant) === "cutoff") return res.redirect("/dashboard/upgrade");
     next();
   };
 
@@ -1105,6 +1313,36 @@ async function main() {
       });
     }
 
+    // Subscription gate: don't open an OpenAI Realtime session for tenants
+    // whose plan has been cancelled or whose trial has expired.  Demo and
+    // simulation calls bypass this check entirely.
+    if (!isDemo && tenant.tenant_id !== "default" && getTenantServiceState(tenant) === "cutoff") {
+      log.info({
+        callSid,
+        tenantId: tenant.tenant_id,
+        paymentStatus: tenant.payment_status
+      }, "Inbound call to expired/cancelled tenant — serving out-of-service TwiML");
+      trackEvent("call_blocked_subscription_expired", {
+        tenant_id: tenant.tenant_id,
+        call_id: callSid,
+        level: "warn",
+        payload: { from, to, payment_status: tenant.payment_status }
+      });
+      upsertCall(db, {
+        call_id: callSid,
+        tenant_id: tenant.tenant_id,
+        from_number: typeof from === "string" ? from : null,
+        to_number: typeof to === "string" ? to : null,
+        started_at: new Date().toISOString(),
+        status: "blocked-expired",
+        is_demo: 0
+      });
+      const vr = newVoiceResponse();
+      sayFriendly(vr, `Sorry, the number you have called is not currently in service. Please contact ${tenant.name} directly. Goodbye.`);
+      vr.hangup();
+      return res.type("text/xml").send(vr.toString());
+    }
+
     const state = getOrInitCallState(callSid);
     state.lead.phone = typeof from === "string" ? from : state.lead.phone;
 
@@ -1175,6 +1413,32 @@ async function main() {
     streamTokens.set(token, Date.now() + 120_000);
     const twiml = connectStreamTwiml(wsUrl, callSid, token);
     res.type("text/xml").send(twiml);
+  });
+
+  /**
+   * Public endpoint that Twilio numbers point at once their tenant has been
+   * marked expired/trial_expired.  Plays a short message and hangs up — no
+   * tenant lookup, no DB writes, no OpenAI cost.
+   *
+   * If we can identify the tenant from the To number we personalise the
+   * message; otherwise we fall back to a generic line.
+   */
+  app.post("/twilio/voice/out-of-service", twilioVerify, (req, res) => {
+    const to = req.body?.To;
+    let businessName: string | null = null;
+    if (typeof to === "string") {
+      const t = getTenantByNumber(db, to);
+      if (t) businessName = t.name;
+    }
+    const vr = newVoiceResponse();
+    sayFriendly(
+      vr,
+      businessName
+        ? `Sorry, the number you have called is not currently in service. Please contact ${businessName} directly. Goodbye.`
+        : "Sorry, the number you have called is not currently in service. Goodbye."
+    );
+    vr.hangup();
+    res.type("text/xml").send(vr.toString());
   });
 
   app.post("/twilio/voice/transfer-fallback", twilioVerify, (req, res) => {
@@ -3437,6 +3701,92 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
       session?.cleanup();
     });
   });
+
+  // ── Subscription lifecycle background jobs ────────────────────────────────
+  // Hourly: flip expired trials to "trial_expired" (Stripe doesn't fire an
+  // event for trials that end without a paid subscription).
+  // Daily:  release Twilio numbers that have been expired for >7 days.
+  const TRIAL_EXPIRY_INTERVAL_MS = 60 * 60 * 1000;        // 1 hour
+  const NUMBER_RELEASE_INTERVAL_MS = 24 * 60 * 60 * 1000; // 1 day
+  const NUMBER_RELEASE_GRACE_DAYS = 7;
+
+  const runTrialExpirySweep = async () => {
+    try {
+      const now = new Date().toISOString();
+      const expired = db.all<TenantRow>(
+        `SELECT * FROM tenants
+         WHERE payment_status = 'trial'
+           AND trial_ends_at IS NOT NULL
+           AND trial_ends_at < ?
+           AND active = 1`,
+        [now]
+      );
+      if (expired.length === 0) return;
+      log.info({ count: expired.length }, "Trial-expiry sweep: flipping tenants to trial_expired");
+      for (const t of expired) {
+        try {
+          await markTenantExpired(db, t, "trial_expired");
+        } catch (err) {
+          log.error({ tenantId: t.tenant_id, err }, "Trial-expiry sweep: markTenantExpired failed");
+        }
+      }
+    } catch (err) {
+      log.error({ err }, "Trial-expiry sweep failed");
+    }
+  };
+
+  const runNumberReleaseSweep = async () => {
+    try {
+      const cutoff = new Date(Date.now() - NUMBER_RELEASE_GRACE_DAYS * 24 * 60 * 60 * 1000).toISOString();
+      const candidates = db.all<TenantRow>(
+        `SELECT * FROM tenants
+         WHERE payment_status IN ('expired', 'trial_expired')
+           AND expired_at IS NOT NULL
+           AND expired_at < ?
+           AND number_released_at IS NULL
+           AND twilio_number IS NOT NULL
+           AND twilio_number NOT LIKE '+PENDING%'
+           AND twilio_number NOT LIKE '+RELEASED%'`,
+        [cutoff]
+      );
+      if (candidates.length === 0) return;
+      log.info({ count: candidates.length, graceDays: NUMBER_RELEASE_GRACE_DAYS }, "Number-release sweep: releasing Twilio numbers");
+      for (const t of candidates) {
+        try {
+          const ok = await releaseTwilioNumber(t.twilio_number);
+          if (!ok) {
+            log.warn({ tenantId: t.tenant_id, twilioNumber: t.twilio_number }, "release failed — will retry next sweep");
+            continue;
+          }
+          // Preserve the original number in an audit-friendly form so reports
+          // can still tell which number this tenant used to own; keep the
+          // unique constraint happy by prefixing with "+RELEASED-".
+          const stamped = `+RELEASED-${t.twilio_number.replace(/^\+/, "")}-${Date.now()}`;
+          updateTenant(db, t.tenant_id, {
+            number_released_at: new Date().toISOString(),
+            twilio_number: stamped
+          });
+          try {
+            await sendTenantSms(db, t.tenant_id,
+              `PickupAI: Your dedicated number has been released. To use PickupAI again, sign up at ${env.PUBLIC_BASE_URL} — you'll get a new number.`,
+              t.owner_phone
+            );
+          } catch (e) { log.warn({ e }, "release SMS failed"); }
+        } catch (err) {
+          log.error({ tenantId: t.tenant_id, err }, "Number-release sweep: per-tenant failure");
+        }
+      }
+    } catch (err) {
+      log.error({ err }, "Number-release sweep failed");
+    }
+  };
+
+  // Run once at boot, then on the interval, so a restart catches anything
+  // that elapsed during downtime.
+  void runTrialExpirySweep();
+  void runNumberReleaseSweep();
+  setInterval(() => { void runTrialExpirySweep(); }, TRIAL_EXPIRY_INTERVAL_MS);
+  setInterval(() => { void runNumberReleaseSweep(); }, NUMBER_RELEASE_INTERVAL_MS);
 
   server.listen(env.PORT, () => {
     log.info({ port: env.PORT }, "server listening");

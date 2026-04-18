@@ -30,6 +30,8 @@ export type TenantRow = {
   stripe_customer_id: string | null;
   provision_status: string | null;
   provision_error: string | null;
+  expired_at: string | null;
+  number_released_at: string | null;
 };
 
 export type CallRow = {
@@ -138,7 +140,8 @@ const TENANT_UPDATABLE_COLUMNS = new Set([
   "password_hash", "session_token", "business_hours_start", "business_hours_end",
   "timezone", "enable_warm_transfer", "service_area", "custom_instructions",
   "vacation_mode", "vacation_message", "active", "last_login_at",
-  "payment_status", "trial_ends_at", "stripe_customer_id"
+  "payment_status", "trial_ends_at", "stripe_customer_id",
+  "expired_at", "number_released_at"
 ]);
 
 export function updateTenant(

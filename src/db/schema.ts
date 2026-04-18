@@ -182,5 +182,9 @@ export const migrationStatements = [
     twilio_sid TEXT,
     sent_at    TEXT NOT NULL
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_tenant_sms_log_tenant ON tenant_sms_log(tenant_id, sent_at)`
+  `CREATE INDEX IF NOT EXISTS idx_tenant_sms_log_tenant ON tenant_sms_log(tenant_id, sent_at)`,
+  // Cancellation lifecycle: set when payment_status flips to expired/trial_expired; consumed by the daily release sweep.
+  `ALTER TABLE tenants ADD COLUMN expired_at TEXT`,
+  // Set when the daily release sweep deletes the Twilio number; suppresses re-release attempts.
+  `ALTER TABLE tenants ADD COLUMN number_released_at TEXT`
 ];
