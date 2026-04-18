@@ -834,9 +834,14 @@ export class RealtimeSession {
         }
       }
     };
+    // Do NOT set sessionReady=true here — that used to race the 200ms greeting
+    // timeout against OpenAI actually applying turn_detection: null. If
+    // response.create won the race, the greeting would start under the
+    // default semantic_vad config and a false speech_started would cancel it
+    // and auto-create a second greeting (the cut-off-and-restart bug).
+    // Instead we wait for OpenAI's session.updated confirmation event before
+    // marking the session ready and triggering the greeting.
     this.send(sessionUpdate);
-    this.sessionReady = true;
-    this.maybeGreet();
   }
 
   /**
@@ -879,20 +884,21 @@ export class RealtimeSession {
       return;
     }
     this.greetingTriggered = true;
-    log.info({ callSid: this.callSid }, "[diag] greeting TRIGGERED — scheduling response.create in 200ms");
+    log.info({ callSid: this.callSid }, "[diag] greeting TRIGGERED");
 
-    setTimeout(() => {
-      this.send({
-        type: "conversation.item.create",
-        item: {
-          type: "message",
-          role: "user",
-          content: [{ type: "input_text", text: "(call connected, greet the caller)" }]
-        }
-      });
-      this.send({ type: "response.create" });
-      log.info({ callSid: this.callSid }, "[diag] greeting response.create SENT");
-    }, 200);
+    // No setTimeout needed: maybeGreet only runs after we receive
+    // session.updated from OpenAI, which is the explicit confirmation that
+    // turn_detection: null is in effect server-side.
+    this.send({
+      type: "conversation.item.create",
+      item: {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: "(call connected, greet the caller)" }]
+      }
+    });
+    this.send({ type: "response.create" });
+    log.info({ callSid: this.callSid }, "[diag] greeting response.create SENT");
   }
 
   // ── Handle events from OpenAI ─────────────────────────────────────────────
@@ -948,9 +954,18 @@ export class RealtimeSession {
         break;
 
       case "session.created":
+        log.info({ callSid: this.callSid }, "[diag] session.created");
+        break;
       case "session.updated": {
         const td = event?.session?.audio?.input?.turn_detection;
-        log.info({ callSid: this.callSid, type: event.type, turn_detection: td }, "OpenAI session config applied");
+        log.info({ callSid: this.callSid, turn_detection: td }, "[diag] session.updated — OpenAI applied config");
+        // OpenAI confirms our session.update is now in effect (turn_detection
+        // is null for the greeting OR semantic_vad after greeting). It's now
+        // safe to issue the greeting if we haven't already.
+        if (!this.sessionReady) {
+          this.sessionReady = true;
+          this.maybeGreet();
+        }
         break;
       }
       case "rate_limits.updated":
