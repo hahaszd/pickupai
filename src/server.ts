@@ -1049,8 +1049,8 @@ async function main() {
   // production. If the deployed value lags behind your local commit, Railway
   // hasn't finished redeploying yet (or the deploy failed).
   app.get("/version", (_req, res) => res.json({
-    build: "greeting-fix-v3-turn-detection-null",
-    commit: "0c69869",
+    build: "greeting-fix-v4-diag-logging",
+    commit: "pending",
     deployedAt: BUILD_TIME
   }));
 
@@ -1299,6 +1299,7 @@ async function main() {
     const callSid = getCallSid(req);
     const from = req.body?.From ?? null;
     const to = req.body?.To ?? null;
+    log.info({ callSid, from, to, ts: new Date().toISOString() }, "[diag] /twilio/voice/incoming HIT");
 
     // Priority order for tenant resolution:
     // 1. simulationRoutingMap (Option A — in-memory, no DB slot)
@@ -3451,6 +3452,7 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
   const wss = new WebSocketServer({ server, path: "/media-stream" });
 
   wss.on("connection", (twilioWs, _req) => {
+    log.info({ ts: new Date().toISOString() }, "[diag] /media-stream WS OPENED");
     log.info("Twilio media stream WebSocket connected");
 
     let callSid: string | null = null;

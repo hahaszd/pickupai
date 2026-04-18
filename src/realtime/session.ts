@@ -869,8 +869,17 @@ export class RealtimeSession {
    * from being dropped because `streamSid` was still null.
    */
   private maybeGreet() {
-    if (this.greetingTriggered || !this.sessionReady || !this.streamSid) return;
+    if (this.greetingTriggered || !this.sessionReady || !this.streamSid) {
+      log.info({
+        callSid: this.callSid,
+        greetingTriggered: this.greetingTriggered,
+        sessionReady: this.sessionReady,
+        streamSid: this.streamSid
+      }, "[diag] maybeGreet skipped");
+      return;
+    }
     this.greetingTriggered = true;
+    log.info({ callSid: this.callSid }, "[diag] greeting TRIGGERED — scheduling response.create in 200ms");
 
     setTimeout(() => {
       this.send({
@@ -882,6 +891,7 @@ export class RealtimeSession {
         }
       });
       this.send({ type: "response.create" });
+      log.info({ callSid: this.callSid }, "[diag] greeting response.create SENT");
     }, 200);
   }
 
@@ -898,6 +908,11 @@ export class RealtimeSession {
         break;
 
       case "response.done":
+        log.info({
+          callSid: this.callSid,
+          status: event?.response?.status,
+          firstAlreadyComplete: this.firstResponseComplete
+        }, "[diag] response.done received");
         if (!this.firstResponseComplete) {
           this.firstResponseComplete = true;
           this.enableNormalTurnTaking();
@@ -924,6 +939,12 @@ export class RealtimeSession {
 
       case "error":
         log.error({ callSid: this.callSid, event }, "OpenAI Realtime error event");
+        break;
+
+      case "response.cancelled":
+      case "response.audio.done":
+      case "response.output_item.added":
+        log.info({ callSid: this.callSid, type: event.type, response_id: event?.response_id }, "[diag] OpenAI event");
         break;
 
       case "session.created":
