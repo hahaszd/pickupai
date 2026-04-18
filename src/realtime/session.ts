@@ -820,7 +820,15 @@ export class RealtimeSession {
         audio: {
           input: {
             format: { type: "audio/pcmu" },
-            turn_detection: { type: "semantic_vad" }
+            // During the greeting we disable OpenAI's server-side auto-interrupt
+            // and auto-response so a false speech_started (carrier noise on call
+            // pickup) cannot kill our first response. Re-enabled in
+            // enableNormalTurnTaking() after response.done fires for the greeting.
+            turn_detection: {
+              type: "semantic_vad",
+              interrupt_response: false,
+              create_response: false
+            }
           },
           output: {
             format: { type: "audio/pcmu" },
@@ -832,6 +840,29 @@ export class RealtimeSession {
     this.send(sessionUpdate);
     this.sessionReady = true;
     this.maybeGreet();
+  }
+
+  /**
+   * Re-enable OpenAI's server-side auto-interrupt and auto-response after the
+   * greeting has finished. From this point on the caller can barge in normally
+   * and OpenAI will create a response automatically when they finish speaking.
+   */
+  private enableNormalTurnTaking() {
+    this.send({
+      type: "session.update",
+      session: {
+        type: "realtime",
+        audio: {
+          input: {
+            turn_detection: {
+              type: "semantic_vad",
+              interrupt_response: true,
+              create_response: true
+            }
+          }
+        }
+      }
+    });
   }
 
   /**
@@ -869,7 +900,10 @@ export class RealtimeSession {
         break;
 
       case "response.done":
-        this.firstResponseComplete = true;
+        if (!this.firstResponseComplete) {
+          this.firstResponseComplete = true;
+          this.enableNormalTurnTaking();
+        }
         // If end_call was requested, now that the farewell response is fully
         // generated we wait for Twilio to finish playing it before hanging up.
         if (this.pendingEndReason !== null) {
