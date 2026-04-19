@@ -1292,8 +1292,8 @@ ${flashHtml}
           : "—"}</p>
     </div>
   </div>
-  ${(tenant.payment_status !== "active" && tenant.payment_status !== "cancelling") ? `<a href="/dashboard/upgrade" class="btn btn-primary btn-sm">Upgrade plan</a>` : ""}
-  ${(tenant.payment_status === "active" || tenant.payment_status === "cancelling") && tenant.stripe_customer_id
+  ${!tenant.stripe_customer_id ? `<a href="/dashboard/upgrade" class="btn btn-primary btn-sm">Upgrade plan</a>` : ""}
+  ${tenant.stripe_customer_id
     ? `<form method="POST" action="/dashboard/billing-portal" style="display:inline">
         <button type="submit" class="btn btn-outline btn-sm">Manage subscription (cancel / update card)</button>
       </form>`
