@@ -749,6 +749,14 @@ export class RealtimeSession {
   // and cause it to restart from scratch).
   private firstResponseComplete = false;
 
+  // Audio-pad state: buffer the first few audio chunks of each AI response
+  // so the keepalive has time to prime Twilio's jitter buffer with silence
+  // before real speech arrives.  Without this, silence frames and speech
+  // frames arrive in the same TCP burst and Twilio clips the first syllable.
+  private audioPadBuffer: string[] = [];
+  private audioPadTimer: NodeJS.Timeout | null = null;
+  private audioPadFlushed = true;
+
   constructor(opts: {
     twilioWs: TwilioWs;
     callSid: string;
@@ -1023,34 +1031,49 @@ export class RealtimeSession {
   // Sent as keepalive to keep Twilio's jitter buffer warm between AI responses.
   private static readonly SILENCE_20MS = Buffer.alloc(160, 0xff).toString("base64");
 
-  // Number of 20ms silence frames to inject before the first audio chunk of
-  // each new AI response.  This "runway" lets Twilio's jitter buffer
-  // stabilise on the silence-to-speech transition so the caller doesn't lose
-  // the opening syllable.  10 frames × 20ms = 200ms of imperceptible pad.
-  private static readonly RESPONSE_PAD_FRAMES = 10;
+  // How long (ms) to hold back the first audio chunks of a new AI response
+  // while the keepalive primes Twilio's jitter buffer with silence.  The
+  // buffered chunks are flushed all at once after this delay.
+  private static readonly AUDIO_PAD_MS = 150;
 
   private forwardAudioToTwilio(event: any) {
     if (!this.streamSid || !event.delta) return;
 
     if (this.responseStartTs === null) {
       this.responseStartTs = this.latestMediaTs;
-      for (let i = 0; i < RealtimeSession.RESPONSE_PAD_FRAMES; i++) {
-        this.sendToTwilio({
-          event: "media",
-          streamSid: this.streamSid,
-          media: { payload: RealtimeSession.SILENCE_20MS }
-        });
-      }
+      this.audioPadFlushed = false;
+      this.audioPadBuffer = [];
+
+      if (this.audioPadTimer) clearTimeout(this.audioPadTimer);
+      this.audioPadTimer = setTimeout(() => this.flushAudioPad(), RealtimeSession.AUDIO_PAD_MS);
     }
 
+    if (!this.audioPadFlushed) {
+      this.audioPadBuffer.push(event.delta);
+      return;
+    }
+
+    this.sendAudioChunk(event.delta);
+  }
+
+  private flushAudioPad() {
+    this.audioPadTimer = null;
+    this.audioPadFlushed = true;
+    for (const delta of this.audioPadBuffer) {
+      this.sendAudioChunk(delta);
+    }
+    this.audioPadBuffer = [];
+  }
+
+  private sendAudioChunk(delta: string) {
+    if (!this.streamSid) return;
     const mark = `r-${Date.now()}`;
-    this.sendToTwilio({ event: "media", streamSid: this.streamSid, media: { payload: event.delta } });
+    this.sendToTwilio({ event: "media", streamSid: this.streamSid, media: { payload: delta } });
     this.sendToTwilio({ event: "mark", streamSid: this.streamSid, mark: { name: mark } });
     this.markQueue.push(mark);
 
-    // Live-stream demo calls to the dashboard browser (SSE).
     if (this.callbacks.onAudioChunk) {
-      this.callbacks.onAudioChunk(event.delta);
+      this.callbacks.onAudioChunk(delta);
     }
   }
 
@@ -1060,6 +1083,11 @@ export class RealtimeSession {
     // Block barge-in until the greeting has finished playing — protects
     // against semantic_vad false positives on the carrier connection noise.
     if (!this.firstResponseComplete) return;
+
+    // Cancel any pending audio-pad flush so stale chunks don't leak.
+    if (this.audioPadTimer) { clearTimeout(this.audioPadTimer); this.audioPadTimer = null; }
+    this.audioPadBuffer = [];
+    this.audioPadFlushed = true;
 
     const elapsed = this.latestMediaTs - this.responseStartTs;
     if (this.lastAssistantItemId) {
@@ -1276,6 +1304,7 @@ export class RealtimeSession {
   cleanup() {
     this.ended = true;
     this.stopKeepalive();
+    if (this.audioPadTimer) { clearTimeout(this.audioPadTimer); this.audioPadTimer = null; }
     if (this.maxCallTimer) {
       clearTimeout(this.maxCallTimer);
       this.maxCallTimer = null;

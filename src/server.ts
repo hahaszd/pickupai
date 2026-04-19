@@ -1049,7 +1049,7 @@ async function main() {
   // production. If the deployed value lags behind your local commit, Railway
   // hasn't finished redeploying yet (or the deploy failed).
   app.get("/version", (_req, res) => res.json({
-    build: "fix-response-audio-pad",
+    build: "fix-audio-pad-v2-buffered",
     commit: "pending",
     deployedAt: BUILD_TIME
   }));
