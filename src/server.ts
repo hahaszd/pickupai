@@ -1313,7 +1313,8 @@ async function main() {
     const demoTenant = (!simTenantRow && typeof to === "string") ? getDemoTenantByNumber(db, to) : null;
     const tenantByNumber = (!simTenantRow && !demoTenant && typeof to === "string") ? getTenantByNumber(db, to) : null;
     const tenant: TenantRow = simTenantRow ?? demoTenant ?? tenantByNumber ?? buildFallbackTenant();
-    const isDemo = !!(simTenantRow || demoTenant);
+    const isDemo = !!(simTenantRow || demoTenant
+      || (tenantByNumber && tenantByNumber.payment_status === "none"));
 
     if (tenant.tenant_id === "default" && typeof to === "string") {
       log.warn({ to }, "No tenant found for number — using fallback tenant");
