@@ -1481,7 +1481,7 @@ async function main() {
           call_id: callSid,
           payload: { callStatus, callerIntent: state.callerIntent }
         });
-        if (callStatus === "completed") {
+        if (callStatus === "completed" && state.isDemo !== true) {
           notifyOwnerSmsIfNeeded(callSid, state.callerIntent, ownerPhone, ownerEmail).catch((err) =>
             log.warn({ err }, "owner sms on status failed")
           );
@@ -3597,12 +3597,12 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
                   log.info({ callSid }, "created fallback lead — save_lead was never called");
                 }
 
-                notifyOwnerSmsIfNeeded(callSid!, s.callerIntent, ownerPhone, ownerEmail).catch((err) =>
-                  log.warn({ err }, "owner sms on end_call failed")
-                );
+                if (!isDemo) {
+                  notifyOwnerSmsIfNeeded(callSid!, s.callerIntent, ownerPhone, ownerEmail).catch((err) =>
+                    log.warn({ err }, "owner sms on end_call failed")
+                  );
+                }
 
-                // Send confirmation SMS to caller if we captured their number
-                // Skip for noise intents (wrong number, spam, silent, abusive)
                 const callerPhone = s.lead.phone ?? null;
                 const shouldConfirmCaller = callerPhone
                   && callerPhone.trim()
