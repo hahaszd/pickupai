@@ -1023,11 +1023,24 @@ export class RealtimeSession {
   // Sent as keepalive to keep Twilio's jitter buffer warm between AI responses.
   private static readonly SILENCE_20MS = Buffer.alloc(160, 0xff).toString("base64");
 
+  // Number of 20ms silence frames to inject before the first audio chunk of
+  // each new AI response.  This "runway" lets Twilio's jitter buffer
+  // stabilise on the silence-to-speech transition so the caller doesn't lose
+  // the opening syllable.  10 frames × 20ms = 200ms of imperceptible pad.
+  private static readonly RESPONSE_PAD_FRAMES = 10;
+
   private forwardAudioToTwilio(event: any) {
     if (!this.streamSid || !event.delta) return;
 
     if (this.responseStartTs === null) {
       this.responseStartTs = this.latestMediaTs;
+      for (let i = 0; i < RealtimeSession.RESPONSE_PAD_FRAMES; i++) {
+        this.sendToTwilio({
+          event: "media",
+          streamSid: this.streamSid,
+          media: { payload: RealtimeSession.SILENCE_20MS }
+        });
+      }
     }
 
     const mark = `r-${Date.now()}`;

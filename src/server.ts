@@ -1049,8 +1049,8 @@ async function main() {
   // production. If the deployed value lags behind your local commit, Railway
   // hasn't finished redeploying yet (or the deploy failed).
   app.get("/version", (_req, res) => res.json({
-    build: "fix-demo-sms-suppression",
-    commit: "31be96c",
+    build: "fix-response-audio-pad",
+    commit: "pending",
     deployedAt: BUILD_TIME
   }));
 
