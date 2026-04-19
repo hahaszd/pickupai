@@ -156,7 +156,7 @@ import { getOrInitCallState, setCallState, clearCallState } from "./twilio/state
 import { startCallRecording } from "./twilio/recording.js";
 import { formatOwnerSms, NO_SMS_INTENTS, sendOwnerSms, generateForwardingCode, FIRST_CALL_CELEBRATION_PREFIX, buildCallerConfirmationSms } from "./twilio/sms.js";
 import { isEmailConfigured, sendEmail, formatLeadEmail } from "./utils/email.js";
-import { formatAuPhone, toE164Au, isValidAuPhone } from "./utils/phone.js";
+import { formatAuPhone, toE164Au, isValidAuPhone, isAuMobile } from "./utils/phone.js";
 import { createCrmExporters, exportLeadToCrm } from "./crm/index.js";
 import { RealtimeSession } from "./realtime/session.js";
 import {
@@ -1960,7 +1960,9 @@ async function main() {
     const sendable = allProspects.filter(p =>
       p.phone && p.status !== "do_not_contact" && p.status !== "not_interested"
     );
-    res.send(adminBulkSmsPage(sendable.length, filters, flash));
+    const mobile = sendable.filter(p => p.phone && isAuMobile(p.phone));
+    const excludedNonMobile = sendable.length - mobile.length;
+    res.send(adminBulkSmsPage(mobile.length, excludedNonMobile, filters, flash));
   });
 
   app.post("/admin/prospects/import", adminHtmlAuth, express.urlencoded({ extended: false, limit: "5mb" }), (req, res) => {
@@ -2006,9 +2008,11 @@ async function main() {
     if (!message) return res.redirect("/admin/prospects/bulk-sms-form?flash=⚠ Message is required");
 
     const all = listProspects(db, { status: statusFilter, trade_type: tradeFilter });
-    const targets = all.filter(p =>
+    const sendable = all.filter(p =>
       p.phone && p.status !== "do_not_contact" && p.status !== "not_interested"
     );
+    const targets = sendable.filter(p => p.phone && isAuMobile(p.phone));
+    const skippedNonMobile = sendable.length - targets.length;
 
     let sent = 0;
     let failed = 0;
@@ -2045,7 +2049,10 @@ async function main() {
     const failSummary = failureReasons.length
       ? ` (${failureReasons.slice(0, 3).join(", ")}${failureReasons.length > 3 ? ", ..." : ""})`
       : "";
-    res.redirect(`/admin/prospects?flash=✓ Bulk SMS complete: ${sent} sent, ${failed} failed${failSummary}`);
+    const skipPart = skippedNonMobile > 0 ? `, ${skippedNonMobile} skipped (not AU mobile)` : "";
+    res.redirect(
+      `/admin/prospects?flash=✓ Bulk SMS complete: ${sent} sent, ${failed} failed${skipPart}${failSummary}`
+    );
   });
 
   app.get("/admin/prospects/:id", adminHtmlAuth, (req, res) => {

@@ -30,3 +30,9 @@ export function isValidAuPhone(phone: string): boolean {
   const stripped = phone.replace(/[\s\-()]+/g, "");
   return /^(\+?61[2-9]\d{8}|0[2-9]\d{8}|[2-9]\d{8})$/.test(stripped);
 }
+
+/** True for Australian mobile (04) numbers only, after E.164 normalisation (required for A2P SMS; landlines cannot receive). */
+export function isAuMobile(raw: string): boolean {
+  if (!raw || !String(raw).trim()) return false;
+  return /^\+614\d{8}$/.test(toE164Au(raw));
+}

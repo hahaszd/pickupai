@@ -1242,7 +1242,8 @@ Mike's Plumbing,+61412345678,mike@example.com,www.mikesplumbing.com.au,plumber,P
 }
 
 export function adminBulkSmsPage(
-  prospectCount: number,
+  mobileProspectCount: number,
+  excludedNonMobile: number,
   filters: { status?: string; trade_type?: string },
   flash?: string
 ): string {
@@ -1282,8 +1283,9 @@ export function adminBulkSmsPage(
       </div>
     </div>
     <p style="font-size:.85rem;color:var(--gray-400);margin-bottom:.75rem">
-      Matching prospects with phone numbers: <strong>${prospectCount}</strong>.
-      Prospects with status "do_not_contact" or "not_interested" are always excluded.
+      With AU mobile (04) only — <strong>${mobileProspectCount}</strong> can receive bulk SMS
+      (landlines/short-dial/invalid mobile excluded: <strong>${excludedNonMobile}</strong>).
+      Statuses "do_not_contact" and "not_interested" are always excluded.
     </p>
 
     <div class="form-group">
@@ -1296,8 +1298,8 @@ export function adminBulkSmsPage(
       </p>
     </div>
 
-    <button type="submit" class="btn btn-primary" onclick="return confirm('Send SMS to ${prospectCount} prospects?')">
-      Send to ${prospectCount} prospects →
+    <button type="submit" class="btn btn-primary" onclick="return confirm('Send SMS to ${mobileProspectCount} prospects (AU mobile only)?')">
+      Send to ${mobileProspectCount} prospects →
     </button>
   </form>
 </div>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatAuPhone } from "../src/utils/phone.js";
+import { formatAuPhone, isAuMobile } from "../src/utils/phone.js";
 
 describe("formatAuPhone", () => {
   it("formats a mobile number (+61) to local style", () => {
@@ -46,5 +46,33 @@ describe("formatAuPhone", () => {
   it("returns 1800 numbers with +61 prefix as-is (non-standard)", () => {
     const result = formatAuPhone("+611800123456");
     expect(result).toBeDefined();
+  });
+});
+
+describe("isAuMobile", () => {
+  it("accepts 04 local mobile", () => {
+    expect(isAuMobile("0412 345 678")).toBe(true);
+  });
+
+  it("accepts +61 mobile", () => {
+    expect(isAuMobile("+61412345678")).toBe(true);
+  });
+
+  it("accepts 8-digit mobile after national trim", () => {
+    expect(isAuMobile("412345678")).toBe(true);
+  });
+
+  it("rejects Sydney landline 02", () => {
+    expect(isAuMobile("02 8000 1234")).toBe(false);
+    expect(isAuMobile("+61280001234")).toBe(false);
+  });
+
+  it("rejects 1300", () => {
+    expect(isAuMobile("1300 000 000")).toBe(false);
+  });
+
+  it("rejects empty or whitespace", () => {
+    expect(isAuMobile("")).toBe(false);
+    expect(isAuMobile("   ")).toBe(false);
   });
 });
