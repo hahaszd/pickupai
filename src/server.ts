@@ -1958,7 +1958,7 @@ async function main() {
       status: (req.query.status as string) || undefined,
       trade_type: (req.query.trade_type as string) || undefined
     };
-    const allProspects = listProspects(db, filters);
+    const allProspects = listProspects(db, { ...filters, limit: 99999 });
     const sendable = allProspects.filter(p =>
       p.phone && p.status !== "do_not_contact" && p.status !== "not_interested"
     );
@@ -2009,7 +2009,7 @@ async function main() {
     const tradeFilter = req.body?.trade_type || undefined;
     if (!message) return res.redirect("/admin/prospects/bulk-sms-form?flash=⚠ Message is required");
 
-    const all = listProspects(db, { status: statusFilter, trade_type: tradeFilter });
+    const all = listProspects(db, { status: statusFilter, trade_type: tradeFilter, limit: 99999 });
     const sendable = all.filter(p =>
       p.phone && p.status !== "do_not_contact" && p.status !== "not_interested"
     );
