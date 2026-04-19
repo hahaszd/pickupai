@@ -749,14 +749,6 @@ export class RealtimeSession {
   // and cause it to restart from scratch).
   private firstResponseComplete = false;
 
-  // Audio-pad state: buffer the first few audio chunks of each AI response
-  // so the keepalive has time to prime Twilio's jitter buffer with silence
-  // before real speech arrives.  Without this, silence frames and speech
-  // frames arrive in the same TCP burst and Twilio clips the first syllable.
-  private audioPadBuffer: string[] = [];
-  private audioPadTimer: NodeJS.Timeout | null = null;
-  private audioPadFlushed = true;
-
   constructor(opts: {
     twilioWs: TwilioWs;
     callSid: string;
@@ -993,6 +985,15 @@ export class RealtimeSession {
         break;
 
       case "response.created":
+        log.info({
+          callSid: this.callSid,
+          type: event.type,
+          response_id: event?.response?.id ?? event?.response_id,
+          firstResponseComplete: this.firstResponseComplete
+        }, `[diag] OpenAI ${event.type}`);
+        this.primePlaybackBuffer();
+        break;
+
       case "response.cancelled":
       case "response.audio.done":
       case "response.output_item.added":
@@ -1031,38 +1032,29 @@ export class RealtimeSession {
   // Sent as keepalive to keep Twilio's jitter buffer warm between AI responses.
   private static readonly SILENCE_20MS = Buffer.alloc(160, 0xff).toString("base64");
 
-  // How long (ms) to hold back the first audio chunks of a new AI response
-  // while the keepalive primes Twilio's jitter buffer with silence.  The
-  // buffered chunks are flushed all at once after this delay.
-  private static readonly AUDIO_PAD_MS = 150;
+  // Silence frames sent on response.created to prime Twilio's jitter buffer
+  // during OpenAI's natural think-time (before any audio delta arrives).
+  private static readonly PRIME_FRAMES = 10;
+
+  private primePlaybackBuffer() {
+    if (!this.streamSid || this.ended) return;
+    for (let i = 0; i < RealtimeSession.PRIME_FRAMES; i++) {
+      this.sendToTwilio({
+        event: "media",
+        streamSid: this.streamSid,
+        media: { payload: RealtimeSession.SILENCE_20MS }
+      });
+    }
+  }
 
   private forwardAudioToTwilio(event: any) {
     if (!this.streamSid || !event.delta) return;
 
     if (this.responseStartTs === null) {
       this.responseStartTs = this.latestMediaTs;
-      this.audioPadFlushed = false;
-      this.audioPadBuffer = [];
-
-      if (this.audioPadTimer) clearTimeout(this.audioPadTimer);
-      this.audioPadTimer = setTimeout(() => this.flushAudioPad(), RealtimeSession.AUDIO_PAD_MS);
-    }
-
-    if (!this.audioPadFlushed) {
-      this.audioPadBuffer.push(event.delta);
-      return;
     }
 
     this.sendAudioChunk(event.delta);
-  }
-
-  private flushAudioPad() {
-    this.audioPadTimer = null;
-    this.audioPadFlushed = true;
-    for (const delta of this.audioPadBuffer) {
-      this.sendAudioChunk(delta);
-    }
-    this.audioPadBuffer = [];
   }
 
   private sendAudioChunk(delta: string) {
@@ -1083,11 +1075,6 @@ export class RealtimeSession {
     // Block barge-in until the greeting has finished playing — protects
     // against semantic_vad false positives on the carrier connection noise.
     if (!this.firstResponseComplete) return;
-
-    // Cancel any pending audio-pad flush so stale chunks don't leak.
-    if (this.audioPadTimer) { clearTimeout(this.audioPadTimer); this.audioPadTimer = null; }
-    this.audioPadBuffer = [];
-    this.audioPadFlushed = true;
 
     const elapsed = this.latestMediaTs - this.responseStartTs;
     if (this.lastAssistantItemId) {
@@ -1304,7 +1291,6 @@ export class RealtimeSession {
   cleanup() {
     this.ended = true;
     this.stopKeepalive();
-    if (this.audioPadTimer) { clearTimeout(this.audioPadTimer); this.audioPadTimer = null; }
     if (this.maxCallTimer) {
       clearTimeout(this.maxCallTimer);
       this.maxCallTimer = null;
