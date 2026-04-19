@@ -1966,7 +1966,7 @@ async function main() {
     res.send(adminBulkSmsPage(mobile.length, excludedNonMobile, filters, flash));
   });
 
-  app.post("/admin/prospects/import", adminHtmlAuth, express.urlencoded({ extended: false, limit: "5mb" }), (req, res) => {
+  app.post("/admin/prospects/import", adminHtmlAuth, express.urlencoded({ extended: false, limit: "50mb" }), (req, res) => {
     const csvText = req.body?.csv_text?.trim();
     if (!csvText) return res.redirect("/admin/prospects/import-form?flash=⚠ No CSV data provided");
 
