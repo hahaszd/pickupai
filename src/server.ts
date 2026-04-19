@@ -935,6 +935,7 @@ async function main() {
   app.use(
     express.urlencoded({
       extended: false,
+      limit: "50mb",
       verify: (req, _res, buf) => { (req as any).rawBody = buf.toString("utf8"); }
     })
   );
