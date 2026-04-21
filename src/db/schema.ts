@@ -186,5 +186,6 @@ export const migrationStatements = [
   // Cancellation lifecycle: set when payment_status flips to expired/trial_expired; consumed by the daily release sweep.
   `ALTER TABLE tenants ADD COLUMN expired_at TEXT`,
   // Set when the daily release sweep deletes the Twilio number; suppresses re-release attempts.
-  `ALTER TABLE tenants ADD COLUMN number_released_at TEXT`
+  `ALTER TABLE tenants ADD COLUMN number_released_at TEXT`,
+  `ALTER TABLE outreach_log ADD COLUMN twilio_sid TEXT`
 ];

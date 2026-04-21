@@ -696,6 +696,102 @@ export function getDailyFunnelStats(db: Db, days = 7): DailyFunnelStats[] {
   return rows;
 }
 
+// ─── Campaign funnel stats ────────────────────────────────────────────────────
+
+export type CampaignFunnelStats = {
+  total_sent: number;
+  total_prospects: number;
+  called_demo: number;
+  signed_up: number;
+  by_date: Array<{ day: string; sent: number; called: number; signed_up: number }>;
+  by_trade: Array<{ trade_type: string; sent: number; called: number; signed_up: number }>;
+  by_suburb: Array<{ suburb: string; sent: number; called: number; signed_up: number }>;
+};
+
+export function getCampaignFunnelStats(db: Db, daysBack = 30): CampaignFunnelStats {
+  const sinceIso = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
+
+  const sentByDay = db.all<{ day: string; n: number }>(
+    `SELECT substr(sent_at,1,10) AS day, COUNT(*) AS n
+     FROM outreach_log WHERE channel = 'sms' AND status = 'sent' AND sent_at >= ?
+     GROUP BY day ORDER BY day DESC`,
+    [sinceIso]
+  );
+
+  const totalSent = sentByDay.reduce((s, r) => s + r.n, 0);
+
+  const smsProspectIds = db.all<{ prospect_id: string }>(
+    `SELECT DISTINCT prospect_id FROM outreach_log
+     WHERE channel = 'sms' AND status = 'sent' AND sent_at >= ?`,
+    [sinceIso]
+  ).map(r => r.prospect_id);
+
+  const smsProspectPhones = smsProspectIds.length > 0
+    ? db.all<{ prospect_id: string; phone: string; trade_type: string | null; suburb: string | null }>(
+        `SELECT prospect_id, phone, trade_type, suburb FROM prospects
+         WHERE prospect_id IN (${smsProspectIds.map(() => "?").join(",")}) AND phone IS NOT NULL`,
+        smsProspectIds
+      )
+    : [];
+
+  const phoneSet = new Set(smsProspectPhones.map(p => p.phone));
+  const phones = [...phoneSet];
+
+  const calledPhones = new Set<string>();
+  const signedUpPhones = new Set<string>();
+
+  if (phones.length > 0) {
+    const calledRows = db.all<{ from_number: string }>(
+      `SELECT DISTINCT from_number FROM calls
+       WHERE from_number IN (${phones.map(() => "?").join(",")}) AND started_at >= ?`,
+      [...phones, sinceIso]
+    );
+    for (const r of calledRows) calledPhones.add(r.from_number);
+
+    const signedRows = db.all<{ owner_phone: string }>(
+      `SELECT DISTINCT owner_phone FROM tenants
+       WHERE owner_phone IN (${phones.map(() => "?").join(",")}) AND created_at >= ?`,
+      [...phones, sinceIso]
+    );
+    for (const r of signedRows) signedUpPhones.add(r.owner_phone);
+  }
+
+  const byDateMap = new Map<string, { sent: number; called: number; signed_up: number }>();
+  for (const r of sentByDay) byDateMap.set(r.day, { sent: r.n, called: 0, signed_up: 0 });
+
+  const byTradeMap = new Map<string, { sent: number; called: number; signed_up: number }>();
+  const bySuburbMap = new Map<string, { sent: number; called: number; signed_up: number }>();
+
+  for (const p of smsProspectPhones) {
+    const trade = p.trade_type ?? "unknown";
+    const suburb = p.suburb ?? "unknown";
+    if (!byTradeMap.has(trade)) byTradeMap.set(trade, { sent: 0, called: 0, signed_up: 0 });
+    if (!bySuburbMap.has(suburb)) bySuburbMap.set(suburb, { sent: 0, called: 0, signed_up: 0 });
+
+    byTradeMap.get(trade)!.sent++;
+    bySuburbMap.get(suburb)!.sent++;
+
+    if (calledPhones.has(p.phone)) {
+      byTradeMap.get(trade)!.called++;
+      bySuburbMap.get(suburb)!.called++;
+    }
+    if (signedUpPhones.has(p.phone)) {
+      byTradeMap.get(trade)!.signed_up++;
+      bySuburbMap.get(suburb)!.signed_up++;
+    }
+  }
+
+  return {
+    total_sent: totalSent,
+    total_prospects: smsProspectIds.length,
+    called_demo: calledPhones.size,
+    signed_up: signedUpPhones.size,
+    by_date: [...byDateMap.entries()].map(([day, v]) => ({ day, ...v })),
+    by_trade: [...byTradeMap.entries()].map(([trade_type, v]) => ({ trade_type, ...v })).sort((a, b) => b.sent - a.sent),
+    by_suburb: [...bySuburbMap.entries()].map(([suburb, v]) => ({ suburb, ...v })).sort((a, b) => b.sent - a.sent).slice(0, 15),
+  };
+}
+
 export type AnalyticsEventRow = {
   event_id: string;
   event_name: string;
@@ -753,6 +849,52 @@ export function listAnalyticsEvents(
     `SELECT * FROM analytics_events ${where} ORDER BY created_at DESC LIMIT ?`,
     params
   );
+}
+
+export type ServiceRequestRow = {
+  event_id: string;
+  type: string;
+  user_message: string;
+  ai_response: string;
+  ip: string;
+  tenant_name: string | null;
+  chat_log_id: string | null;
+  created_at: string;
+  level: string;
+};
+
+export function listServiceRequests(db: Db, opts: { type?: string; limit?: number; offset?: number } = {}): ServiceRequestRow[] {
+  const limit = opts.limit ?? 50;
+  const offset = opts.offset ?? 0;
+  const rows = db.all<AnalyticsEventRow>(
+    `SELECT * FROM analytics_events WHERE event_name = 'chat_service_request' ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+    [limit, offset]
+  );
+
+  return rows.map(r => {
+    const payload = r.payload_json ? JSON.parse(r.payload_json) : {};
+    const tenantId = r.tenant_id;
+    let tenantName: string | null = null;
+    if (tenantId) {
+      const t = db.get<{ name: string }>("SELECT name FROM tenants WHERE tenant_id = ?", [tenantId]);
+      tenantName = t?.name ?? null;
+    }
+    return {
+      event_id: r.event_id,
+      type: payload.type ?? "unknown",
+      user_message: payload.user_message ?? "",
+      ai_response: payload.ai_response ?? "",
+      ip: payload.ip ?? "",
+      tenant_name: tenantName,
+      chat_log_id: payload.chat_log_id ?? null,
+      created_at: r.created_at,
+      level: r.level ?? "info",
+    };
+  }).filter(r => !opts.type || r.type === opts.type);
+}
+
+export function countServiceRequests(db: Db): number {
+  return db.get<{ n: number }>("SELECT COUNT(*) AS n FROM analytics_events WHERE event_name = 'chat_service_request'")?.n ?? 0;
 }
 
 export function getOverviewStats(db: Db): OverviewStats {
@@ -995,6 +1137,7 @@ export type OutreachLogRow = {
   message: string | null;
   status: string;
   sent_at: string;
+  twilio_sid: string | null;
 };
 
 export function createProspect(
@@ -1124,16 +1267,20 @@ export function importProspects(
 
 export function createOutreachLog(
   db: Db,
-  data: { prospect_id: string; channel: string; message?: string; status?: string }
+  data: { prospect_id: string; channel: string; message?: string; status?: string; twilio_sid?: string }
 ): OutreachLogRow {
   const log_id = randomUUID();
   const now = new Date().toISOString();
   db.run(
-    `INSERT INTO outreach_log (log_id, prospect_id, channel, message, status, sent_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [log_id, data.prospect_id, data.channel, data.message ?? null, data.status ?? "sent", now]
+    `INSERT INTO outreach_log (log_id, prospect_id, channel, message, status, sent_at, twilio_sid)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [log_id, data.prospect_id, data.channel, data.message ?? null, data.status ?? "sent", now, data.twilio_sid ?? null]
   );
-  return { log_id, prospect_id: data.prospect_id, channel: data.channel, message: data.message ?? null, status: data.status ?? "sent", sent_at: now };
+  return { log_id, prospect_id: data.prospect_id, channel: data.channel, message: data.message ?? null, status: data.status ?? "sent", sent_at: now, twilio_sid: data.twilio_sid ?? null };
+}
+
+export function updateOutreachLogStatus(db: Db, twilioSid: string, status: string) {
+  db.run("UPDATE outreach_log SET status = ? WHERE twilio_sid = ?", [status, twilioSid]);
 }
 
 // ─── Onboarding nudge helpers ─────────────────────────────────────────────────
@@ -1187,6 +1334,21 @@ export function listOutreachForProspect(db: Db, prospectId: string): OutreachLog
     "SELECT * FROM outreach_log WHERE prospect_id = ? ORDER BY sent_at DESC",
     [prospectId]
   );
+}
+
+export function getCallsByFromNumber(db: Db, phone: string): CallRow[] {
+  return db.all<CallRow>(
+    "SELECT * FROM calls WHERE from_number = ? ORDER BY started_at DESC",
+    [phone]
+  );
+}
+
+export function getTenantByOwnerPhone(db: Db, phone: string): TenantRow | null {
+  return db.get<TenantRow>("SELECT * FROM tenants WHERE owner_phone = ? LIMIT 1", [phone]) ?? null;
+}
+
+export function getProspectByPhone(db: Db, phone: string): ProspectRow | null {
+  return db.get<ProspectRow>("SELECT * FROM prospects WHERE phone = ? LIMIT 1", [phone]) ?? null;
 }
 
 // ─── Chat logs ──────────────────────────────────────────────────────────────

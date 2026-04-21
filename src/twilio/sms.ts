@@ -188,7 +188,8 @@ export function buildCallerConfirmationSms(opts: {
 export async function sendOwnerSms(
   db: Db,
   body: string,
-  ownerPhone?: string
+  ownerPhone?: string,
+  statusCallback?: string
 ): Promise<SendOwnerSmsResult> {
   const raw = ownerPhone ?? env.OWNER_PHONE_NUMBER;
   if (!raw) {
@@ -198,7 +199,9 @@ export async function sendOwnerSms(
   const to = toE164Au(raw);
   if (env.TWILIO_MESSAGING_SERVICE_SID) {
     const message = await twilioClient.messages.create({
-      to, body, messagingServiceSid: env.TWILIO_MESSAGING_SERVICE_SID
+      to, body,
+      messagingServiceSid: env.TWILIO_MESSAGING_SERVICE_SID,
+      ...(statusCallback ? { statusCallback } : {})
     });
     return { status: "sent", sid: message.sid, to, from: env.TWILIO_MESSAGING_SERVICE_SID };
   }
@@ -207,6 +210,9 @@ export async function sendOwnerSms(
     log.warn("skipping SMS — no sender numbers configured");
     return { status: "skipped", reason: "no_sender" };
   }
-  const message = await twilioClient.messages.create({ to, from, body });
+  const message = await twilioClient.messages.create({
+    to, from, body,
+    ...(statusCallback ? { statusCallback } : {})
+  });
   return { status: "sent", sid: message.sid, to, from };
 }

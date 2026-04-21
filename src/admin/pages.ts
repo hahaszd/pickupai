@@ -1,14 +1,18 @@
 import type {
   TenantWithStats,
   TenantDetail,
+  TenantRow,
   TenantSmsRow,
   OverviewStats,
   DemoSessionRow,
+  CallRow,
   ProspectRow,
   ProspectStats,
   OutreachLogRow,
   DailyFunnelStats,
-  ChatLogRow
+  CampaignFunnelStats,
+  ChatLogRow,
+  ServiceRequestRow
 } from "../db/repo.js";
 import { formatAuPhone } from "../utils/phone.js";
 
@@ -123,7 +127,9 @@ function adminShell(title: string, activeTab: string, content: string, flash?: s
     { href: "/admin/funnel", label: "Funnel", key: "funnel" },
     { href: "/admin/users", label: "Users", key: "users" },
     { href: "/admin/prospects", label: "Prospects", key: "prospects" },
+    { href: "/admin/campaigns", label: "Campaigns", key: "campaigns" },
     { href: "/admin/demo-sessions", label: "Demo Pool", key: "demo" },
+    { href: "/admin/service-requests", label: "Support", key: "support" },
     { href: "/admin/chat-logs", label: "Chat Logs", key: "chatlogs" },
     { href: "/admin/config", label: "Config", key: "config" },
   ];
@@ -1153,6 +1159,8 @@ export function adminProspectsPage(
 export function adminProspectDetailPage(
   p: ProspectRow,
   outreachLog: OutreachLogRow[],
+  demoCalls: CallRow[],
+  signedUpTenant: TenantRow | null,
   flash?: string
 ): string {
   const statusOpts = ["new", "contacted", "replied", "demo_booked", "trial", "paying", "not_interested", "do_not_contact"];
@@ -1160,19 +1168,56 @@ export function adminProspectDetailPage(
     `<option value="${o}"${p.status === o ? " selected" : ""}>${o.replace(/_/g, " ")}</option>`
   ).join("");
 
-  const logRows = outreachLog.length > 0
-    ? outreachLog.map(l => `
-        <tr>
-          <td>${fmtDateTime(l.sent_at)}</td>
-          <td>${esc(l.channel)}</td>
-          <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(l.message ?? "—")}</td>
-          <td>${esc(l.status)}</td>
-        </tr>`).join("")
-    : '<tr><td colspan="4" style="text-align:center;padding:1rem;color:var(--gray-400)">No outreach yet</td></tr>';
+  const smsCount = outreachLog.filter(l => l.channel === "sms").length;
+  const hasDemoCall = demoCalls.length > 0;
+  const firstDemoCall = hasDemoCall ? demoCalls[demoCalls.length - 1] : null;
+  const hasSignup = !!signedUpTenant;
+  const noResponse = smsCount > 0 && !hasDemoCall && !hasSignup;
+
+  type TimelineEntry = { ts: string; type: string; detail: string };
+  const timeline: TimelineEntry[] = [];
+
+  for (const l of outreachLog) {
+    const preview = l.message && l.message.length > 80 ? l.message.slice(0, 80) + "…" : (l.message ?? "—");
+    timeline.push({ ts: l.sent_at, type: l.channel === "sms" ? "SMS Sent" : l.channel === "demo_call" ? "Demo Call" : esc(l.channel), detail: `${esc(preview)} <span style="color:var(--gray-400)">[${esc(l.status)}]</span>` });
+  }
+
+  for (const c of demoCalls) {
+    const dur = c.started_at && c.ended_at
+      ? Math.round((new Date(c.ended_at).getTime() - new Date(c.started_at).getTime()) / 1000)
+      : null;
+    const durStr = dur !== null ? `${Math.floor(dur / 60)}m ${dur % 60}s` : "—";
+    const toNum = c.to_number ? formatAuPhone(c.to_number) : "demo";
+    timeline.push({ ts: c.started_at ?? c.ended_at ?? "", type: "Demo Call", detail: `Called ${esc(toNum)} — duration ${durStr} — ${esc(c.status ?? "unknown")}` });
+  }
+
+  if (signedUpTenant) {
+    timeline.push({ ts: signedUpTenant.created_at, type: "Signed Up", detail: `Registered as "${esc(signedUpTenant.name)}" — ${esc(signedUpTenant.payment_status ?? "unknown")}` });
+  }
+
+  timeline.sort((a, b) => (a.ts > b.ts ? -1 : a.ts < b.ts ? 1 : 0));
+
+  const timelineRows = timeline.length > 0
+    ? timeline.map(t => {
+        const typeColor = t.type === "SMS Sent" ? "#3b82f6" : t.type === "Demo Call" ? "#22c55e" : t.type === "Signed Up" ? "#a855f7" : "#94a3b8";
+        return `<tr>
+          <td>${fmtDateTime(t.ts)}</td>
+          <td><span style="display:inline-block;padding:.15rem .5rem;border-radius:4px;font-size:.75rem;font-weight:600;background:${typeColor}22;color:${typeColor}">${t.type}</span></td>
+          <td style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.82rem">${t.detail}</td>
+        </tr>`;
+      }).join("")
+    : '<tr><td colspan="3" style="text-align:center;padding:1rem;color:var(--gray-400)">No activity yet</td></tr>';
 
   const content = `
 <div style="margin-bottom:1rem">
   <a href="/admin/prospects" style="color:var(--brand);font-size:.85rem">&larr; Back to prospects</a>
+</div>
+
+<div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1rem">
+  ${smsCount > 0 ? `<span style="display:inline-flex;align-items:center;gap:.3rem;padding:.3rem .7rem;border-radius:6px;font-size:.8rem;font-weight:600;background:#3b82f622;color:#3b82f6">SMS sent x${smsCount}</span>` : ""}
+  ${hasDemoCall ? `<span style="display:inline-flex;align-items:center;gap:.3rem;padding:.3rem .7rem;border-radius:6px;font-size:.8rem;font-weight:600;background:#22c55e22;color:#22c55e">Called demo${firstDemoCall?.started_at ? ` — ${fmtDateTime(firstDemoCall.started_at)}` : ""}</span>` : ""}
+  ${hasSignup ? `<span style="display:inline-flex;align-items:center;gap:.3rem;padding:.3rem .7rem;border-radius:6px;font-size:.8rem;font-weight:600;background:#a855f722;color:#a855f7">Signed up — ${esc(signedUpTenant!.payment_status ?? "unknown")}</span>` : ""}
+  ${noResponse ? `<span style="display:inline-flex;align-items:center;gap:.3rem;padding:.3rem .7rem;border-radius:6px;font-size:.8rem;font-weight:600;background:#94a3b822;color:#94a3b8">No response yet</span>` : ""}
 </div>
 
 <div class="two-col">
@@ -1256,11 +1301,11 @@ export function adminProspectDetailPage(
 </div>
 
 <div class="card" style="margin-top:1rem">
-  <div class="section-title">Outreach History</div>
+  <div class="section-title">Engagement Timeline</div>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Date</th><th>Channel</th><th>Message</th><th>Status</th></tr></thead>
-      <tbody>${logRows}</tbody>
+      <thead><tr><th>Date</th><th>Event</th><th>Details</th></tr></thead>
+      <tbody>${timelineRows}</tbody>
     </table>
   </div>
 </div>
@@ -1425,4 +1470,214 @@ ${pagination ? `<div style="margin-top:1rem;display:flex;gap:.5rem;justify-conte
 `;
 
   return adminShell("Chat Logs", "chatlogs", content, flash);
+}
+
+// ─── Campaign dashboard ───────────────────────────────────────────────────────
+
+export function adminCampaignPage(stats: CampaignFunnelStats, days: number, flash?: string): string {
+  const convRate = stats.total_prospects > 0
+    ? (stats.signed_up / stats.total_prospects * 100).toFixed(1) + "%"
+    : "—";
+  const callRate = stats.total_prospects > 0
+    ? (stats.called_demo / stats.total_prospects * 100).toFixed(1) + "%"
+    : "—";
+
+  const dateRows = stats.by_date.length > 0
+    ? stats.by_date.map(r => `<tr>
+        <td>${esc(r.day)}</td>
+        <td class="number-cell">${r.sent}</td>
+        <td class="number-cell">${r.called}</td>
+        <td class="number-cell">${r.signed_up}</td>
+      </tr>`).join("")
+    : '<tr><td colspan="4" class="empty">No outreach data yet</td></tr>';
+
+  const tradeRows = stats.by_trade.length > 0
+    ? stats.by_trade.map(r => `<tr>
+        <td>${esc(r.trade_type)}</td>
+        <td class="number-cell">${r.sent}</td>
+        <td class="number-cell">${r.called}</td>
+        <td class="number-cell">${r.signed_up}</td>
+      </tr>`).join("")
+    : '<tr><td colspan="4" class="empty">No data</td></tr>';
+
+  const suburbRows = stats.by_suburb.length > 0
+    ? stats.by_suburb.map(r => `<tr>
+        <td>${esc(r.suburb)}</td>
+        <td class="number-cell">${r.sent}</td>
+        <td class="number-cell">${r.called}</td>
+        <td class="number-cell">${r.signed_up}</td>
+      </tr>`).join("")
+    : '<tr><td colspan="4" class="empty">No data</td></tr>';
+
+  const funnelBarMax = Math.max(stats.total_sent, 1);
+  const funnelBars = [
+    { label: "SMS Sent", value: stats.total_sent, color: "#3b82f6" },
+    { label: "Called Demo", value: stats.called_demo, color: "#22c55e" },
+    { label: "Signed Up", value: stats.signed_up, color: "#a855f7" },
+  ].map(b => {
+    const w = Math.max(2, b.value / funnelBarMax * 100);
+    return `<div style="margin-bottom:.5rem">
+      <div style="display:flex;justify-content:space-between;font-size:.8rem;margin-bottom:.2rem">
+        <span style="font-weight:600;color:${b.color}">${b.label}</span>
+        <span style="color:var(--gray-500)">${b.value}</span>
+      </div>
+      <div style="height:28px;background:var(--gray-100);border-radius:6px;overflow:hidden">
+        <div style="height:100%;width:${w}%;background:${b.color};border-radius:6px;transition:width .3s"></div>
+      </div>
+    </div>`;
+  }).join("");
+
+  const content = `
+<div style="display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap;margin-bottom:1.25rem">
+  <div class="page-title" style="margin:0">Campaign Dashboard</div>
+  <div style="font-size:.82rem;color:#64748b">Last ${days} day${days === 1 ? "" : "s"}</div>
+</div>
+
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="stat-label">SMS Sent</div>
+    <div class="stat-value">${stats.total_sent}</div>
+    <div class="stat-sub">${stats.total_prospects} unique prospects</div>
+  </div>
+  <div class="stat-card brand">
+    <div class="stat-label">Called Demo</div>
+    <div class="stat-value">${stats.called_demo}</div>
+    <div class="stat-sub">${callRate} of prospects</div>
+  </div>
+  <div class="stat-card green">
+    <div class="stat-label">Signed Up</div>
+    <div class="stat-value">${stats.signed_up}</div>
+    <div class="stat-sub">${convRate} conversion</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="section-title">Conversion Funnel</div>
+  ${funnelBars}
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+  <div class="card">
+    <div class="section-title">By Trade</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Trade</th><th>Sent</th><th>Called</th><th>Signed Up</th></tr></thead>
+        <tbody>${tradeRows}</tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-title">Top Suburbs</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Suburb</th><th>Sent</th><th>Called</th><th>Signed Up</th></tr></thead>
+        <tbody>${suburbRows}</tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <div class="section-title">Daily Breakdown</div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Day</th><th>SMS Sent</th><th>Demo Calls</th><th>Signups</th></tr></thead>
+      <tbody>${dateRows}</tbody>
+    </table>
+  </div>
+</div>
+`;
+
+  return adminShell("Campaigns", "campaigns", content, flash);
+}
+
+// ─── Service Requests ────────────────────────────────────────────────────────
+
+export function adminServiceRequestsPage(
+  requests: ServiceRequestRow[],
+  total: number,
+  page: number,
+  typeFilter?: string,
+  flash?: string
+): string {
+  const typeColors: Record<string, string> = {
+    urgent: "#ef4444",
+    complaint: "#f59e0b",
+    feedback: "#3b82f6",
+    request: "#8b5cf6",
+    unknown: "#94a3b8",
+  };
+
+  const filterBtns = ["all", "urgent", "complaint", "feedback", "request"].map(t => {
+    const isActive = (t === "all" && !typeFilter) || t === typeFilter;
+    const href = t === "all" ? "/admin/service-requests" : `/admin/service-requests?type=${t}`;
+    const color = t === "all" ? "#fff" : (typeColors[t] ?? "#94a3b8");
+    return `<a href="${href}" style="display:inline-block;padding:.35rem .75rem;border-radius:6px;font-size:.8rem;font-weight:600;text-decoration:none;${isActive ? `background:${color}22;color:${color};border:1px solid ${color}44` : "color:var(--gray-400);border:1px solid var(--navy-light)"}">${t.charAt(0).toUpperCase() + t.slice(1)}</a>`;
+  }).join(" ");
+
+  const urgentCount = requests.filter(r => r.type === "urgent").length;
+
+  const rows = requests.length > 0
+    ? requests.map(r => {
+        const color = typeColors[r.type] ?? "#94a3b8";
+        const msgPreview = r.user_message.length > 100 ? r.user_message.slice(0, 100) + "…" : r.user_message;
+        const aiPreview = r.ai_response.length > 100 ? r.ai_response.slice(0, 100) + "…" : r.ai_response;
+        return `<tr>
+          <td>${fmtDateTime(r.created_at)}</td>
+          <td><span style="display:inline-block;padding:.15rem .5rem;border-radius:4px;font-size:.75rem;font-weight:600;background:${color}22;color:${color}">${r.type.toUpperCase()}</span></td>
+          <td>${esc(r.tenant_name ?? "Anonymous")}</td>
+          <td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.82rem" title="${esc(r.user_message)}">${esc(msgPreview)}</td>
+          <td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.82rem" title="${esc(r.ai_response)}">${esc(aiPreview)}</td>
+          <td style="font-size:.8rem;color:var(--gray-400)">${esc(r.ip)}</td>
+        </tr>`;
+      }).join("")
+    : '<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--gray-400)">No service requests yet</td></tr>';
+
+  const perPage = 50;
+  const totalPages = Math.ceil(total / perPage);
+  const pagination = totalPages > 1
+    ? Array.from({ length: totalPages }, (_, i) => {
+        const p = i + 1;
+        const qType = typeFilter ? `&type=${typeFilter}` : "";
+        return p === page
+          ? `<span style="padding:.3rem .6rem;background:var(--brand);color:#fff;border-radius:4px;font-size:.8rem">${p}</span>`
+          : `<a href="/admin/service-requests?page=${p}${qType}" style="padding:.3rem .6rem;color:var(--brand);font-size:.8rem">${p}</a>`;
+      }).join("")
+    : "";
+
+  const content = `
+<div style="display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap;margin-bottom:1.25rem">
+  <div class="page-title" style="margin:0">Customer Service Requests</div>
+  ${urgentCount > 0 ? `<span style="padding:.3rem .7rem;border-radius:6px;font-size:.8rem;font-weight:700;background:#ef444422;color:#ef4444">${urgentCount} urgent</span>` : ""}
+</div>
+
+<div style="margin-bottom:1rem;display:flex;gap:.4rem;flex-wrap:wrap">
+  ${filterBtns}
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Type</th>
+          <th>Customer</th>
+          <th>Message</th>
+          <th>AI Response</th>
+          <th>IP</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+${pagination ? `<div style="margin-top:1rem;display:flex;gap:.5rem;justify-content:center">${pagination}</div>` : ""}
+`;
+
+  return adminShell("Support Requests", "support", content, flash);
 }

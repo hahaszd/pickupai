@@ -88,6 +88,9 @@ import {
   getNotificationStatus,
   getOverviewStats,
   getDailyFunnelStats,
+  getCampaignFunnelStats,
+  listServiceRequests,
+  countServiceRequests,
   getTenantById,
   getTenantByNumber,
   getTenantBySessionToken,
@@ -119,6 +122,10 @@ import {
   importProspects,
   createOutreachLog,
   listOutreachForProspect,
+  updateOutreachLogStatus,
+  getCallsByFromNumber,
+  getTenantByOwnerPhone,
+  getProspectByPhone,
   createPasswordResetToken,
   verifyPasswordResetToken,
   getTenantLeadStats,
@@ -146,6 +153,8 @@ import {
   adminProspectDetailPage,
   adminProspectImportPage,
   adminBulkSmsPage,
+  adminCampaignPage,
+  adminServiceRequestsPage,
   adminChatLogsPage,
   buildProvisionSms,
 } from "./admin/pages.js";
@@ -1197,6 +1206,50 @@ async function main() {
 
       if (fullResponse) {
         try { updateChatLogResponse(db, chatLogId, fullResponse); } catch { /* non-critical */ }
+
+        const tagMap: Record<string, string> = {
+          "[URGENT]": "urgent",
+          "[COMPLAINT]": "complaint",
+          "[FEEDBACK]": "feedback",
+          "[REQUEST]": "request",
+        };
+        const detectedTypes: string[] = [];
+        for (const [tag, type] of Object.entries(tagMap)) {
+          if (fullResponse.includes(tag)) detectedTypes.push(type);
+        }
+
+        if (detectedTypes.length > 0) {
+          const primaryType = detectedTypes.includes("urgent") ? "urgent" : detectedTypes[0];
+          createAnalyticsEvent(db, {
+            event_name: "chat_service_request",
+            tenant_id: tenant?.tenant_id ?? null,
+            level: primaryType === "urgent" ? "warn" : "info",
+            payload_json: JSON.stringify({
+              type: primaryType,
+              all_types: detectedTypes,
+              user_message: lastUserMsg.slice(0, 500),
+              ai_response: fullResponse.slice(0, 500),
+              ip,
+              chat_log_id: chatLogId,
+            }),
+          });
+
+          if (primaryType === "urgent") {
+            const urgentMsg = `[URGENT] Chat service request from ${tenant?.name ?? "anonymous visitor"}\n\nCustomer message: ${lastUserMsg.slice(0, 300)}\n\nAI response: ${fullResponse.slice(0, 300)}`;
+            if (isEmailConfigured()) {
+              sendEmail({
+                to: "hello@getpickupai.com.au",
+                subject: `[URGENT] Customer service request via chat`,
+                text: urgentMsg,
+              }).catch(err => log.warn({ err }, "Failed to send urgent chat service email"));
+            }
+            if (env.OWNER_PHONE_NUMBER) {
+              sendOwnerSms(db, urgentMsg.slice(0, 300)).catch(err =>
+                log.warn({ err }, "Failed to send urgent chat service SMS")
+              );
+            }
+          }
+        }
       }
 
       res.write("data: [DONE]\n\n");
@@ -1387,6 +1440,20 @@ async function main() {
       payload: { from, to, isDemo }
     });
 
+    if (isDemo && typeof from === "string" && from.trim()) {
+      const prospect = getProspectByPhone(db, toE164Au(from));
+      if (prospect && (prospect.status === "new" || prospect.status === "contacted")) {
+        updateProspect(db, prospect.prospect_id, { status: "replied" });
+        createOutreachLog(db, {
+          prospect_id: prospect.prospect_id,
+          channel: "demo_call",
+          message: `Called demo number ${to}`,
+          status: "inbound"
+        });
+        log.info({ prospectId: prospect.prospect_id, from }, "Auto-updated prospect status to replied (demo call)");
+      }
+    }
+
     startCallRecording(callSid).catch((err) => log.warn({ err }, "start recording failed"));
 
     if (!env.OPENAI_API_KEY) {
@@ -1492,6 +1559,16 @@ async function main() {
         if (toNumber) simulationRoutingMap.delete(toNumber);
         clearCallState(callSid);
       }
+    }
+    res.sendStatus(200);
+  });
+
+  app.post("/twilio/sms/status", twilioVerify, (req, res) => {
+    const messageSid = typeof req.body?.MessageSid === "string" ? req.body.MessageSid : null;
+    const messageStatus = typeof req.body?.MessageStatus === "string" ? req.body.MessageStatus : null;
+    if (messageSid && messageStatus) {
+      updateOutreachLogStatus(db, messageSid, messageStatus);
+      log.info({ messageSid, messageStatus }, "SMS delivery status updated");
     }
     res.sendStatus(200);
   });
@@ -1716,6 +1793,13 @@ async function main() {
     const days = Number.isFinite(daysRaw) ? Math.max(1, Math.min(30, Math.floor(daysRaw))) : 7;
     const rows = getDailyFunnelStats(db, days);
     res.send(adminFunnelPage(rows, days));
+  });
+
+  app.get("/admin/campaigns", adminHtmlAuth, (req, res) => {
+    const daysRaw = typeof req.query.days === "string" ? Number(req.query.days) : 30;
+    const days = Number.isFinite(daysRaw) ? Math.max(1, Math.min(90, Math.floor(daysRaw))) : 30;
+    const stats = getCampaignFunnelStats(db, days);
+    res.send(adminCampaignPage(stats, days));
   });
 
   // Users list
@@ -2024,12 +2108,12 @@ async function main() {
         .replace(/\{name\}/gi, p.business_name)
         + (message.toLowerCase().includes("hello@getpickupai.com.au") ? "" : "\nTo opt out, email hello@getpickupai.com.au");
       try {
-        const sms = await sendOwnerSms(db, body, p.phone!);
+        const smsStatusCb = `${env.PUBLIC_BASE_URL}/twilio/sms/status`;
+        const sms = await sendOwnerSms(db, body, p.phone!, smsStatusCb);
         if (sms.status === "sent") {
-          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: "sent" });
+          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: "sent", twilio_sid: sms.sid });
           updateProspect(db, p.prospect_id, { status: p.status === "new" ? "contacted" : p.status, last_contacted_at: new Date().toISOString() });
           sent++;
-          // Rate limiting: 1 SMS per second
           await new Promise(r => setTimeout(r, 1000));
         } else {
           createOutreachLog(db, {
@@ -2082,9 +2166,10 @@ async function main() {
         .replace(/\{name\}/gi, p.business_name)
         + (message.toLowerCase().includes("hello@getpickupai.com.au") ? "" : "\nTo opt out, email hello@getpickupai.com.au");
       try {
-        const sms = await sendOwnerSms(db, body, p.phone);
+        const smsStatusCb = `${env.PUBLIC_BASE_URL}/twilio/sms/status`;
+        const sms = await sendOwnerSms(db, body, p.phone, smsStatusCb);
         if (sms.status === "sent") {
-          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: "sent" });
+          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: "sent", twilio_sid: sms.sid });
           updateProspect(db, p.prospect_id, { status: p.status === "new" ? "contacted" : p.status, last_contacted_at: new Date().toISOString() });
           sent++;
           await new Promise(r => setTimeout(r, 1000));
@@ -2118,7 +2203,10 @@ async function main() {
     if (!p) return res.redirect("/admin/prospects?flash=⚠ Prospect not found");
     const flash = req.query.flash as string | undefined;
     const outreachLog = listOutreachForProspect(db, p.prospect_id);
-    res.send(adminProspectDetailPage(p, outreachLog, flash));
+    const e164 = p.phone ? toE164Au(p.phone) : null;
+    const demoCalls = e164 ? getCallsByFromNumber(db, e164) : [];
+    const signedUpTenant = e164 ? getTenantByOwnerPhone(db, e164) : null;
+    res.send(adminProspectDetailPage(p, outreachLog, demoCalls, signedUpTenant, flash));
   });
 
   app.post("/admin/prospects/:id", adminHtmlAuth, express.urlencoded({ extended: false }), (req, res) => {
@@ -2139,9 +2227,10 @@ async function main() {
     }
 
     try {
-      const sms = await sendOwnerSms(db, message, p.phone);
+      const smsStatusCb = `${env.PUBLIC_BASE_URL}/twilio/sms/status`;
+      const sms = await sendOwnerSms(db, message, p.phone, smsStatusCb);
       if (sms.status === "sent") {
-        createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message, status: "sent" });
+        createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message, status: "sent", twilio_sid: sms.sid });
         updateProspect(db, p.prospect_id, { last_contacted_at: new Date().toISOString() });
         if (p.status === "new") updateProspect(db, p.prospect_id, { status: "contacted" });
         res.redirect(`/admin/prospects/${p.prospect_id}?flash=✓ SMS sent`);
@@ -2170,6 +2259,18 @@ async function main() {
     const total = countChatLogs(db);
     const flash = (req.query.flash as string | undefined) ?? undefined;
     res.send(adminChatLogsPage(logs, total, page, search, flash));
+  });
+
+  // ── Admin Service Requests ──────────────────────────────────────────────
+
+  app.get("/admin/service-requests", adminHtmlAuth, (req, res) => {
+    const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+    const typeFilter = typeof req.query.type === "string" ? req.query.type : undefined;
+    const perPage = 50;
+    const requests = listServiceRequests(db, { type: typeFilter, limit: perPage, offset: (page - 1) * perPage });
+    const total = countServiceRequests(db);
+    const flash = (req.query.flash as string | undefined) ?? undefined;
+    res.send(adminServiceRequestsPage(requests, total, page, typeFilter, flash));
   });
 
   // ── Admin Config ────────────────────────────────────────────────────────
@@ -2371,6 +2472,18 @@ async function main() {
       tenant_id: tenant.tenant_id,
       payload: { trade_type, hasStripeConfig: !!env.STRIPE_SECRET_KEY && !!env.STRIPE_PRICE_ID }
     });
+
+    const signupProspect = getProspectByPhone(db, toE164Au(owner_phone as string));
+    if (signupProspect && signupProspect.status !== "paying" && signupProspect.status !== "do_not_contact") {
+      updateProspect(db, signupProspect.prospect_id, { status: "trial" });
+      createOutreachLog(db, {
+        prospect_id: signupProspect.prospect_id,
+        channel: "signup",
+        message: `Signed up as "${name}"`,
+        status: "converted"
+      });
+      log.info({ prospectId: signupProspect.prospect_id }, "Auto-updated prospect status to trial (signup)");
+    }
 
     // Start in "demo" state — user explores demos before committing to payment
     updateTenant(db, tenant.tenant_id, { payment_status: "demo" });
