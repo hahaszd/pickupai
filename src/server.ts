@@ -3767,17 +3767,14 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
                   log.info({ callSid }, "created fallback lead — save_lead was never called");
                 }
 
-                if (!isDemo) {
-                  notifyOwnerSmsIfNeeded(callSid!, s.callerIntent, ownerPhone, ownerEmail).catch((err) =>
-                    log.warn({ err }, "owner sms on end_call failed")
-                  );
-                }
+                notifyOwnerSmsIfNeeded(callSid!, s.callerIntent, ownerPhone, ownerEmail).catch((err) =>
+                  log.warn({ err }, "owner sms on end_call failed")
+                );
 
                 const callerPhone = s.lead.phone ?? null;
                 const shouldConfirmCaller = callerPhone
                   && callerPhone.trim()
                   && !callerPhone.startsWith("+PENDING_")
-                  && !isDemo
                   && s.callerIntent
                   && !NO_SMS_INTENTS.has(s.callerIntent);
                 if (shouldConfirmCaller && callerPhone) {
