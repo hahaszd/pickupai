@@ -2057,6 +2057,62 @@ async function main() {
     );
   });
 
+  app.post("/admin/prospects/send-selected-sms", adminHtmlAuth, express.urlencoded({ extended: false }), async (req, res) => {
+    const message = req.body?.message?.trim();
+    if (!message) return res.redirect("/admin/prospects?flash=⚠ Message is required");
+
+    let ids: string[] = [];
+    if (Array.isArray(req.body?.prospect_ids)) ids = req.body.prospect_ids;
+    else if (req.body?.prospect_ids) ids = [req.body.prospect_ids];
+    if (ids.length === 0) return res.redirect("/admin/prospects?flash=⚠ No prospects selected");
+
+    let sent = 0;
+    let failed = 0;
+    let skippedStatus = 0;
+    let skippedNonMobile = 0;
+    const failureReasons: string[] = [];
+
+    for (const id of ids) {
+      const p = getProspectById(db, id);
+      if (!p) continue;
+      if (p.status === "do_not_contact" || p.status === "not_interested") { skippedStatus++; continue; }
+      if (!p.phone || !isAuMobile(p.phone)) { skippedNonMobile++; continue; }
+
+      const body = message
+        .replace(/\{name\}/gi, p.business_name)
+        + (message.includes("To opt out, email hello@getpickupai.com.au") ? "" : "\nTo opt out, email hello@getpickupai.com.au");
+      try {
+        const sms = await sendOwnerSms(db, body, p.phone);
+        if (sms.status === "sent") {
+          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: "sent" });
+          updateProspect(db, p.prospect_id, { status: p.status === "new" ? "contacted" : p.status, last_contacted_at: new Date().toISOString() });
+          sent++;
+          await new Promise(r => setTimeout(r, 1000));
+        } else {
+          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: `skipped:${sms.reason}` });
+          failed++;
+          failureReasons.push(`${p.phone}:${sms.reason}`);
+        }
+      } catch (e: any) {
+        createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: "failed" });
+        failed++;
+        failureReasons.push(`${p.phone}:error`);
+        log.warn({ e, phone: p.phone }, "Selected SMS failed for prospect");
+      }
+    }
+    const failSummary = failureReasons.length
+      ? ` (${failureReasons.slice(0, 3).join(", ")}${failureReasons.length > 3 ? ", ..." : ""})`
+      : "";
+    const skipParts = [
+      skippedNonMobile > 0 ? `${skippedNonMobile} not AU mobile` : "",
+      skippedStatus > 0 ? `${skippedStatus} excluded by status` : ""
+    ].filter(Boolean).join(", ");
+    const skipMsg = skipParts ? `, skipped: ${skipParts}` : "";
+    res.redirect(
+      `/admin/prospects?flash=✓ Selected SMS: ${sent} sent, ${failed} failed${skipMsg}${failSummary}`
+    );
+  });
+
   app.get("/admin/prospects/:id", adminHtmlAuth, (req, res) => {
     const p = getProspectById(db, req.params.id);
     if (!p) return res.redirect("/admin/prospects?flash=⚠ Prospect not found");

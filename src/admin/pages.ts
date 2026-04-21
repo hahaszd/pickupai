@@ -1054,6 +1054,7 @@ export function adminProspectsPage(
 
   const rows = prospects.map(p => `
     <tr>
+      <td style="width:32px;text-align:center"><input type="checkbox" name="prospect_ids" value="${p.prospect_id}" class="prospect-cb" /></td>
       <td><a href="/admin/prospects/${p.prospect_id}">${esc(p.business_name)}</a></td>
       <td>${esc(p.phone ?? "—")}</td>
       <td>${esc(p.trade_type ?? "—")}</td>
@@ -1090,15 +1091,61 @@ export function adminProspectsPage(
     <button type="submit" class="btn btn-outline" style="font-size:.82rem">Filter</button>
   </form>
 
+  <form id="selected-sms-form" method="POST" action="/admin/prospects/send-selected-sms">
   <div class="table-wrap">
     <table>
       <thead><tr>
+        <th style="width:32px;text-align:center"><input type="checkbox" id="select-all" title="Select all visible" /></th>
         <th>Business</th><th>Phone</th><th>Trade</th><th>Suburb</th><th>Status</th><th>Source</th><th>Last Contact</th>
       </tr></thead>
-      <tbody>${rows || '<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--gray-400)">No prospects yet. Import a CSV or add manually.</td></tr>'}</tbody>
+      <tbody>${rows || '<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--gray-400)">No prospects yet. Import a CSV or add manually.</td></tr>'}</tbody>
     </table>
   </div>
+
+  <div id="sms-action-bar" style="display:none;position:sticky;bottom:0;left:0;right:0;background:var(--navy-mid);border-top:2px solid var(--brand);padding:1rem;margin-top:1rem;border-radius:8px;box-shadow:0 -4px 12px rgba(0,0,0,.3)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
+      <span style="font-weight:600;color:var(--brand);font-size:.9rem" id="selected-count">0 selected</span>
+      <div style="display:flex;gap:.35rem;flex-wrap:wrap">
+        <button type="button" class="btn btn-outline" style="font-size:.72rem;padding:.25rem .5rem" onclick="document.getElementById('sel-sms-body').value=\`Hi {name}, missed-call problem? PickupAI is an AI receptionist for Sydney tradies. Answers 24/7, texts you the lead in seconds.\\n\\nHear it now: call +61 2 8000 0796\\nFree 14-day trial: getpickupai.com.au\\n\\nReply STOP to opt out, or email hello@getpickupai.com.au\`">First touch</button>
+        <button type="button" class="btn btn-outline" style="font-size:.72rem;padding:.25rem .5rem" onclick="document.getElementById('sel-sms-body').value=\`Quick follow-up {name} — do you miss calls on the tools? PickupAI picks up when you can't, captures the lead, and texts it to you. 14-day free trial, cancel anytime.\\n\\nHear it: call +61 2 8000 0796\\ngetpickupai.com.au\\n\\nReply STOP to opt out, or email hello@getpickupai.com.au\`">Follow-up</button>
+        <button type="button" class="btn btn-outline" style="font-size:.72rem;padding:.25rem .5rem" onclick="document.getElementById('sel-sms-body').value=\`Last one {name} — we're offering founding pricing ($149/mo locked) to our first 20 customers. After that it's $199/mo.\\n\\nHear it: call +61 2 8000 0796\\nIf missed calls cost you jobs: getpickupai.com.au\\n\\nReply STOP to opt out, or email hello@getpickupai.com.au\`">Final touch</button>
+      </div>
+    </div>
+    <textarea id="sel-sms-body" name="message" rows="4" required placeholder="Type your SMS here. Use {name} for business name."
+      style="width:100%;background:var(--navy);color:#fff;border:1px solid var(--navy-light);border-radius:6px;padding:.5rem;font-family:inherit;font-size:.85rem;margin-bottom:.5rem"></textarea>
+    <p style="font-size:.75rem;color:var(--gray-400);margin-bottom:.75rem">
+      Use <code>{name}</code> to insert the business name. Opt-out line appended automatically if not included.
+    </p>
+    <button type="submit" id="send-selected-btn" class="btn btn-primary" style="width:100%"
+      onclick="return confirm('Send SMS to ' + document.querySelectorAll('.prospect-cb:checked').length + ' selected prospects?')">
+      Send SMS to 0 selected →
+    </button>
+  </div>
+  </form>
 </div>
+
+<script>
+(function(){
+  var cbs = document.querySelectorAll('.prospect-cb');
+  var bar = document.getElementById('sms-action-bar');
+  var countEl = document.getElementById('selected-count');
+  var btn = document.getElementById('send-selected-btn');
+  var selectAll = document.getElementById('select-all');
+  function update(){
+    var n = document.querySelectorAll('.prospect-cb:checked').length;
+    bar.style.display = n > 0 ? 'block' : 'none';
+    countEl.textContent = n + ' selected';
+    btn.textContent = 'Send SMS to ' + n + ' selected →';
+  }
+  cbs.forEach(function(cb){ cb.addEventListener('change', update); });
+  if(selectAll){
+    selectAll.addEventListener('change', function(){
+      cbs.forEach(function(cb){ cb.checked = selectAll.checked; });
+      update();
+    });
+  }
+})();
+</script>
 `;
   return adminShell("Prospects", "prospects", content, flash);
 }
