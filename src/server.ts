@@ -2022,7 +2022,7 @@ async function main() {
     for (const p of targets) {
       const body = message
         .replace(/\{name\}/gi, p.business_name)
-        + (message.includes("To opt out, email hello@getpickupai.com.au") ? "" : "\nTo opt out, email hello@getpickupai.com.au");
+        + (message.toLowerCase().includes("hello@getpickupai.com.au") ? "" : "\nTo opt out, email hello@getpickupai.com.au");
       try {
         const sms = await sendOwnerSms(db, body, p.phone!);
         if (sms.status === "sent") {
@@ -2080,7 +2080,7 @@ async function main() {
 
       const body = message
         .replace(/\{name\}/gi, p.business_name)
-        + (message.includes("To opt out, email hello@getpickupai.com.au") ? "" : "\nTo opt out, email hello@getpickupai.com.au");
+        + (message.toLowerCase().includes("hello@getpickupai.com.au") ? "" : "\nTo opt out, email hello@getpickupai.com.au");
       try {
         const sms = await sendOwnerSms(db, body, p.phone);
         if (sms.status === "sent") {
@@ -2134,7 +2134,7 @@ async function main() {
     if (!message) return res.redirect(`/admin/prospects/${req.params.id}?flash=⚠ Message is required`);
 
     const OPT_OUT_LINE = "\nTo opt out, email hello@getpickupai.com.au";
-    if (!message.includes("To opt out, email hello@getpickupai.com.au")) {
+    if (!message.toLowerCase().includes("hello@getpickupai.com.au")) {
       message += OPT_OUT_LINE;
     }
 
