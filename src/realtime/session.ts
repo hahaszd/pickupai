@@ -321,11 +321,12 @@ function buildDemoSection(tenant: TenantRow): string {
   const tradeLabel = tradeKeys[0] ?? "tradie";
   return `
 # Demo Mode
-This is a DEMONSTRATION call placed by an automated system to show the business owner (${tenant.name}) how their AI receptionist works.
-The "caller" is a pre-recorded script playing the role of a customer with a ${tradeLabel} job enquiry.
-Respond as you would to any real customer — greet them warmly, collect their details, and end the call naturally.
-At the end, say something like: "Great, I've taken your details — the team at ${tenant.name} will be in touch soon."
-Keep the call to around 90 seconds.
+This is a DEMONSTRATION call to show the business owner (${tenant.name}) how their AI receptionist handles a ${tradeLabel} enquiry.
+The caller may be the business owner testing the system, or an automated script. Either way, treat them exactly like a real customer.
+Respond as you would to any real customer — greet them warmly, collect their details (name, phone, address, issue), and wrap up.
+Keep the call to around 90 seconds. Once you have collected the key details, deliver your farewell:
+"Great, I've taken your details — the team at ${tenant.name} will be in touch soon."
+Then IMMEDIATELY call save_lead() with all details followed by end_call(reason="demo complete"). Do NOT wait for the caller to hang up — you MUST call end_call() yourself.
 `;
 }
 
