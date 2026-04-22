@@ -581,15 +581,18 @@ async function main() {
       const { twilioClient } = await import("./twilio/client.js");
       const voiceUrl = `${env.PUBLIC_BASE_URL}/twilio/voice/incoming`;
       const statusCallback = `${env.PUBLIC_BASE_URL}/twilio/voice/status`;
+      const smsUrl = `${env.PUBLIC_BASE_URL}/twilio/sms/incoming`;
       const numbers = await twilioClient.incomingPhoneNumbers.list({ limit: 50 });
       for (const num of numbers) {
         await twilioClient.incomingPhoneNumbers(num.sid).update({
           voiceUrl,
           voiceMethod: "POST",
           statusCallback,
-          statusCallbackMethod: "POST"
+          statusCallbackMethod: "POST",
+          smsUrl,
+          smsMethod: "POST" as any,
         });
-        log.info({ number: num.phoneNumber, voiceUrl }, "Twilio webhook updated");
+        log.info({ number: num.phoneNumber, voiceUrl, smsUrl }, "Twilio webhook updated");
       }
     } catch (err) {
       log.error({ err }, "Failed to auto-configure Twilio webhooks — continuing anyway");
@@ -1571,6 +1574,60 @@ async function main() {
       log.info({ messageSid, messageStatus }, "SMS delivery status updated");
     }
     res.sendStatus(200);
+  });
+
+  const OPT_OUT_KEYWORDS = new Set(["stop", "unsubscribe", "cancel", "end", "quit"]);
+  const OPT_IN_KEYWORDS = new Set(["start", "unstop"]);
+
+  app.post("/twilio/sms/incoming", twilioVerify, (req, res) => {
+    const from = typeof req.body?.From === "string" ? req.body.From.trim() : null;
+    const body = typeof req.body?.Body === "string" ? req.body.Body.trim() : "";
+    const to = typeof req.body?.To === "string" ? req.body.To.trim() : null;
+
+    if (!from) { res.type("text/xml").send("<Response/>"); return; }
+
+    const phone = toE164Au(from);
+    const keyword = body.toLowerCase().replace(/[^a-z]/g, "");
+    const prospect = getProspectByPhone(db, phone);
+
+    log.info({ from: phone, to, body, prospectId: prospect?.prospect_id ?? null }, "Inbound SMS received");
+
+    if (prospect) {
+      if (OPT_OUT_KEYWORDS.has(keyword)) {
+        updateProspect(db, prospect.prospect_id, { status: "do_not_contact" });
+        createOutreachLog(db, {
+          prospect_id: prospect.prospect_id,
+          channel: "sms_reply",
+          message: body,
+          status: "opt_out"
+        });
+        log.info({ phone, business: prospect.business_name }, "Prospect opted out via SMS");
+      } else if (OPT_IN_KEYWORDS.has(keyword)) {
+        if (prospect.status === "do_not_contact") {
+          updateProspect(db, prospect.prospect_id, { status: "contacted" });
+        }
+        createOutreachLog(db, {
+          prospect_id: prospect.prospect_id,
+          channel: "sms_reply",
+          message: body,
+          status: "opt_in"
+        });
+        log.info({ phone, business: prospect.business_name }, "Prospect opted back in via SMS");
+      } else {
+        if (prospect.status === "new" || prospect.status === "contacted") {
+          updateProspect(db, prospect.prospect_id, { status: "replied" });
+        }
+        createOutreachLog(db, {
+          prospect_id: prospect.prospect_id,
+          channel: "sms_reply",
+          message: body,
+          status: "received"
+        });
+        log.info({ phone, business: prospect.business_name }, "Prospect replied via SMS");
+      }
+    }
+
+    res.type("text/xml").send("<Response/>");
   });
 
   app.post("/twilio/voice/recording", twilioVerify, async (req, res) => {
