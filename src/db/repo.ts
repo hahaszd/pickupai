@@ -713,7 +713,7 @@ export function getCampaignFunnelStats(db: Db, daysBack = 30): CampaignFunnelSta
 
   const sentByDay = db.all<{ day: string; n: number }>(
     `SELECT substr(sent_at,1,10) AS day, COUNT(*) AS n
-     FROM outreach_log WHERE channel = 'sms' AND status = 'sent' AND sent_at >= ?
+     FROM outreach_log WHERE channel = 'sms' AND status NOT IN ('failed','rejected') AND sent_at >= ?
      GROUP BY day ORDER BY day DESC`,
     [sinceIso]
   );
@@ -722,7 +722,7 @@ export function getCampaignFunnelStats(db: Db, daysBack = 30): CampaignFunnelSta
 
   const smsProspectIds = db.all<{ prospect_id: string }>(
     `SELECT DISTINCT prospect_id FROM outreach_log
-     WHERE channel = 'sms' AND status = 'sent' AND sent_at >= ?`,
+     WHERE channel = 'sms' AND status NOT IN ('failed','rejected') AND sent_at >= ?`,
     [sinceIso]
   ).map(r => r.prospect_id);
 
