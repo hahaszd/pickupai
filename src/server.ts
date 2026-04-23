@@ -183,6 +183,7 @@ import {
 } from "./dashboard/pages.js";
 import { gaHeadSnippet } from "./analytics/ga.js";
 import Stripe from "stripe";
+import { isMobileMessageConfigured, sendMarketingSms, sendMarketingSmsBatch, configureMobileMessageWebhooks, type BatchMessage } from "./sms/mobile-message.js";
 
 /** Lazy Stripe client — only instantiated if STRIPE_SECRET_KEY is set */
 function getStripe(): Stripe | null {
@@ -240,10 +241,11 @@ async function provisionAuNumber(tenantName: string): Promise<{ number: string |
   }
 
   try {
-    log.info({ addressSid: env.TWILIO_ADDRESS_SID ?? "(not set)", chosenNumber }, "Purchasing AU number");
+    log.info({ addressSid: env.TWILIO_ADDRESS_SID ?? "(not set)", bundleSid: env.TWILIO_BUNDLE_SID ?? "(not set)", chosenNumber }, "Purchasing AU number");
     const purchased = await twilioClient.incomingPhoneNumbers.create({
       phoneNumber: chosenNumber,
       ...(env.TWILIO_ADDRESS_SID ? { addressSid: env.TWILIO_ADDRESS_SID } : {}),
+      ...(env.TWILIO_BUNDLE_SID ? { bundleSid: env.TWILIO_BUNDLE_SID } : {}),
       voiceUrl: `${env.PUBLIC_BASE_URL}/twilio/voice/incoming`,
       voiceMethod: "POST",
       statusCallback: `${env.PUBLIC_BASE_URL}/twilio/voice/status`,
@@ -597,6 +599,12 @@ async function main() {
     } catch (err) {
       log.error({ err }, "Failed to auto-configure Twilio webhooks — continuing anyway");
     }
+  }
+
+  if (isMobileMessageConfigured()) {
+    configureMobileMessageWebhooks(env.PUBLIC_BASE_URL).catch(err => {
+      log.error({ err }, "Failed to auto-configure Mobile Message webhooks — continuing anyway");
+    });
   }
 
   const app = express();
@@ -1630,6 +1638,18 @@ async function main() {
     res.type("text/xml").send("<Response/>");
   });
 
+  app.post("/mobilemsg/sms/status", express.json(), (req, res) => {
+    const messageId = typeof req.body?.message_id === "string" ? req.body.message_id : null;
+    const status = typeof req.body?.status === "string" ? req.body.status : null;
+    const customRef = typeof req.body?.custom_ref === "string" ? req.body.custom_ref : null;
+
+    if (messageId && status) {
+      updateOutreachLogStatus(db, messageId, status);
+      log.info({ messageId, status, customRef }, "Mobile Message delivery status received");
+    }
+    res.sendStatus(200);
+  });
+
   app.post("/twilio/voice/recording", twilioVerify, async (req, res) => {
     const callSid = typeof req.body?.CallSid === "string" ? req.body.CallSid : null;
     const recordingSid = typeof req.body?.RecordingSid === "string" ? req.body.RecordingSid : null;
@@ -2160,6 +2180,31 @@ async function main() {
     let sent = 0;
     let failed = 0;
     const failureReasons: string[] = [];
+
+    if (isMobileMessageConfigured()) {
+      const batch: BatchMessage[] = targets.map(p => ({
+        to: p.phone!,
+        body: message
+          .replace(/\{name\}/gi, p.business_name)
+          + (message.toLowerCase().includes("hello@getpickupai.com.au") ? "" : "\nTo opt out, email hello@getpickupai.com.au"),
+        customRef: p.prospect_id
+      }));
+      const results = await sendMarketingSmsBatch(batch);
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        const p = targets[i];
+        if (r.result.status === "sent") {
+          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: batch[i].body, status: "sent", twilio_sid: r.result.message_id });
+          updateProspect(db, p.prospect_id, { status: p.status === "new" ? "contacted" : p.status, last_contacted_at: new Date().toISOString() });
+          sent++;
+        } else {
+          const reason = r.result.status === "skipped" ? r.result.reason : r.result.reason;
+          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: batch[i].body, status: `failed:${reason}` });
+          failed++;
+          failureReasons.push(`${p.phone}:${reason}`);
+        }
+      }
+    } else {
     for (const p of targets) {
       const body = message
         .replace(/\{name\}/gi, p.business_name)
@@ -2189,6 +2234,7 @@ async function main() {
         log.warn({ e, phone: p.phone }, "Bulk SMS failed for prospect");
       }
     }
+    }
     const failSummary = failureReasons.length
       ? ` (${failureReasons.slice(0, 3).join(", ")}${failureReasons.length > 3 ? ", ..." : ""})`
       : "";
@@ -2213,18 +2259,44 @@ async function main() {
     let skippedNonMobile = 0;
     const failureReasons: string[] = [];
 
+    const validTargets: { p: ProspectRow; body: string }[] = [];
     for (const id of ids) {
       const p = getProspectById(db, id);
       if (!p) continue;
       if (p.status === "do_not_contact" || p.status === "not_interested") { skippedStatus++; continue; }
       if (!p.phone || !isAuMobile(p.phone)) { skippedNonMobile++; continue; }
-
       const body = message
         .replace(/\{name\}/gi, p.business_name)
         + (message.toLowerCase().includes("hello@getpickupai.com.au") ? "" : "\nTo opt out, email hello@getpickupai.com.au");
+      validTargets.push({ p, body });
+    }
+
+    if (isMobileMessageConfigured() && validTargets.length > 0) {
+      const batch: BatchMessage[] = validTargets.map(({ p, body }) => ({
+        to: p.phone!,
+        body,
+        customRef: p.prospect_id
+      }));
+      const results = await sendMarketingSmsBatch(batch);
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        const { p, body } = validTargets[i];
+        if (r.result.status === "sent") {
+          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: "sent", twilio_sid: r.result.message_id });
+          updateProspect(db, p.prospect_id, { status: p.status === "new" ? "contacted" : p.status, last_contacted_at: new Date().toISOString() });
+          sent++;
+        } else {
+          const reason = r.result.status === "skipped" ? r.result.reason : r.result.reason;
+          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: `failed:${reason}` });
+          failed++;
+          failureReasons.push(`${p.phone}:${reason}`);
+        }
+      }
+    } else {
+    for (const { p, body } of validTargets) {
       try {
         const smsStatusCb = `${env.PUBLIC_BASE_URL}/twilio/sms/status`;
-        const sms = await sendOwnerSms(db, body, p.phone, smsStatusCb);
+        const sms = await sendOwnerSms(db, body, p.phone!, smsStatusCb);
         if (sms.status === "sent") {
           createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: "sent", twilio_sid: sms.sid });
           updateProspect(db, p.prospect_id, { status: p.status === "new" ? "contacted" : p.status, last_contacted_at: new Date().toISOString() });
@@ -2241,6 +2313,7 @@ async function main() {
         failureReasons.push(`${p.phone}:error`);
         log.warn({ e, phone: p.phone }, "Selected SMS failed for prospect");
       }
+    }
     }
     const failSummary = failureReasons.length
       ? ` (${failureReasons.slice(0, 3).join(", ")}${failureReasons.length > 3 ? ", ..." : ""})`
@@ -2284,6 +2357,19 @@ async function main() {
     }
 
     try {
+      if (isMobileMessageConfigured()) {
+        const mm = await sendMarketingSms(p.phone, message, p.prospect_id);
+        if (mm.status === "sent") {
+          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message, status: "sent", twilio_sid: mm.message_id });
+          updateProspect(db, p.prospect_id, { last_contacted_at: new Date().toISOString() });
+          if (p.status === "new") updateProspect(db, p.prospect_id, { status: "contacted" });
+          res.redirect(`/admin/prospects/${p.prospect_id}?flash=✓ SMS sent`);
+        } else {
+          const reason = mm.status === "skipped" ? mm.reason : mm.reason;
+          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message, status: `failed:${reason}` });
+          res.redirect(`/admin/prospects/${p.prospect_id}?flash=⚠ SMS failed (${reason})`);
+        }
+      } else {
       const smsStatusCb = `${env.PUBLIC_BASE_URL}/twilio/sms/status`;
       const sms = await sendOwnerSms(db, message, p.phone, smsStatusCb);
       if (sms.status === "sent") {
@@ -2294,6 +2380,7 @@ async function main() {
       } else {
         createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message, status: `skipped:${sms.reason}` });
         res.redirect(`/admin/prospects/${p.prospect_id}?flash=⚠ SMS skipped (${sms.reason})`);
+      }
       }
     } catch (e) {
       createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message, status: "failed" });

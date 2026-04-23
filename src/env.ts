@@ -101,6 +101,11 @@ const envSchema = z.object({
   // Find it in Twilio Console → Phone Numbers → Addresses.
   TWILIO_ADDRESS_SID: z.string().optional(),
 
+  // Regulatory Compliance Bundle SID (e.g. BUxxxxxxxx) required for
+  // purchasing AU local numbers after June 2026 KYC requirements.
+  // Find it in Twilio Console → Phone Numbers → Regulatory Compliance → Bundles.
+  TWILIO_BUNDLE_SID: z.string().optional(),
+
   // ── Stripe (optional — set when ABN is confirmed and Stripe is live) ────────
   // Leave unset to keep the upgrade page in "contact us" mode.
   // Set STRIPE_SECRET_KEY to sk_test_... to enable test-mode Stripe Checkout.
@@ -127,6 +132,15 @@ const envSchema = z.object({
 
   // Google Places API key for lead scraping (scripts/collect-leads.ts)
   GOOGLE_PLACES_API_KEY: z.string().optional(),
+
+  // ── Mobile Message (optional — cheap marketing SMS provider) ────────────
+  // When all three are set, outbound marketing/prospect SMS is sent via
+  // Mobile Message instead of Twilio, reducing cost from ~$0.10 to ~$0.02/msg.
+  // Sign up at https://app.mobilemessage.com.au/register
+  MOBILE_MSG_API_USER: z.string().optional(),
+  MOBILE_MSG_API_PASSWORD: z.string().optional(),
+  // Alphanumeric sender name (e.g. "GetPickupAI") or dedicated number
+  MOBILE_MSG_SENDER: z.string().optional(),
 
   // ── Google Analytics (optional) ───────────────────────────────────────────
   // GA4 Measurement ID (e.g. G-XXXXXXXXXX). When set, the gtag.js snippet is
