@@ -2121,7 +2121,7 @@ async function main() {
     };
     const allProspects = listProspects(db, { ...filters, limit: 99999 });
     const sendable = allProspects.filter(p =>
-      p.phone && p.status !== "do_not_contact" && p.status !== "not_interested"
+      p.phone && p.status !== "do_not_contact" && p.status !== "not_interested" && p.status !== "not_mobile"
     );
     const mobile = sendable.filter(p => p.phone && isAuMobile(p.phone));
     const excludedNonMobile = sendable.length - mobile.length;
@@ -2161,7 +2161,8 @@ async function main() {
     }
 
     const result = importProspects(db, rows);
-    res.redirect(`/admin/prospects?flash=✓ Imported ${result.imported} prospects (${result.skipped} duplicates skipped)`);
+    const notMobilePart = result.markedNotMobile > 0 ? `, ${result.markedNotMobile} tagged not_mobile` : "";
+    res.redirect(`/admin/prospects?flash=✓ Imported ${result.imported} prospects (${result.skipped} duplicates skipped${notMobilePart})`);
   });
 
   app.post("/admin/prospects/bulk-sms", adminHtmlAuth, express.urlencoded({ extended: false }), async (req, res) => {
@@ -2172,7 +2173,7 @@ async function main() {
 
     const all = listProspects(db, { status: statusFilter, trade_type: tradeFilter, limit: 99999 });
     const sendable = all.filter(p =>
-      p.phone && p.status !== "do_not_contact" && p.status !== "not_interested"
+      p.phone && p.status !== "do_not_contact" && p.status !== "not_interested" && p.status !== "not_mobile"
     );
     const targets = sendable.filter(p => p.phone && isAuMobile(p.phone));
     const skippedNonMobile = sendable.length - targets.length;
@@ -2263,7 +2264,7 @@ async function main() {
     for (const id of ids) {
       const p = getProspectById(db, id);
       if (!p) continue;
-      if (p.status === "do_not_contact" || p.status === "not_interested") { skippedStatus++; continue; }
+      if (p.status === "do_not_contact" || p.status === "not_interested" || p.status === "not_mobile") { skippedStatus++; continue; }
       if (!p.phone || !isAuMobile(p.phone)) { skippedNonMobile++; continue; }
       const body = message
         .replace(/\{name\}/gi, p.business_name)

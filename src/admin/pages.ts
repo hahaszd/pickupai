@@ -1035,7 +1035,8 @@ function prospectStatusBadge(status: string): string {
     trial: "badge-trial",
     paying: "badge-active",
     not_interested: "badge-expired",
-    do_not_contact: "badge-expired"
+    do_not_contact: "badge-expired",
+    not_mobile: "badge-expired"
   };
   const cls = colors[status] ?? "badge-none";
   const label = status.replace(/_/g, " ");
@@ -1048,7 +1049,7 @@ export function adminProspectsPage(
   filters: { status?: string; trade_type?: string; suburb?: string },
   flash?: string
 ): string {
-  const statusOpts = ["", "new", "contacted", "replied", "demo_booked", "trial", "paying", "not_interested", "do_not_contact"];
+  const statusOpts = ["", "new", "contacted", "replied", "demo_booked", "trial", "paying", "not_interested", "do_not_contact", "not_mobile"];
   const tradeOpts = ["", "plumber", "electrician", "roofer", "handyman", "painter", "carpenter", "tiler", "builder"];
 
   const statusSelect = statusOpts.map(o =>
@@ -1079,6 +1080,7 @@ export function adminProspectsPage(
   <div class="stat-card"><div class="stat-value">${stats.replied}</div><div class="stat-label">Replied</div></div>
   <div class="stat-card"><div class="stat-value">${stats.demo_booked}</div><div class="stat-label">Demo</div></div>
   <div class="stat-card"><div class="stat-value">${stats.trial + stats.paying}</div><div class="stat-label">Trial/Paying</div></div>
+  <div class="stat-card"><div class="stat-value">${stats.not_mobile}</div><div class="stat-label">Not mobile</div></div>
 </div>
 
 <div class="card">
@@ -1163,7 +1165,7 @@ export function adminProspectDetailPage(
   signedUpTenant: TenantRow | null,
   flash?: string
 ): string {
-  const statusOpts = ["new", "contacted", "replied", "demo_booked", "trial", "paying", "not_interested", "do_not_contact"];
+  const statusOpts = ["new", "contacted", "replied", "demo_booked", "trial", "paying", "not_interested", "do_not_contact", "not_mobile"];
   const statusSelect = statusOpts.map(o =>
     `<option value="${o}"${p.status === o ? " selected" : ""}>${o.replace(/_/g, " ")}</option>`
   ).join("");
@@ -1377,7 +1379,7 @@ export function adminBulkSmsPage(
     <p style="font-size:.85rem;color:var(--gray-400);margin-bottom:.75rem">
       With AU mobile (04) only — <strong>${mobileProspectCount}</strong> can receive bulk SMS
       (landlines/short-dial/invalid mobile excluded: <strong>${excludedNonMobile}</strong>).
-      Statuses "do_not_contact" and "not_interested" are always excluded.
+      Statuses "do_not_contact", "not_interested", and "not_mobile" are always excluded.
     </p>
 
     <div class="form-group">

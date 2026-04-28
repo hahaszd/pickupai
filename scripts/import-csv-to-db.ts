@@ -66,6 +66,7 @@ async function main() {
   const result = importProspects(db, rows);
   console.log(`Imported: ${result.imported}`);
   console.log(`Skipped (duplicate phone): ${result.skipped}`);
+  console.log(`Tagged not_mobile (no AU 04xxx): ${result.markedNotMobile}`);
 
   // Trigger a save if PG-backed
   if (pgUrl) {

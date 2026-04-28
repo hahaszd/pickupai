@@ -13,7 +13,11 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "tsx scripts/test-lifecycle.ts"
+    "test:e2e": "tsx scripts/test-lifecycle.ts",
+    "prospects:cleanup": "node scripts/normalize-and-mark-prospects.mjs",
+    "prospects:cleanup:apply": "node scripts/normalize-and-mark-prospects.mjs --apply",
+    "prospects:count": "node scripts/count-prospects.mjs",
+    "leads:collect-au": "node scripts/collect-au-tradies.mjs"
   },
   "dependencies": {
     "@types/pg": "^8.16.0",

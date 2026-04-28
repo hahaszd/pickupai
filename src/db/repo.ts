@@ -1,6 +1,7 @@
 import { randomUUID, timingSafeEqual, randomInt } from "node:crypto";
 import { pbkdf2Sync, randomBytes } from "node:crypto";
 import type { Db } from "./db.js";
+import { toE164Au, isAuMobile } from "../utils/phone.js";
 
 // ─── Row types ───────────────────────────────────────────────────────────────
 
@@ -1223,6 +1224,7 @@ export type ProspectStats = {
   paying: number;
   not_interested: number;
   do_not_contact: number;
+  not_mobile: number;
 };
 
 export function getProspectStats(db: Db): ProspectStats {
@@ -1239,28 +1241,43 @@ export function getProspectStats(db: Db): ProspectStats {
     trial: m.get("trial") ?? 0,
     paying: m.get("paying") ?? 0,
     not_interested: m.get("not_interested") ?? 0,
-    do_not_contact: m.get("do_not_contact") ?? 0
+    do_not_contact: m.get("do_not_contact") ?? 0,
+    not_mobile: m.get("not_mobile") ?? 0
   };
 }
 
-/** Bulk-insert prospects from CSV rows, skipping duplicates by phone. */
+/**
+ * Bulk-insert prospects from CSV rows, skipping duplicates by phone.
+ *
+ * Normalises every phone to E.164 (+61…) before dedupe + insert, and
+ * pre-tags any non-AU-mobile row as status='not_mobile' so it's never
+ * surfaced to the bulk-SMS UI. Sendable mobile rows go in as 'new'.
+ */
 export function importProspects(
   db: Db,
   rows: Array<Omit<ProspectRow, "prospect_id" | "created_at" | "status">>
-): { imported: number; skipped: number } {
+): { imported: number; skipped: number; markedNotMobile: number } {
   let imported = 0;
   let skipped = 0;
+  let markedNotMobile = 0;
   for (const row of rows) {
-    if (row.phone) {
+    const normalised = row.phone ? toE164Au(row.phone) : null;
+    if (normalised) {
       const existing = db.get<{ prospect_id: string }>(
-        "SELECT prospect_id FROM prospects WHERE phone = ?", [row.phone]
+        "SELECT prospect_id FROM prospects WHERE phone = ?", [normalised]
       );
       if (existing) { skipped++; continue; }
     }
-    createProspect(db, row);
+    const isMobile = !!normalised && isAuMobile(normalised);
+    if (!isMobile) markedNotMobile++;
+    createProspect(db, {
+      ...row,
+      phone: normalised,
+      status: isMobile ? "new" : "not_mobile"
+    });
     imported++;
   }
-  return { imported, skipped };
+  return { imported, skipped, markedNotMobile };
 }
 
 // ─── Outreach log ─────────────────────────────────────────────────────────────

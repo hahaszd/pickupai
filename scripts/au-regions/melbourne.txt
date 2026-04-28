@@ -1,0 +1,60 @@
+Melbourne CBD
+Carlton
+Fitzroy
+Collingwood
+Richmond
+South Yarra
+Prahran
+St Kilda
+Brighton
+Caulfield
+Bentleigh
+Cheltenham
+Mentone
+Mordialloc
+Chelsea
+Frankston
+Mornington
+Rosebud
+Dandenong
+Springvale
+Noble Park
+Clayton
+Oakleigh
+Mount Waverley
+Glen Waverley
+Box Hill
+Burwood
+Camberwell
+Hawthorn
+Kew
+Balwyn
+Doncaster
+Templestowe
+Eltham
+Greensborough
+Diamond Creek
+Heidelberg
+Ivanhoe
+Northcote
+Preston
+Reservoir
+Coburg
+Brunswick
+Essendon
+Moonee Ponds
+Strathmore
+Pascoe Vale
+Glenroy
+Broadmeadows
+Craigieburn
+Sunbury
+Werribee
+Hoppers Crossing
+Point Cook
+Williamstown
+Footscray
+Sunshine
+Altona
+Laverton
+Geelong
