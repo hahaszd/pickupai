@@ -9,6 +9,16 @@ data/
 # Throwaway scratch / smoke-test artifacts
 .tmp/
 
+# Confidential business / regulatory documents — NEVER commit to a public repo
+# (LOAs, ABN extracts, sender ID registrations, compliance bundles, etc.)
+/*.pdf
+/*.docx
+/*.xlsx
+
+# Test fixtures with real numbers (avoid leaking PII)
+test-bulk-sms.csv
+test-*.csv
+
 # Scraped lead CSV files (contain business contact data)
 leads-*.csv
 

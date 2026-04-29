@@ -48,6 +48,7 @@ In your service → **Variables**, add:
 | `TWILIO_SMS_NUMBERS` | One or more mobile numbers for SMS notifications, comma-separated (e.g. `+61412000111`) |
 | `TWILIO_MESSAGING_SERVICE_SID` | Twilio Messaging Service SID for alphanumeric sender ID (e.g. `MG...`) |
 | `TWILIO_ADDRESS_SID` | Twilio Address SID for purchasing AU numbers (e.g. `AD...`) |
+| `TWILIO_BUNDLE_SID` | Twilio Regulatory Compliance Bundle SID for AU local numbers (e.g. `BU...`) |
 | `OPENAI_API_KEY` | Your OpenAI key |
 | `OPENAI_VOICE` | `marin` (or `sage`, `alloy`, etc.) |
 | `ADMIN_TOKEN` | A strong random secret (generate with `openssl rand -hex 32`) |
