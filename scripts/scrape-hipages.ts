@@ -1,39 +1,111 @@
 #!/usr/bin/env npx tsx
 /**
  * Hipages directory scraper for Australian tradies.
- * Scrapes publicly accessible directory pages to collect business info.
  *
- * Usage: npx tsx scripts/scrape-hipages.ts --output leads-hipages.csv
+ * National coverage across all metros, four trades. Mobile-only by default
+ * (drops landlines / 1300 numbers at scrape time so they never enter the
+ * import pipeline). Output is per-trade per-metro CSV under data/leads/hipages/
+ * for the orchestrator to auto-import.
+ *
+ * Usage:
+ *   npx tsx scripts/scrape-hipages.ts                              # all trades, all metros, default output
+ *   npx tsx scripts/scrape-hipages.ts --trade plumber              # single trade
+ *   npx tsx scripts/scrape-hipages.ts --output leads-hipages.csv   # single-file legacy output
+ *   npx tsx scripts/scrape-hipages.ts --include-non-mobile         # keep landlines
  */
 
-import { writeFileSync } from "fs";
+import { writeFileSync, mkdirSync, existsSync } from "fs";
+import { dirname, join } from "path";
 import { config } from "dotenv";
 config();
 
+// ── Phone helpers (in sync with src/utils/phone.ts) ──────────────────────────
+function toE164Au(raw: string): string {
+  if (!raw) return "";
+  const s = String(raw).replace(/[\s\-()]+/g, "");
+  if (!s) return "";
+  if (s.startsWith("+61") && s.length === 12) return s;
+  if (s.startsWith("61")  && s.length === 11) return "+" + s;
+  if (s.startsWith("0")   && s.length === 10) return "+61" + s.slice(1);
+  if (/^[2-9]\d{8}$/.test(s)) return "+61" + s;
+  if (s.startsWith("+")) return s;
+  return s;
+}
+const isAuMobile = (e164: string) => /^\+614\d{8}$/.test(e164);
+
 const TRADES = [
-  { slug: "plumbers", label: "plumber" },
+  { slug: "plumbers",     label: "plumber" },
   { slug: "electricians", label: "electrician" },
-  { slug: "roofing", label: "roofer" },
+  { slug: "roofing",      label: "roofer" },
+  { slug: "handyman",     label: "handyman" },
 ];
 
-const REGIONS = [
-  "nsw/sydney",
-  "sydney_cbd_region",
-  "inner_west",
-  "eastern_suburbs",
-  "north_shore_lower",
-  "north_shore_upper",
-  "northern_beaches",
-  "hills_district",
-  "parramatta",
-  "blacktown",
-  "penrith",
-  "campbelltown",
-  "liverpool",
-  "sutherland_shire",
-  "st_george",
-  "canterbury_bankstown",
-  "wollongong",
+interface Region {
+  /** URL-path slug after `/find/<trade>/` (e.g. "nsw/sydney"). */
+  slug: string;
+  /** Display label and metro CSV name (e.g. "sydney"). */
+  metro: string;
+  /** State code stored on the prospect row. */
+  state: string;
+}
+
+const REGIONS: Region[] = [
+  // NSW (existing list, kept)
+  { slug: "nsw/sydney",            metro: "sydney",  state: "NSW" },
+  { slug: "sydney_cbd_region",     metro: "sydney",  state: "NSW" },
+  { slug: "inner_west",            metro: "sydney",  state: "NSW" },
+  { slug: "eastern_suburbs",       metro: "sydney",  state: "NSW" },
+  { slug: "north_shore_lower",     metro: "sydney",  state: "NSW" },
+  { slug: "north_shore_upper",     metro: "sydney",  state: "NSW" },
+  { slug: "northern_beaches",      metro: "sydney",  state: "NSW" },
+  { slug: "hills_district",        metro: "sydney",  state: "NSW" },
+  { slug: "parramatta",            metro: "sydney",  state: "NSW" },
+  { slug: "blacktown",             metro: "sydney",  state: "NSW" },
+  { slug: "penrith",               metro: "sydney",  state: "NSW" },
+  { slug: "campbelltown",          metro: "sydney",  state: "NSW" },
+  { slug: "liverpool",             metro: "sydney",  state: "NSW" },
+  { slug: "sutherland_shire",      metro: "sydney",  state: "NSW" },
+  { slug: "st_george",             metro: "sydney",  state: "NSW" },
+  { slug: "canterbury_bankstown",  metro: "sydney",  state: "NSW" },
+  { slug: "wollongong",            metro: "newcastle-central-coast", state: "NSW" },
+  { slug: "newcastle",             metro: "newcastle-central-coast", state: "NSW" },
+  { slug: "central_coast",         metro: "newcastle-central-coast", state: "NSW" },
+  // VIC
+  { slug: "vic/melbourne",         metro: "melbourne", state: "VIC" },
+  { slug: "melbourne_cbd",         metro: "melbourne", state: "VIC" },
+  { slug: "inner_east",            metro: "melbourne", state: "VIC" },
+  { slug: "inner_south",           metro: "melbourne", state: "VIC" },
+  { slug: "outer_east",            metro: "melbourne", state: "VIC" },
+  { slug: "south_east",            metro: "melbourne", state: "VIC" },
+  { slug: "western_suburbs_vic",   metro: "melbourne", state: "VIC" },
+  { slug: "northern_suburbs_vic",  metro: "melbourne", state: "VIC" },
+  { slug: "bayside",               metro: "melbourne", state: "VIC" },
+  { slug: "frankston",             metro: "melbourne", state: "VIC" },
+  { slug: "geelong",               metro: "melbourne", state: "VIC" },
+  // QLD — Brisbane + Gold Coast + Sunshine Coast
+  { slug: "qld/brisbane",          metro: "brisbane",  state: "QLD" },
+  { slug: "brisbane_cbd",          metro: "brisbane",  state: "QLD" },
+  { slug: "north_brisbane",        metro: "brisbane",  state: "QLD" },
+  { slug: "south_brisbane",        metro: "brisbane",  state: "QLD" },
+  { slug: "ipswich",               metro: "brisbane",  state: "QLD" },
+  { slug: "logan",                 metro: "brisbane",  state: "QLD" },
+  { slug: "gold_coast",            metro: "gold-coast", state: "QLD" },
+  { slug: "sunshine_coast",        metro: "brisbane",  state: "QLD" },
+  // WA
+  { slug: "wa/perth",              metro: "perth",     state: "WA" },
+  { slug: "perth_cbd",             metro: "perth",     state: "WA" },
+  { slug: "perth_north",           metro: "perth",     state: "WA" },
+  { slug: "perth_south",           metro: "perth",     state: "WA" },
+  { slug: "fremantle",             metro: "perth",     state: "WA" },
+  // SA
+  { slug: "sa/adelaide",           metro: "adelaide",  state: "SA" },
+  { slug: "adelaide_north",        metro: "adelaide",  state: "SA" },
+  { slug: "adelaide_south",        metro: "adelaide",  state: "SA" },
+  // ACT, TAS, NT
+  { slug: "act/canberra",          metro: "canberra",  state: "ACT" },
+  { slug: "tas/hobart",            metro: "hobart",    state: "TAS" },
+  { slug: "tas/launceston",        metro: "hobart",    state: "TAS" },
+  { slug: "nt/darwin",             metro: "darwin",    state: "NT" },
 ];
 
 interface Lead {
@@ -47,6 +119,32 @@ interface Lead {
   source: string;
   google_rating: number | null;
   review_count: number | null;
+}
+
+interface ParsedArgs {
+  tradeFilter: string | null;
+  output: string;
+  outputDir: string;
+  perMetroOutput: boolean;
+  mobileOnly: boolean;
+}
+
+function parseArgs(): ParsedArgs {
+  const args = process.argv.slice(2);
+  let tradeFilter: string | null = null;
+  let output = "";
+  let outputDir = "data/leads/hipages";
+  let mobileOnly = true;
+
+  for (let i = 0; i < args.length; i++) {
+    switch (args[i]) {
+      case "--trade":              tradeFilter = args[++i] ?? null; break;
+      case "--output":             output = args[++i] ?? ""; break;
+      case "--output-dir":         outputDir = args[++i] ?? outputDir; break;
+      case "--include-non-mobile": mobileOnly = false; break;
+    }
+  }
+  return { tradeFilter, output, outputDir, perMetroOutput: !output, mobileOnly };
 }
 
 function csvEscape(val: string | number | null): string {
@@ -70,17 +168,9 @@ async function fetchPage(url: string): Promise<string> {
   return resp.text();
 }
 
-function extractListings(html: string, trade: string): Lead[] {
+function extractListings(html: string, trade: string, region: Region, mobileOnly: boolean): Lead[] {
   const leads: Lead[] = [];
 
-  // Extract business names and suburbs from listing cards
-  // Hipages uses structured data and consistent HTML patterns
-  const namePattern = /class="[^"]*business-name[^"]*"[^>]*>([^<]+)</gi;
-  const suburbPattern = /class="[^"]*location[^"]*"[^>]*>([^<]+)</gi;
-  const ratingPattern = /class="[^"]*rating[^"]*"[^>]*>([\d.]+)/gi;
-  const websitePattern = /href="(https?:\/\/(?!hipages)[^"]+)"[^>]*class="[^"]*website/gi;
-
-  // Try JSON-LD structured data first (more reliable)
   const jsonLdPattern = /<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi;
   let jsonMatch;
   while ((jsonMatch = jsonLdPattern.exec(html)) !== null) {
@@ -88,10 +178,18 @@ function extractListings(html: string, trade: string): Lead[] {
       const data = JSON.parse(jsonMatch[1]);
       const items = Array.isArray(data) ? data : data["@graph"] ? data["@graph"] : [data];
       for (const item of items) {
-        if (item["@type"] === "LocalBusiness" || item["@type"] === "ProfessionalService" || item["@type"] === "Plumber" || item["@type"] === "Electrician") {
+        if (
+          item["@type"] === "LocalBusiness" ||
+          item["@type"] === "ProfessionalService" ||
+          item["@type"] === "Plumber" ||
+          item["@type"] === "Electrician" ||
+          item["@type"] === "HomeAndConstructionBusiness"
+        ) {
           const name = item.name;
           if (!name) continue;
-          const phone = (item.telephone ?? "").replace(/[\s\-]/g, "");
+          const rawPhone = (item.telephone ?? "").replace(/[\s\-]/g, "");
+          const normPhone = toE164Au(rawPhone);
+          if (mobileOnly && (!normPhone || !isAuMobile(normPhone))) continue;
           const suburb = item.address?.addressLocality ?? "";
           const website = item.url && !item.url.includes("hipages") ? item.url : "";
           const rating = item.aggregateRating?.ratingValue ? parseFloat(item.aggregateRating.ratingValue) : null;
@@ -99,75 +197,78 @@ function extractListings(html: string, trade: string): Lead[] {
 
           leads.push({
             business_name: name,
-            phone,
+            phone: normPhone,
             email: "",
             website,
             trade_type: trade,
             suburb,
-            state: "NSW",
+            state: item.address?.addressRegion ?? region.state,
             source: "hipages",
             google_rating: rating,
             review_count: reviewCount,
           });
         }
       }
-    } catch {}
-  }
-
-  // Fallback: parse HTML patterns if JSON-LD didn't yield results
-  if (leads.length === 0) {
-    // Look for tradie profile links and names
-    const profilePattern = /href="\/connect\/([^"]+)"[^>]*>[\s\S]*?<[^>]*>([^<]{3,60})<\//gi;
-    let m;
-    while ((m = profilePattern.exec(html)) !== null) {
-      const name = m[2].trim();
-      if (name && name.length > 2 && !name.includes("hipages") && !name.includes("Find") && !name.includes("Get")) {
-        leads.push({
-          business_name: name,
-          phone: "",
-          email: "",
-          website: "",
-          trade_type: trade,
-          suburb: "",
-          state: "NSW",
-          source: "hipages",
-          google_rating: null,
-          review_count: null,
-        });
-      }
-    }
+    } catch { /* malformed JSON-LD; skip */ }
   }
 
   return leads;
 }
 
+function writeCsv(path: string, rows: Lead[]) {
+  mkdirSync(dirname(path), { recursive: true });
+  const header = "business_name,phone,email,website,trade_type,suburb,state,source,google_rating,review_count";
+  const csvRows = rows.map(r =>
+    [r.business_name, r.phone, r.email, r.website, r.trade_type, r.suburb, r.state, r.source, r.google_rating, r.review_count]
+      .map(csvEscape).join(",")
+  );
+  writeFileSync(path, [header, ...csvRows].join("\n") + "\n", "utf-8");
+}
+
 async function main() {
-  const args = process.argv.slice(2);
-  let output = "leads-hipages.csv";
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--output") output = args[++i] ?? output;
-  }
+  const args = parseArgs();
+  const trades = args.tradeFilter
+    ? TRADES.filter(t => t.label === args.tradeFilter)
+    : TRADES;
+
+  console.log(`Trades: ${trades.map(t => t.label).join(", ")}`);
+  console.log(`Regions: ${REGIONS.length}`);
+  console.log(`Mobile-only: ${args.mobileOnly ? "yes" : "no"}`);
+  console.log(`Output: ${args.perMetroOutput ? `${args.outputDir}/<trade>/<metro>.csv` : args.output}\n`);
 
   const allLeads: Lead[] = [];
+  const seenPhones = new Set<string>();
   const seenNames = new Set<string>();
+  // For per-metro mode: bucket per (trade, metro)
+  const buckets: Map<string, Lead[]> = new Map();
 
-  for (const trade of TRADES) {
+  for (const trade of trades) {
     for (const region of REGIONS) {
-      const url = `https://hipages.com.au/find/${trade.slug}/${region}`;
-      process.stdout.write(`${trade.label} / ${region}... `);
+      const url = `https://hipages.com.au/find/${trade.slug}/${region.slug}`;
+      process.stdout.write(`${trade.label} / ${region.slug}... `);
 
       try {
         const html = await fetchPage(url);
-        const listings = extractListings(html, trade.label);
+        const listings = extractListings(html, trade.label, region, args.mobileOnly);
         let added = 0;
         for (const lead of listings) {
-          const key = lead.business_name.toLowerCase();
-          if (seenNames.has(key)) continue;
-          seenNames.add(key);
+          const key = lead.phone || lead.business_name.toLowerCase();
+          if (lead.phone) {
+            if (seenPhones.has(lead.phone)) continue;
+            seenPhones.add(lead.phone);
+          } else {
+            if (seenNames.has(key)) continue;
+            seenNames.add(key);
+          }
           allLeads.push(lead);
+          if (args.perMetroOutput) {
+            const bucketKey = `${trade.label}::${region.metro}`;
+            if (!buckets.has(bucketKey)) buckets.set(bucketKey, []);
+            buckets.get(bucketKey)!.push(lead);
+          }
           added++;
         }
-        console.log(`${added} new (total: ${allLeads.length})`);
+        console.log(`${added} new (run total: ${allLeads.length})`);
       } catch (err: any) {
         console.log(`SKIP (${err.message})`);
       }
@@ -176,20 +277,21 @@ async function main() {
     }
   }
 
-  console.log(`\nTotal: ${allLeads.length} leads`);
+  console.log(`\n=== DONE ===`);
+  console.log(`Total: ${allLeads.length} leads`);
+  if (allLeads.length === 0) { console.log("No results to write."); return; }
 
-  if (allLeads.length === 0) {
-    console.log("No results to write.");
-    return;
+  if (args.perMetroOutput) {
+    for (const [key, rows] of buckets.entries()) {
+      const [tradeLabel, metro] = key.split("::");
+      const path = join(args.outputDir, tradeLabel, `${metro}.csv`);
+      writeCsv(path, rows);
+      console.log(`  → ${path} (${rows.length} rows)`);
+    }
+  } else {
+    writeCsv(args.output, allLeads);
+    console.log(`Written to ${args.output}`);
   }
-
-  const header = "business_name,phone,email,website,trade_type,suburb,state,source,google_rating,review_count";
-  const csvRows = allLeads.map(r =>
-    [r.business_name, r.phone, r.email, r.website, r.trade_type, r.suburb, r.state, r.source, r.google_rating, r.review_count]
-      .map(csvEscape).join(",")
-  );
-  writeFileSync(output, [header, ...csvRows].join("\n") + "\n", "utf-8");
-  console.log(`Written to ${output}`);
 }
 
 main().catch(err => { console.error("Fatal:", err); process.exit(1); });

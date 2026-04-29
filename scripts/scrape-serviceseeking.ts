@@ -2,36 +2,100 @@
 /**
  * ServiceSeeking.com.au directory scraper for tradie leads.
  *
- * Usage: npx tsx scripts/scrape-serviceseeking.ts --output leads-serviceseeking.csv
+ * National coverage across all metros, four trades. Mobile-only by default
+ * (drops landlines / 1300 numbers at scrape time). Output is per-trade
+ * per-metro CSV under data/leads/serviceseeking/ for the orchestrator to
+ * import.
+ *
+ * Usage:
+ *   npx tsx scripts/scrape-serviceseeking.ts                                # all trades, all metros
+ *   npx tsx scripts/scrape-serviceseeking.ts --trade plumber                # single trade
+ *   npx tsx scripts/scrape-serviceseeking.ts --output leads-serviceseeking.csv  # single-file legacy
+ *   npx tsx scripts/scrape-serviceseeking.ts --include-non-mobile           # keep landlines
  */
 
-import { writeFileSync } from "fs";
+import { writeFileSync, mkdirSync } from "fs";
+import { dirname, join } from "path";
 import { config } from "dotenv";
 config();
 
+// ── Phone helpers (in sync with src/utils/phone.ts) ──────────────────────────
+function toE164Au(raw: string): string {
+  if (!raw) return "";
+  const s = String(raw).replace(/[\s\-()]+/g, "");
+  if (!s) return "";
+  if (s.startsWith("+61") && s.length === 12) return s;
+  if (s.startsWith("61")  && s.length === 11) return "+" + s;
+  if (s.startsWith("0")   && s.length === 10) return "+61" + s.slice(1);
+  if (/^[2-9]\d{8}$/.test(s)) return "+61" + s;
+  if (s.startsWith("+")) return s;
+  return s;
+}
+const isAuMobile = (e164: string) => /^\+614\d{8}$/.test(e164);
+
 const TRADES = [
-  { slug: "plumbers", label: "plumber" },
+  { slug: "plumbers",     label: "plumber" },
   { slug: "electricians", label: "electrician" },
-  { slug: "roofers", label: "roofer" },
+  { slug: "roofers",      label: "roofer" },
+  { slug: "handyman",     label: "handyman" },
 ];
 
-const LOCATIONS = [
-  "nsw/sydney",
-  "nsw/parramatta",
-  "nsw/penrith",
-  "nsw/blacktown",
-  "nsw/liverpool",
-  "nsw/campbelltown",
-  "nsw/hornsby",
-  "nsw/chatswood",
-  "nsw/bondi",
-  "nsw/manly",
-  "nsw/cronulla",
-  "nsw/castle-hill",
-  "nsw/wollongong",
-  "nsw/nowra",
-  "nsw/hurstville",
-  "nsw/dee-why",
+interface Region {
+  slug: string;
+  metro: string;
+  state: string;
+}
+
+const REGIONS: Region[] = [
+  // NSW
+  { slug: "nsw/sydney",        metro: "sydney", state: "NSW" },
+  { slug: "nsw/parramatta",    metro: "sydney", state: "NSW" },
+  { slug: "nsw/penrith",       metro: "sydney", state: "NSW" },
+  { slug: "nsw/blacktown",     metro: "sydney", state: "NSW" },
+  { slug: "nsw/liverpool",     metro: "sydney", state: "NSW" },
+  { slug: "nsw/campbelltown",  metro: "sydney", state: "NSW" },
+  { slug: "nsw/hornsby",       metro: "sydney", state: "NSW" },
+  { slug: "nsw/chatswood",     metro: "sydney", state: "NSW" },
+  { slug: "nsw/bondi",         metro: "sydney", state: "NSW" },
+  { slug: "nsw/manly",         metro: "sydney", state: "NSW" },
+  { slug: "nsw/cronulla",      metro: "sydney", state: "NSW" },
+  { slug: "nsw/castle-hill",   metro: "sydney", state: "NSW" },
+  { slug: "nsw/hurstville",    metro: "sydney", state: "NSW" },
+  { slug: "nsw/dee-why",       metro: "sydney", state: "NSW" },
+  { slug: "nsw/wollongong",    metro: "newcastle-central-coast", state: "NSW" },
+  { slug: "nsw/newcastle",     metro: "newcastle-central-coast", state: "NSW" },
+  { slug: "nsw/nowra",         metro: "newcastle-central-coast", state: "NSW" },
+  // VIC
+  { slug: "vic/melbourne",     metro: "melbourne", state: "VIC" },
+  { slug: "vic/richmond",      metro: "melbourne", state: "VIC" },
+  { slug: "vic/footscray",     metro: "melbourne", state: "VIC" },
+  { slug: "vic/box-hill",      metro: "melbourne", state: "VIC" },
+  { slug: "vic/dandenong",     metro: "melbourne", state: "VIC" },
+  { slug: "vic/frankston",     metro: "melbourne", state: "VIC" },
+  { slug: "vic/geelong",       metro: "melbourne", state: "VIC" },
+  { slug: "vic/brunswick",     metro: "melbourne", state: "VIC" },
+  // QLD
+  { slug: "qld/brisbane",      metro: "brisbane",  state: "QLD" },
+  { slug: "qld/chermside",     metro: "brisbane",  state: "QLD" },
+  { slug: "qld/logan",         metro: "brisbane",  state: "QLD" },
+  { slug: "qld/ipswich",       metro: "brisbane",  state: "QLD" },
+  { slug: "qld/southport",     metro: "gold-coast", state: "QLD" },
+  { slug: "qld/surfers-paradise", metro: "gold-coast", state: "QLD" },
+  // WA
+  { slug: "wa/perth",          metro: "perth", state: "WA" },
+  { slug: "wa/fremantle",      metro: "perth", state: "WA" },
+  { slug: "wa/joondalup",      metro: "perth", state: "WA" },
+  { slug: "wa/mandurah",       metro: "perth", state: "WA" },
+  // SA
+  { slug: "sa/adelaide",       metro: "adelaide", state: "SA" },
+  { slug: "sa/glenelg",        metro: "adelaide", state: "SA" },
+  // ACT
+  { slug: "act/canberra",      metro: "canberra", state: "ACT" },
+  // TAS
+  { slug: "tas/hobart",        metro: "hobart", state: "TAS" },
+  { slug: "tas/launceston",    metro: "hobart", state: "TAS" },
+  // NT
+  { slug: "nt/darwin",         metro: "darwin", state: "NT" },
 ];
 
 interface Lead {
@@ -45,6 +109,32 @@ interface Lead {
   source: string;
   google_rating: number | null;
   review_count: number | null;
+}
+
+interface ParsedArgs {
+  tradeFilter: string | null;
+  output: string;
+  outputDir: string;
+  perMetroOutput: boolean;
+  mobileOnly: boolean;
+}
+
+function parseArgs(): ParsedArgs {
+  const args = process.argv.slice(2);
+  let tradeFilter: string | null = null;
+  let output = "";
+  let outputDir = "data/leads/serviceseeking";
+  let mobileOnly = true;
+
+  for (let i = 0; i < args.length; i++) {
+    switch (args[i]) {
+      case "--trade":              tradeFilter = args[++i] ?? null; break;
+      case "--output":             output = args[++i] ?? ""; break;
+      case "--output-dir":         outputDir = args[++i] ?? outputDir; break;
+      case "--include-non-mobile": mobileOnly = false; break;
+    }
+  }
+  return { tradeFilter, output, outputDir, perMetroOutput: !output, mobileOnly };
 }
 
 function csvEscape(val: string | number | null): string {
@@ -68,10 +158,9 @@ async function fetchPage(url: string): Promise<string> {
   return resp.text();
 }
 
-function extractListings(html: string, trade: string): Lead[] {
+function extractListings(html: string, trade: string, region: Region, mobileOnly: boolean): Lead[] {
   const leads: Lead[] = [];
 
-  // Try JSON-LD
   const jsonLdPattern = /<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi;
   let jsonMatch;
   while ((jsonMatch = jsonLdPattern.exec(html)) !== null) {
@@ -79,76 +168,66 @@ function extractListings(html: string, trade: string): Lead[] {
       const data = JSON.parse(jsonMatch[1]);
       const items = Array.isArray(data) ? data : data["@graph"] ? data["@graph"] : [data];
       for (const item of items) {
-        if (item["@type"] === "LocalBusiness" || item["@type"] === "ProfessionalService" || item["@type"] === "Service") {
+        if (
+          item["@type"] === "LocalBusiness" ||
+          item["@type"] === "ProfessionalService" ||
+          item["@type"] === "Service" ||
+          item["@type"] === "HomeAndConstructionBusiness"
+        ) {
           const name = item.name;
           if (!name || name.includes("ServiceSeeking")) continue;
+          const rawPhone = (item.telephone ?? "").replace(/[\s\-]/g, "");
+          const normPhone = toE164Au(rawPhone);
+          if (mobileOnly && (!normPhone || !isAuMobile(normPhone))) continue;
           leads.push({
             business_name: name,
-            phone: (item.telephone ?? "").replace(/[\s\-]/g, ""),
+            phone: normPhone,
             email: "",
             website: item.url && !item.url.includes("serviceseeking") ? item.url : "",
             trade_type: trade,
             suburb: item.address?.addressLocality ?? "",
-            state: "NSW",
+            state: item.address?.addressRegion ?? region.state,
             source: "serviceseeking",
             google_rating: item.aggregateRating?.ratingValue ? parseFloat(item.aggregateRating.ratingValue) : null,
             review_count: item.aggregateRating?.reviewCount ? parseInt(item.aggregateRating.reviewCount) : null,
           });
         }
       }
-    } catch {}
-  }
-
-  // Fallback: extract from HTML patterns
-  if (leads.length === 0) {
-    // ServiceSeeking uses card-based listings
-    const namePattern = /class="[^"]*business[_-]?name[^"]*"[^>]*>([^<]{3,80})</gi;
-    const suburbPattern = /class="[^"]*suburb[^"]*"[^>]*>([^<]+)</gi;
-
-    const names: string[] = [];
-    const suburbs: string[] = [];
-    let m;
-
-    while ((m = namePattern.exec(html)) !== null) {
-      const n = m[1].trim();
-      if (n && !n.includes("ServiceSeeking")) names.push(n);
-    }
-    while ((m = suburbPattern.exec(html)) !== null) suburbs.push(m[1].trim());
-
-    for (let i = 0; i < names.length; i++) {
-      leads.push({
-        business_name: names[i],
-        phone: "",
-        email: "",
-        website: "",
-        trade_type: trade,
-        suburb: suburbs[i] ?? "",
-        state: "NSW",
-        source: "serviceseeking",
-        google_rating: null,
-        review_count: null,
-      });
-    }
+    } catch { /* malformed; skip */ }
   }
 
   return leads;
 }
 
-async function scrapePaginated(trade: { slug: string; label: string }, location: string, seenNames: Set<string>): Promise<Lead[]> {
+async function scrapePaginated(
+  trade: { slug: string; label: string },
+  region: Region,
+  seenPhones: Set<string>,
+  seenNames: Set<string>,
+  mobileOnly: boolean
+): Promise<Lead[]> {
   const collected: Lead[] = [];
   for (let page = 1; page <= 5; page++) {
     const pageParam = page === 1 ? "" : `?page=${page}`;
-    const url = `https://www.serviceseeking.com.au/${trade.slug}/${location}${pageParam}`;
+    const url = `https://www.serviceseeking.com.au/${trade.slug}/${region.slug}${pageParam}`;
     try {
       const html = await fetchPage(url);
-      const listings = extractListings(html, trade.label);
+      const listings = extractListings(html, trade.label, region, mobileOnly);
       if (listings.length === 0) break;
+      let pageAdded = 0;
       for (const lead of listings) {
-        const key = lead.phone || lead.business_name.toLowerCase();
-        if (seenNames.has(key)) continue;
-        seenNames.add(key);
+        if (lead.phone) {
+          if (seenPhones.has(lead.phone)) continue;
+          seenPhones.add(lead.phone);
+        } else {
+          const key = lead.business_name.toLowerCase();
+          if (seenNames.has(key)) continue;
+          seenNames.add(key);
+        }
         collected.push(lead);
+        pageAdded++;
       }
+      if (pageAdded === 0 && page > 1) break;
       await new Promise(r => setTimeout(r, 2000));
     } catch {
       break;
@@ -157,23 +236,44 @@ async function scrapePaginated(trade: { slug: string; label: string }, location:
   return collected;
 }
 
+function writeCsv(path: string, rows: Lead[]) {
+  mkdirSync(dirname(path), { recursive: true });
+  const header = "business_name,phone,email,website,trade_type,suburb,state,source,google_rating,review_count";
+  const csvRows = rows.map(r =>
+    [r.business_name, r.phone, r.email, r.website, r.trade_type, r.suburb, r.state, r.source, r.google_rating, r.review_count]
+      .map(csvEscape).join(",")
+  );
+  writeFileSync(path, [header, ...csvRows].join("\n") + "\n", "utf-8");
+}
+
 async function main() {
-  const args = process.argv.slice(2);
-  let output = "leads-serviceseeking.csv";
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--output") output = args[++i] ?? output;
-  }
+  const args = parseArgs();
+  const trades = args.tradeFilter
+    ? TRADES.filter(t => t.label === args.tradeFilter)
+    : TRADES;
+
+  console.log(`Trades: ${trades.map(t => t.label).join(", ")}`);
+  console.log(`Regions: ${REGIONS.length}`);
+  console.log(`Mobile-only: ${args.mobileOnly ? "yes" : "no"}`);
+  console.log(`Output: ${args.perMetroOutput ? `${args.outputDir}/<trade>/<metro>.csv` : args.output}\n`);
 
   const allLeads: Lead[] = [];
+  const seenPhones = new Set<string>();
   const seenNames = new Set<string>();
+  const buckets: Map<string, Lead[]> = new Map();
 
-  for (const trade of TRADES) {
-    for (const location of LOCATIONS) {
-      process.stdout.write(`${trade.label} / ${location}... `);
+  for (const trade of trades) {
+    for (const region of REGIONS) {
+      process.stdout.write(`${trade.label} / ${region.slug}... `);
       try {
-        const results = await scrapePaginated(trade, location, seenNames);
+        const results = await scrapePaginated(trade, region, seenPhones, seenNames, args.mobileOnly);
         allLeads.push(...results);
-        console.log(`${results.length} new (total: ${allLeads.length})`);
+        if (args.perMetroOutput) {
+          const bucketKey = `${trade.label}::${region.metro}`;
+          if (!buckets.has(bucketKey)) buckets.set(bucketKey, []);
+          buckets.get(bucketKey)!.push(...results);
+        }
+        console.log(`${results.length} new (run total: ${allLeads.length})`);
       } catch (err: any) {
         console.log(`SKIP (${err.message})`);
       }
@@ -181,16 +281,21 @@ async function main() {
     }
   }
 
-  console.log(`\nTotal: ${allLeads.length} leads`);
+  console.log(`\n=== DONE ===`);
+  console.log(`Total: ${allLeads.length} leads`);
   if (allLeads.length === 0) { console.log("No results."); return; }
 
-  const header = "business_name,phone,email,website,trade_type,suburb,state,source,google_rating,review_count";
-  const csvRows = allLeads.map(r =>
-    [r.business_name, r.phone, r.email, r.website, r.trade_type, r.suburb, r.state, r.source, r.google_rating, r.review_count]
-      .map(csvEscape).join(",")
-  );
-  writeFileSync(output, [header, ...csvRows].join("\n") + "\n", "utf-8");
-  console.log(`Written to ${output}`);
+  if (args.perMetroOutput) {
+    for (const [key, rows] of buckets.entries()) {
+      const [tradeLabel, metro] = key.split("::");
+      const path = join(args.outputDir, tradeLabel, `${metro}.csv`);
+      writeCsv(path, rows);
+      console.log(`  → ${path} (${rows.length} rows)`);
+    }
+  } else {
+    writeCsv(args.output, allLeads);
+    console.log(`Written to ${args.output}`);
+  }
 }
 
 main().catch(err => { console.error("Fatal:", err); process.exit(1); });

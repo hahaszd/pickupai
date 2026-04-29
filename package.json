@@ -17,7 +17,14 @@
     "prospects:cleanup": "node scripts/normalize-and-mark-prospects.mjs",
     "prospects:cleanup:apply": "node scripts/normalize-and-mark-prospects.mjs --apply",
     "prospects:count": "node scripts/count-prospects.mjs",
-    "leads:collect-au": "node scripts/collect-au-tradies.mjs"
+    "prospects:recover-mobiles": "node scripts/recover-mobiles-from-websites.mjs",
+    "prospects:recover-mobiles:apply": "node scripts/recover-mobiles-from-websites.mjs --apply",
+    "prospects:enrich": "node scripts/enrich-prospects-from-website.mjs",
+    "prospects:enrich:apply": "node scripts/enrich-prospects-from-website.mjs --apply",
+    "leads:collect-au": "node scripts/collect-au-tradies.mjs",
+    "leads:scrape-licenses-nsw": "tsx scripts/scrape-licenses-nsw.ts",
+    "leads:scrape-licenses-vic": "tsx scripts/scrape-licenses-vic.ts",
+    "leads:scrape-licenses-qld": "tsx scripts/scrape-licenses-qld.ts"
   },
   "dependencies": {
     "@types/pg": "^8.16.0",
