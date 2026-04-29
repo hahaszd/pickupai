@@ -16,7 +16,7 @@
  *      LinkButton and the new ViewState we just received.
  *
  * Each row gives us name + suburb + license number; phone is rarely present.
- * The enrichment script (Google Places → website-crawl) is what turns these
+ * The enrichment script (DuckDuckGo → website-crawl) is what turns these
  * into mobile prospects.
  *
  * Usage:

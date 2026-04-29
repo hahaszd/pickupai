@@ -35,22 +35,39 @@ Comprehensive marketing strategy for acquiring tradie customers across New South
 
 ---
 
-## 2. Lead Sources (ranked by quality and effort)
+## 2. Lead Sources (ranked by cost-effectiveness)
 
 | # | Source | Quality | Effort | Cost | Notes |
 |---|---|---|---|---|---|
-| 1 | **Google Places API** | High | Low | ~$32/1000 | Best structured data; phone + rating + reviews |
-| 2 | **Google Maps manual** | High | High | Free | Same data as API but manual copy |
-| 3 | **Yellow Pages AU** | Medium | Medium | Free | Large directory, some data stale |
-| 4 | **True Local** | Medium | Medium | Free | Good for suburban tradies |
-| 5 | **Hipages / ServiceSeeking** | High | Medium | Free | Tech-savvy owners = better fit |
-| 6 | **Oneflare** | Medium | Medium | Free | Similar to Hipages |
-| 7 | **Facebook Groups** | Medium | Low | Free | Trade-specific groups, post value content |
-| 8 | **Trade association directories** | High | Low | Free–$$ | Master Plumbers NSW, Master Electricians |
+| 1 | **Hipages** | High | Low | Free | Tech-savvy owners; mobile-only filter built in. `scripts/scrape-hipages.ts` |
+| 2 | **Oneflare** | High | Low | Free | Apollo state has phones — no per-profile fetch. `scripts/scrape-oneflare.ts` |
+| 3 | **TrueLocal** | Medium | Low | Free | Suburban tradies; landlines mostly. `scripts/scrape-truelocal.ts` |
+| 4 | **Localsearch** | Medium | Low | Free | Sensis-spinoff; separate dataset to Yellow Pages. `scripts/scrape-localsearch.ts` |
+| 5 | **Yellow Pages AU** | Medium | Low | Free | Large directory; some data stale. `scripts/scrape-yellowpages.ts` |
+| 6 | **State license registers + website crawl** | Very High | Medium | Free | NSW Fair Trading / VBA / QBCC give names; website crawler recovers mobiles. `scripts/scrape-licenses-*.ts` + `recover-mobiles-from-websites.mjs` |
+| 7 | **Trade association directories** | High | Low | Free–$$ | Master Plumbers NSW, NECA, Master Builders. `scripts/scrape-industry-associations.mjs` |
+| 8 | **ABN Lookup register** | High | Medium | Free | Official AU Business Register; entire universe of registered tradies. `scripts/scrape-abn-by-anzsic.mjs` |
 | 9 | **Referrals** | Very High | Very Low | Free | Ask early customers for intros |
-| 10 | **Google/Facebook Ads** | Variable | Medium | $$$ | Phase 2, after case studies exist |
+| 10 | **Facebook Groups** | Medium | Low | Free | Trade-specific groups, post value content |
+| 11 | **Google/Facebook Ads** | Variable | Medium | $$$ | Phase 2, after case studies exist |
 
-**Recommendation for Phase 1:** Start with Google Places API scraping (Source #1) for structured leads, supplemented by manual collection from Hipages/ServiceSeeking for higher-intent prospects.
+**Recommendation for Phase 1:** Start with the **free directory scrapers** (Hipages + Oneflare + TrueLocal + Localsearch — all run by `node scripts/collect-au-tradies.mjs` by default). Use **state license registers + website-crawler enrichment** for the most unique/comprehensive coverage.
+
+### Expected per-source volume (rough Sydney-only baselines)
+
+| Source | Mobiles per Sydney run | Time per run | Notes |
+|---|---|---|---|
+| Hipages | ~150–300 | ~10 min | Best mobile-recovery rate of any directory |
+| Oneflare | ~300–500 | ~5 min | No per-profile fetch — Apollo state has phones |
+| TrueLocal | ~50–150 | ~10 min | Mostly landlines; pair with website crawler |
+| Localsearch | ~50–150 | ~10 min | Separate dataset to Yellow Pages |
+| Yellow Pages AU | ~30–80 | ~5 min | Mostly landlines |
+| State license registers (NSW) | ~3,000–8,000 names | ~30 min | No phones — feed to enrichment |
+| Enrich (DuckDuckGo + website crawl) | ~30% of license rows recover mobile | ~1 min per 100 | Free; recommended pairing with license scrapers |
+| ABR (ABN Lookup) | ~2,000–10,000 names per trade | ~10 min | Free GUID required; no phones — feed to enrichment |
+| Industry associations | ~50–500 (AU-wide) | ~5 min | Highest quality; lowest volume |
+
+**Cost ceiling for the entire Sydney lead-gen pipeline: A$0.**
 
 ---
 
@@ -60,10 +77,10 @@ Comprehensive marketing strategy for acquiring tradie customers across New South
 
 | Day | Activity |
 |---|---|
-| Mon | Run `collect-leads.ts` for plumbers in Greater Sydney (target: 200) |
-| Tue | Run for electricians (target: 150) and roofers (target: 100) |
+| Mon | Run `node scripts/collect-au-tradies.mjs --trades plumber` (free Hipages+Oneflare+TrueLocal+Localsearch, target: 200) |
+| Tue | Run for electricians + roofers: `--trades electrician,roofer` (still free) |
 | Wed | Import CSVs into Admin → Prospects. De-duplicate. Review data quality |
-| Thu | Manually add 30–50 high-quality prospects from Hipages/ServiceSeeking |
+| Thu | Run state license register scrapers + `enrich-prospects-from-website.mjs` (recovers mobiles via website crawl, free) |
 | Fri | Prepare phone + SMS outreach. Test SMS templates with 5 test numbers |
 
 ### Week 2 — Cold Outreach (Phone + SMS)
@@ -132,12 +149,12 @@ Comprehensive marketing strategy for acquiring tradie customers across New South
 
 | Item | Cost | Notes |
 |---|---|---|
-| Google Places API | ~$50 | 500 plumber + 500 electrician lookups |
-| Twilio SMS (outreach) | ~$105 | 500 prospects × 3 touches × $0.07/SMS |
-| Twilio SMS (system) | ~$30 | Lead notifications, welcome SMS, etc. |
-| Phone calls | $0 | Using personal mobile |
+| Lead collection (free scrapers) | A$0 | Hipages + Oneflare + TrueLocal + Localsearch + license registers |
+| Twilio SMS (outreach) | ~A$105 | 500 prospects × 3 touches × A$0.07/SMS |
+| Twilio SMS (system) | ~A$30 | Lead notifications, welcome SMS, etc. |
+| Phone calls | A$0 | Using personal mobile |
 | Domain/hosting | Already paid | Railway, domain |
-| **Total** | **~$185** | |
+| **Total** | **~A$135** | All lead-gen is free; spend is SMS-only |
 
 ### Cost per Acquisition Target
 

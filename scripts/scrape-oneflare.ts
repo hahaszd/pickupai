@@ -2,9 +2,12 @@
 /**
  * Oneflare.com.au directory scraper for tradie leads.
  *
- * National coverage across all metros, four trades. Mobile-only by default
- * (drops landlines / 1300 numbers at scrape time). Output is per-trade
- * per-metro CSV under data/leads/oneflare/ for the orchestrator to import.
+ * Oneflare is a Next.js app. The listing page embeds the full Apollo cache
+ * inside `<script id="__NEXT_DATA__">` → `props.pageProps.__APOLLO_STATE__`.
+ * That cache contains a `BusinessListing:<id>` entry per business with
+ * name, phone, landline, website, suburb, state, ratings, etc.
+ *
+ * No HTML parsing or per-profile fetches required.
  *
  * Usage:
  *   npx tsx scripts/scrape-oneflare.ts                                # all trades, all metros
@@ -139,6 +142,7 @@ interface ParsedArgs {
   outputDir: string;
   perMetroOutput: boolean;
   mobileOnly: boolean;
+  maxPages: number;
 }
 
 function parseArgs(): ParsedArgs {
@@ -147,6 +151,7 @@ function parseArgs(): ParsedArgs {
   let output = "";
   let outputDir = "data/leads/oneflare";
   let mobileOnly = true;
+  let maxPages = 5;
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -154,9 +159,10 @@ function parseArgs(): ParsedArgs {
       case "--output":             output = args[++i] ?? ""; break;
       case "--output-dir":         outputDir = args[++i] ?? outputDir; break;
       case "--include-non-mobile": mobileOnly = false; break;
+      case "--max-pages":          maxPages = parseInt(args[++i] ?? "5"); break;
     }
   }
-  return { tradeFilter, output, outputDir, perMetroOutput: !output, mobileOnly };
+  return { tradeFilter, output, outputDir, perMetroOutput: !output, mobileOnly, maxPages };
 }
 
 function csvEscape(val: string | number | null): string {
@@ -180,41 +186,60 @@ async function fetchPage(url: string): Promise<string> {
   return resp.text();
 }
 
+/**
+ * Parse the listing page and pull every Apollo-cached BusinessListing.
+ *
+ * Each entry looks like:
+ *   {
+ *     __typename: "BusinessListing",
+ *     id, name, abn, phone, landline, website, external,
+ *     suburb, state, feedbackAvg, feedbackCount, ...
+ *   }
+ *
+ * `phone` is usually a 10-digit AU mobile (e.g. "0423709115"). `landline`
+ * is sometimes a separate landline number that the business also lists.
+ */
 function extractListings(html: string, trade: string, region: Region, mobileOnly: boolean): Lead[] {
-  const leads: Lead[] = [];
+  const m = html.match(/<script[^>]+id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+  if (!m) return [];
 
-  const jsonLdPattern = /<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi;
-  let jsonMatch;
-  while ((jsonMatch = jsonLdPattern.exec(html)) !== null) {
-    try {
-      const data = JSON.parse(jsonMatch[1]);
-      const items = Array.isArray(data) ? data : data["@graph"] ? data["@graph"] : [data];
-      for (const item of items) {
-        if (
-          item["@type"] === "LocalBusiness" ||
-          item["@type"] === "ProfessionalService" ||
-          item["@type"] === "HomeAndConstructionBusiness"
-        ) {
-          const name = item.name;
-          if (!name || name.includes("Oneflare")) continue;
-          const rawPhone = (item.telephone ?? "").replace(/[\s\-]/g, "");
-          const normPhone = toE164Au(rawPhone);
-          if (mobileOnly && (!normPhone || !isAuMobile(normPhone))) continue;
-          leads.push({
-            business_name: name,
-            phone: normPhone,
-            email: "",
-            website: item.url && !item.url.includes("oneflare") ? item.url : "",
-            trade_type: trade,
-            suburb: item.address?.addressLocality ?? "",
-            state: item.address?.addressRegion ?? region.state,
-            source: "oneflare",
-            google_rating: item.aggregateRating?.ratingValue ? parseFloat(item.aggregateRating.ratingValue) : null,
-            review_count: item.aggregateRating?.reviewCount ? parseInt(item.aggregateRating.reviewCount) : null,
-          });
-        }
-      }
-    } catch { /* malformed; skip */ }
+  let data: any;
+  try { data = JSON.parse(m[1]); } catch { return []; }
+
+  const apollo = data?.props?.pageProps?.__APOLLO_STATE__;
+  if (!apollo || typeof apollo !== "object") return [];
+
+  const leads: Lead[] = [];
+  for (const key of Object.keys(apollo)) {
+    if (!key.startsWith("BusinessListing:")) continue;
+    const b = apollo[key];
+    if (!b?.name) continue;
+
+    const normPhone = toE164Au(b.phone || "");
+    const normLandline = toE164Au(b.landline || "");
+    const chosen = (normPhone && isAuMobile(normPhone))
+      ? normPhone
+      : (normLandline && isAuMobile(normLandline))
+      ? normLandline
+      : normPhone || normLandline;
+
+    if (mobileOnly && (!chosen || !isAuMobile(chosen))) continue;
+
+    const websiteRaw = b.website || b.external || "";
+    const website = (websiteRaw && !String(websiteRaw).includes("oneflare")) ? String(websiteRaw) : "";
+
+    leads.push({
+      business_name: String(b.name).trim(),
+      phone: chosen,
+      email: "",
+      website,
+      trade_type: trade,
+      suburb: b.suburb ?? "",
+      state: b.state ?? region.state,
+      source: "oneflare",
+      google_rating: typeof b.feedbackAvg === "number" ? b.feedbackAvg : (b.feedbackAvg ? parseFloat(b.feedbackAvg) : null),
+      review_count: typeof b.feedbackCount === "number" ? b.feedbackCount : (b.feedbackCount ? parseInt(b.feedbackCount) : null),
+    });
   }
 
   return leads;
@@ -225,34 +250,37 @@ async function scrapePaginated(
   region: Region,
   seenPhones: Set<string>,
   seenNames: Set<string>,
-  mobileOnly: boolean
+  args: ParsedArgs
 ): Promise<Lead[]> {
   const collected: Lead[] = [];
-  for (let page = 1; page <= 5; page++) {
+  for (let page = 1; page <= args.maxPages; page++) {
     const pageParam = page === 1 ? "" : `?page=${page}`;
     const url = `https://www.oneflare.com.au/${trade.slug}/${region.slug}${pageParam}`;
+    let html: string;
     try {
-      const html = await fetchPage(url);
-      const listings = extractListings(html, trade.label, region, mobileOnly);
-      if (listings.length === 0) break;
-      let pageAdded = 0;
-      for (const lead of listings) {
-        if (lead.phone) {
-          if (seenPhones.has(lead.phone)) continue;
-          seenPhones.add(lead.phone);
-        } else {
-          const key = lead.business_name.toLowerCase();
-          if (seenNames.has(key)) continue;
-          seenNames.add(key);
-        }
-        collected.push(lead);
-        pageAdded++;
-      }
-      if (pageAdded === 0 && page > 1) break;
-      await new Promise(r => setTimeout(r, 2000));
+      html = await fetchPage(url);
     } catch {
       break;
     }
+
+    const listings = extractListings(html, trade.label, region, args.mobileOnly);
+    if (listings.length === 0) break;
+
+    let pageAdded = 0;
+    for (const lead of listings) {
+      if (lead.phone) {
+        if (seenPhones.has(lead.phone)) continue;
+        seenPhones.add(lead.phone);
+      } else {
+        const key = lead.business_name.toLowerCase();
+        if (seenNames.has(key)) continue;
+        seenNames.add(key);
+      }
+      collected.push(lead);
+      pageAdded++;
+    }
+    if (pageAdded === 0 && page > 1) break;
+    await new Promise(r => setTimeout(r, 2000));
   }
   return collected;
 }
@@ -287,7 +315,7 @@ async function main() {
     for (const region of REGIONS) {
       process.stdout.write(`${trade.label} / ${region.slug}... `);
       try {
-        const results = await scrapePaginated(trade, region, seenPhones, seenNames, args.mobileOnly);
+        const results = await scrapePaginated(trade, region, seenPhones, seenNames, args);
         allLeads.push(...results);
         if (args.perMetroOutput) {
           const bucketKey = `${trade.label}::${region.metro}`;

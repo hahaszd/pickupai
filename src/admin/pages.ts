@@ -1326,7 +1326,7 @@ export function adminProspectImportPage(flash?: string): string {
   </p>
   <form method="POST" action="/admin/prospects/import">
     <textarea name="csv_text" rows="12" placeholder="business_name,phone,email,website,trade_type,suburb,state,source,google_rating,review_count
-Mike's Plumbing,+61412345678,mike@example.com,www.mikesplumbing.com.au,plumber,Parramatta,NSW,google_places,4.5,28"
+Mike's Plumbing,+61412345678,mike@example.com,www.mikesplumbing.com.au,plumber,Parramatta,NSW,hipages,4.5,28"
       style="width:100%;background:var(--navy-mid);color:#fff;border:1px solid var(--navy-light);border-radius:6px;padding:.75rem;font-family:monospace;font-size:.82rem" required></textarea>
     <button type="submit" class="btn btn-primary" style="margin-top:.75rem">Import CSV →</button>
   </form>

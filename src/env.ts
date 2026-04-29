@@ -130,9 +130,6 @@ const envSchema = z.object({
   SMTP_PASS:   z.string().optional(),
   SMTP_FROM:   z.string().optional().default("PickupAI <noreply@getpickupai.com.au>"),
 
-  // Google Places API key for lead scraping (scripts/collect-leads.ts)
-  GOOGLE_PLACES_API_KEY: z.string().optional(),
-
   // ── Mobile Message (optional — cheap marketing SMS provider) ────────────
   // When all three are set, outbound marketing/prospect SMS is sent via
   // Mobile Message instead of Twilio, reducing cost from ~$0.10 to ~$0.02/msg.

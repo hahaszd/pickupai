@@ -62,6 +62,13 @@ public/
 scripts/
   test-lifecycle.ts  — Integration test suite (44 tests)
   generate-demos.ts  — Generate demo audio via OpenAI TTS
+  collect-au-tradies.mjs               — Lead-gen orchestrator (free by default)
+  scrape-{hipages,oneflare,truelocal,localsearch,yellowpages}.ts — Free directories
+  scrape-licenses-{nsw,vic,qld}.ts     — Free state license registers
+  scrape-abn-by-anzsic.mjs             — Free ABR (requires free GUID)
+  scrape-industry-associations.mjs     — Free trade-association member directories
+  recover-mobiles-from-websites.mjs    — Free contact-page crawler
+  enrich-prospects-from-website.mjs    — Find website (DuckDuckGo, free) + crawl
 tests/
   sms.test.ts        — SMS formatting unit tests
   repo.test.ts       — Database helper unit tests
@@ -91,6 +98,7 @@ See `src/env.ts` for the full schema. Key variables:
 | `OWNER_PHONE_NUMBER` | No | Admin mobile for system alerts |
 | `TWILIO_MESSAGING_SERVICE_SID` | No | Twilio Messaging Service SID (alphanumeric sender ID) |
 | `TWILIO_ADDRESS_SID` | No | Twilio Address SID (required for AU number purchases) |
+| `TWILIO_BUNDLE_SID` | No | Twilio Regulatory Compliance Bundle SID (required for AU local number purchases from June 2026) |
 | `STRIPE_SECRET_KEY` | No | Stripe secret key (test or live) |
 | `STRIPE_PUBLISHABLE_KEY` | No | Stripe publishable key |
 | `STRIPE_PRICE_ID` | No | Stripe subscription price ID |
@@ -98,6 +106,30 @@ See `src/env.ts` for the full schema. Key variables:
 | `DATABASE_URL` | No | PostgreSQL URL for backup persistence |
 
 *The server starts without `OPENAI_API_KEY` but will log a warning and voice calls will fail.
+
+## Lead generation (free)
+
+Every lead source is free. The orchestrator runs Hipages, Oneflare,
+TrueLocal, and Localsearch by default for one trade (plumber). Multi-trade
+is opt-in via `--trades`.
+
+```bash
+# Single trade (default)
+node scripts/collect-au-tradies.mjs
+
+# Multiple trades
+node scripts/collect-au-tradies.mjs --trades plumber,electrician,roofer,handyman
+
+# Add the licensed-tradie universe (needs a free GUID for ABR):
+ABN_GUID=<your-guid> node scripts/scrape-abn-by-anzsic.mjs
+node scripts/recover-mobiles-from-websites.mjs --apply
+
+# Enrich license-imported rows (DuckDuckGo + website crawl):
+node scripts/enrich-prospects-from-website.mjs --apply
+```
+
+See [`docs/marketing-plan-nsw.md`](docs/marketing-plan-nsw.md) section 2
+for the full source comparison.
 
 ## Documentation
 
@@ -107,3 +139,4 @@ See `src/env.ts` for the full schema. Key variables:
 - [Deployment guide](DEPLOY.md) — deploying to Railway
 - [Pricing strategy](docs/core-pricing-gtm.md) — pricing tiers and positioning
 - [GTM playbook](docs/gtm-playbook.md) — go-to-market strategy and outreach scripts
+- [NSW marketing plan](docs/marketing-plan-nsw.md) — lead sources, budget, compliance

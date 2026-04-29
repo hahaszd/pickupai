@@ -13,7 +13,7 @@
  *
  * Each row gives us name + suburb + license number. Phone is occasionally
  * on the detail page. Mobile-poor rows go through the enrichment script
- * (Google Places → website-crawl) before becoming SMS prospects.
+ * (DuckDuckGo → website-crawl) before becoming SMS prospects.
  *
  * Usage:
  *   npx tsx scripts/scrape-licenses-qld.ts                       # all classes

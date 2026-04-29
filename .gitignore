@@ -6,6 +6,9 @@ secrets/
 # Runtime data
 data/
 
+# Throwaway scratch / smoke-test artifacts
+.tmp/
+
 # Scraped lead CSV files (contain business contact data)
 leads-*.csv
 

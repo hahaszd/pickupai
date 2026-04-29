@@ -48,7 +48,7 @@ async function main() {
       trade_type: row.trade_type || null,
       suburb: row.suburb || null,
       state: row.state || "NSW",
-      source: row.source || "google_places",
+      source: row.source || "manual",
       google_rating: row.google_rating ? parseFloat(row.google_rating) : null,
       review_count: row.review_count ? parseInt(row.review_count) : null,
       notes: null,

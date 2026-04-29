@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Recover mobile numbers for prospects whose Google Places listing showed
+ * Recover mobile numbers for prospects whose directory listing showed
  * a 1300/landline (or no number at all) but whose own website lists a
  * direct mobile (e.g. "Call Mike on 0412 345 678").
  *

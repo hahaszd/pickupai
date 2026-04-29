@@ -6,7 +6,7 @@
  * The register exposes every licensed plumber, electrical contractor, and
  * roof tiler in NSW. Phone is sometimes present on the detail page; when
  * absent the row still gives us a business name + suburb that the
- * enrichment script can hand off to Google Places + the website-crawler.
+ * enrichment script can hand off to the DuckDuckGo + website-crawler enrichment.
  *
  * Usage:
  *   npx tsx scripts/scrape-licenses-nsw.ts                       # all trades

@@ -6,22 +6,21 @@
  * business name + suburb but no phone. This script does:
  *
  *   For each target prospect (no AU mobile + has business_name + suburb):
- *     1. Look up "<business_name> <suburb>" via Google Places searchText
- *        (same API the collect-leads.ts script uses).
- *     2. If Places returns a website URI, fetch likely contact pages and
- *        extract a mobile (mirrors recover-mobiles-from-websites.mjs logic).
+ *     1. Look up "<business_name> <suburb>" via the public DuckDuckGo HTML
+ *        results page; return the first non-directory URL.
+ *     2. Fetch likely contact pages on that website and extract a mobile
+ *        (mirrors recover-mobiles-from-websites.mjs logic).
  *     3. If found, UPDATE prospects SET phone = <mobile>, status = 'new'
  *        when previously 'not_mobile'. Log channel='website_enrichment'.
  *
  * Defaults:
- *   --max-enrichments 1000    Hard cap on Places lookups per run (~$32 USD)
+ *   --max-enrichments 100     Hard cap on DDG lookups per run.
  *   --source license_nsw      Restrict to one source (omit to enrich all
- *                             license_* sources)
+ *                             license_* sources).
  *   Dry-run by default, --apply to write.
  *
- * Cost note (Google Places Pro tier ~$32/1k):
- *   1000 enrichments → ~$32 USD worst case (often $0 because the first
- *   5,000 Pro requests/month are free).
+ * Cost: A$0. DuckDuckGo HTML scraping has no per-call billing; --max-enrichments
+ * is just a politeness/runtime ceiling.
  */
 
 import initSqlJs from "sql.js";
@@ -32,16 +31,14 @@ const DATABASE_URL =
   process.env.DATABASE_URL ??
   "postgresql://neondb_owner:npg_p7TKVWbOQy2F@ep-long-mountain-a75ui4v2-pooler.ap-southeast-2.aws.neon.tech/neondb?sslmode=require";
 
-const API_KEY = process.env.GOOGLE_PLACES_API_KEY;
-
 // ── CLI ──────────────────────────────────────────────────────────────────────
 const APPLY = process.argv.includes("--apply");
 const argIdx = (flag) => process.argv.indexOf(flag);
 const intArg = (flag, dflt) => argIdx(flag) > -1 ? parseInt(process.argv[argIdx(flag) + 1] ?? String(dflt), 10) : dflt;
 const strArg = (flag, dflt) => argIdx(flag) > -1 ? (process.argv[argIdx(flag) + 1] ?? dflt) : dflt;
 
-const MAX_ENRICHMENTS = intArg("--max-enrichments", 1000);
-const SOURCE_FILTER   = strArg("--source", null); // e.g. "license_nsw"
+const MAX_ENRICHMENTS = intArg("--max-enrichments", 100);
+const SOURCE_FILTER   = strArg("--source", null);  // e.g. "license_nsw"
 
 // ── Phone helpers ────────────────────────────────────────────────────────────
 function toE164Au(raw) {
@@ -57,42 +54,63 @@ function toE164Au(raw) {
 }
 const isAuMobile = (e164) => /^\+614\d{8}$/.test(e164);
 
-// ── Google Places searchText (same shape collect-leads.ts uses) ──────────────
-const PLACES_URL = "https://places.googleapis.com/v1/places:searchText";
-let placesCalls = 0;
+let lookupCalls = 0;
 
-async function placesLookup(name, suburb) {
-  if (placesCalls >= MAX_ENRICHMENTS) return null;
-  placesCalls++;
-  const query = `${name} ${suburb}`.trim();
+// ── DuckDuckGo HTML search (free; only backend) ──────────────────────────────
+//
+// html.duckduckgo.com is the no-JS variant DDG provides specifically for
+// scraping/curl-friendly use. No API key, no rate-limit billing, but be
+// polite with delays. We extract the first non-directory result URL.
+const DDG_URL = "https://html.duckduckgo.com/html/";
+
+// Result hosts to skip (directories aren't useful — we want the business's
+// own website so the website-crawler step can mine the contact page).
+const DDG_SKIP_RESULT_HOSTS = [
+  "facebook.com", "instagram.com", "linkedin.com", "twitter.com", "x.com",
+  "youtube.com", "tiktok.com",
+  "hipages.com.au", "oneflare.com.au", "serviceseeking.com.au",
+  "yellowpages.com.au", "truelocal.com.au", "localsearch.com.au",
+  "hotfrog.com.au", "startlocal.com.au",
+  "google.com", "bing.com", "duckduckgo.com", "yahoo.com",
+  "wikipedia.org", "abr.business.gov.au", "asic.gov.au",
+];
+
+async function duckDuckGoLookup(name, suburb) {
+  if (lookupCalls >= MAX_ENRICHMENTS) return null;
+  lookupCalls++;
+  const query = `${name} ${suburb} australia`.trim();
   try {
-    const resp = await fetch(PLACES_URL, {
+    // POST is the form html.duckduckgo.com expects; works without JS/cookies.
+    const resp = await fetch(DDG_URL, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": API_KEY,
-        "X-Goog-FieldMask": [
-          "places.displayName",
-          "places.nationalPhoneNumber",
-          "places.internationalPhoneNumber",
-          "places.websiteUri",
-        ].join(","),
+        "User-Agent": USER_AGENT,
+        "Accept": "text/html,application/xhtml+xml",
+        "Content-Type": "application/x-www-form-urlencoded",
       },
-      body: JSON.stringify({
-        textQuery: query,
-        languageCode: "en",
-        regionCode: "AU",
-        pageSize: 1,
-      }),
+      body: `q=${encodeURIComponent(query)}&kl=au-en`,
     });
     if (!resp.ok) return null;
-    const data = await resp.json();
-    const place = (data.places ?? [])[0];
-    if (!place) return null;
-    return {
-      phone: place.internationalPhoneNumber ?? place.nationalPhoneNumber ?? "",
-      website: place.websiteUri ?? "",
-    };
+    const html = await resp.text();
+
+    // Match every result link. DDG sometimes emits direct hrefs; sometimes
+    // wraps them in `//duckduckgo.com/l/?uddg=<encoded>`. Handle both.
+    const linkRe = /<a[^>]+class=["'][^"']*\bresult__a\b[^"']*["'][^>]+href=["']([^"']+)["']/gi;
+    let m;
+    while ((m = linkRe.exec(html)) !== null) {
+      let href = m[1];
+      const uddg = href.match(/[?&]uddg=([^&]+)/);
+      if (uddg) href = decodeURIComponent(uddg[1]);
+      if (href.startsWith("//")) href = "https:" + href;
+
+      try {
+        const u = new URL(href);
+        if (!/^https?:$/.test(u.protocol)) continue;
+        if (DDG_SKIP_RESULT_HOSTS.some((h) => u.hostname === h || u.hostname.endsWith("." + h))) continue;
+        return { website: href };
+      } catch { /* skip malformed */ }
+    }
+    return null;
   } catch {
     return null;
   }
@@ -174,17 +192,15 @@ async function crawlWebsite(websiteRaw) {
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
-if (!API_KEY) {
-  console.error("Error: GOOGLE_PLACES_API_KEY required in .env (same key collect-leads.ts uses).");
-  process.exit(1);
-}
 
 const pool = new pg.Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
 
 try {
   console.log(`Mode:             ${APPLY ? "APPLY (writes to Neon)" : "DRY-RUN (no writes)"}`);
-  console.log(`Source filter:    ${SOURCE_FILTER ?? "all license_* sources"}`);
-  console.log(`Max enrichments:  ${MAX_ENRICHMENTS} (hard cap on Places lookups)`);
+  console.log(`Source filter:    ${SOURCE_FILTER ?? "license_* + serviceseeking (default)"}`);
+  console.log(`Lookup backend:   duckduckgo (free, no API key)`);
+  console.log(`Max enrichments:  ${MAX_ENRICHMENTS} (hard cap on lookups)`);
+  console.log(`Cost estimate:    A$0 (DuckDuckGo HTML scrape is free)`);
   console.log("");
 
   const res = await pool.query("SELECT data FROM sqlite_blob WHERE id = 'main'");
@@ -192,9 +208,11 @@ try {
   const SQL = await initSqlJs();
   const db = new SQL.Database(new Uint8Array(res.rows[0].data));
 
+  // Default: enrich rows that came in with no usable phone — license
+  // registers (which never include phone) and ServiceSeeking (phones gated).
   const sourceClause = SOURCE_FILTER
     ? `AND source = '${SOURCE_FILTER.replace(/'/g, "''")}'`
-    : `AND source LIKE 'license_%'`;
+    : `AND (source LIKE 'license_%' OR source = 'serviceseeking')`;
   const sql = `
     SELECT prospect_id, business_name, suburb, status, source
     FROM prospects
@@ -214,34 +232,30 @@ try {
   console.log("");
 
   let foundCount = 0;
-  let placesMisses = 0;
+  let lookupMisses = 0;
   let websiteMisses = 0;
   let processed = 0;
-  const enrichments = []; // { prospect_id, business_name, newPhone, oldStatus, website, src }
+  const enrichments = []; // { prospect_id, business_name, newPhone, oldStatus, website }
+
+  // DuckDuckGo isn't billed but throttles aggressive scrapers; small delay
+  // keeps us friendly.
+  const perCallDelayMs = 1500;
 
   for (const p of targets) {
-    if (placesCalls >= MAX_ENRICHMENTS) {
-      console.log(`Hit Places cap (${MAX_ENRICHMENTS}). Stopping.`);
+    if (lookupCalls >= MAX_ENRICHMENTS) {
+      console.log(`Hit lookup cap (${MAX_ENRICHMENTS}). Stopping.`);
       break;
     }
     processed++;
     if (processed % 25 === 0) {
-      console.log(`  [${processed}/${targets.length}] places=${placesCalls} found=${foundCount} miss_places=${placesMisses} miss_web=${websiteMisses}`);
+      console.log(`  [${processed}/${targets.length}] lookups=${lookupCalls} found=${foundCount} miss_lookup=${lookupMisses} miss_web=${websiteMisses}`);
     }
 
-    const lookup = await placesLookup(p.business_name, p.suburb ?? "");
-    if (!lookup) { placesMisses++; continue; }
+    const lookup = await duckDuckGoLookup(p.business_name, p.suburb ?? "");
+    if (!lookup || !lookup.website) { lookupMisses++; await new Promise((r) => setTimeout(r, perCallDelayMs)); continue; }
 
-    // Direct Places phone first (no website fetch needed)
-    let mobile = "";
-    const placesPhone = toE164Au(lookup.phone);
-    if (placesPhone && isAuMobile(placesPhone)) {
-      mobile = placesPhone;
-    } else if (lookup.website) {
-      mobile = (await crawlWebsite(lookup.website)) ?? "";
-    }
-
-    if (!mobile) { websiteMisses++; continue; }
+    const mobile = (await crawlWebsite(lookup.website)) ?? "";
+    if (!mobile) { websiteMisses++; await new Promise((r) => setTimeout(r, perCallDelayMs)); continue; }
 
     foundCount++;
     enrichments.push({
@@ -250,23 +264,24 @@ try {
       newPhone: mobile,
       oldStatus: p.status,
       website: lookup.website,
-      src: placesPhone === mobile ? "places_phone" : "website",
     });
+
+    await new Promise((r) => setTimeout(r, perCallDelayMs));
   }
 
   console.log("");
   console.log("=== ENRICHMENT RESULTS ===");
-  console.log(`  Targets processed:         ${processed}`);
-  console.log(`  Places lookups used:       ${placesCalls}`);
-  console.log(`  Mobiles recovered:         ${foundCount}`);
-  console.log(`  Places returned no match:  ${placesMisses}`);
-  console.log(`  Website yielded no mobile: ${websiteMisses}`);
+  console.log(`  Targets processed:           ${processed}`);
+  console.log(`  Lookups used (duckduckgo):   ${lookupCalls}`);
+  console.log(`  Mobiles recovered:           ${foundCount}`);
+  console.log(`  Lookup returned no website:  ${lookupMisses}`);
+  console.log(`  Website yielded no mobile:   ${websiteMisses}`);
 
   if (enrichments.length === 0) { console.log("\nNothing to update."); process.exit(0); }
 
   console.log("\nSample enrichments (first 10):");
   for (const e of enrichments.slice(0, 10)) {
-    console.log(`  ${e.business_name} → ${e.newPhone}  [${e.src}]`);
+    console.log(`  ${e.business_name} → ${e.newPhone}  [${e.website}]`);
   }
 
   if (!APPLY) {
@@ -296,7 +311,7 @@ try {
     );
     log.bind([
       randomUUID(), e.prospect_id, "website_enrichment",
-      `enriched ${e.newPhone} via ${e.src}${e.website ? ` (${e.website})` : ""}`,
+      `enriched ${e.newPhone} via duckduckgo+website${e.website ? ` (${e.website})` : ""}`,
       "ok", new Date().toISOString()
     ]);
     log.step(); log.free();
