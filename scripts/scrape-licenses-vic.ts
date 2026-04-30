@@ -2,7 +2,22 @@
 /**
  * Victorian Building Authority (VBA) practitioner-search scraper.
  *
- * Source: https://www.vba.vic.gov.au/practitioner-search
+ * ⚠ STATUS (Apr 2026): NON-FUNCTIONAL. The old public practitioner-search
+ * page (https://www.vba.vic.gov.au/practitioner-search and the half-dozen
+ * variant slugs we tried) all 404. The "Find a practitioner" tool at
+ * https://www.vba.vic.gov.au/tools/find-practitioner now redirects users
+ * to an external search application at
+ * https://practitioner.etoolbox.pic.vic.gov.au which sits behind a
+ * SharePoint sign-in (PumaLogin/PIC). Public anonymous lookup appears to
+ * have been retired.
+ *
+ * To restore: either obtain VBA login credentials and hit the etoolbox app
+ * with an authenticated session, or scrape via Playwright if VBA later
+ * publishes a public-anonymous endpoint. Until then this script returns 0
+ * rows.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ * Source: https://www.vba.vic.gov.au/practitioner-search   (legacy URL — 404)
  *
  * VBA covers every licensed plumber, gasfitter and registered builder in VIC.
  * The form is an ASP.NET WebForm that round-trips ViewState +

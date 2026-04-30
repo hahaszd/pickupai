@@ -2,6 +2,18 @@
 /**
  * NSW Fair Trading public register scraper.
  *
+ * ⚠ STATUS (Apr 2026): NON-FUNCTIONAL via raw fetch. The OneGov public
+ * register at https://www.onegov.nsw.gov.au/publicregister/ is now a single
+ * minified JS bundle (`script/app.min-*.js`) that loads results
+ * client-side. The HTML has no React/Next/ASP.NET hooks we can hit, and
+ * none of the obvious `/api/...` paths return anything but 404. Without
+ * running the bundle in a headless browser we cannot enumerate licensees.
+ *
+ * To restore: load the page in Playwright, intercept the XHR the bundle
+ * fires (likely a JSON POST to an unguessable Azure endpoint), then call
+ * that endpoint directly. Until then this script returns 0 rows.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
  * Source: https://www.onegov.nsw.gov.au/publicregister/
  * The register exposes every licensed plumber, electrical contractor, and
  * roof tiler in NSW. Phone is sometimes present on the detail page; when

@@ -10,12 +10,15 @@
  *                  → data/leads/hipages/<trade>/<metro>.csv
  *   oneflare       scripts/scrape-oneflare.ts                (mobiles)
  *                  → data/leads/oneflare/<trade>/<metro>.csv
- *   truelocal      scripts/scrape-truelocal.ts
- *                  → data/leads/truelocal/<trade>/<metro>.csv
  *   localsearch    scripts/scrape-localsearch.ts
  *                  → data/leads/localsearch/<trade>/<metro>.csv
  *   serviceseeking scripts/scrape-serviceseeking.ts          (no phones)
  *                  → data/leads/serviceseeking/<trade>/<metro>.csv
+ *   truelocal      scripts/scrape-truelocal.ts               [DISABLED]
+ *                  Cloudflare bot protection added Apr 2026; raw fetch
+ *                  always gets a "Just a moment…" challenge page. Opt
+ *                  in with --sources truelocal to retry, but it will
+ *                  yield 0 rows until rebuilt against Playwright.
  *
  * After collection, the import phase walks data/leads/ recursively and
  * imports every CSV into Neon via scripts/import-csv-to-db.ts.
@@ -40,7 +43,10 @@ const DEFAULT_TRADES  = ["plumber"];
 // serviceseeking is NOT in defaults because it doesn't expose phones
 // publicly (gated behind quote-request login). Its rows are useful only as
 // name+suburb feed for scripts/enrich-prospects-from-website.mjs.
-const DEFAULT_SOURCES = ["hipages", "oneflare", "truelocal", "localsearch"];
+// truelocal is NOT in defaults because TrueLocal added Cloudflare bot
+// protection in Apr 2026 — raw fetch always returns a challenge page.
+// Opt in via --sources truelocal if you've added a Playwright workaround.
+const DEFAULT_SOURCES = ["hipages", "oneflare", "localsearch"];
 const ALL_SOURCES     = ["hipages", "oneflare", "serviceseeking", "truelocal", "localsearch"];
 const OUTPUT_DIR      = "data/leads";
 
@@ -72,6 +78,7 @@ Options:
   --sources <list>         Comma-separated sources (default: ${DEFAULT_SOURCES.join(",")})
                            One or more of: ${ALL_SOURCES.join(", ")}
                            (serviceseeking only useful as feed for prospects:enrich)
+                           (truelocal currently 0-yield: Cloudflare bot block, opt-in only)
   --trades <list>          Comma-separated trades (default: ${DEFAULT_TRADES.join(",")})
   --skip-collect           Don't fetch; only import existing CSVs under ${OUTPUT_DIR}/
   --skip-import            Fetch only; skip the import-to-DB step

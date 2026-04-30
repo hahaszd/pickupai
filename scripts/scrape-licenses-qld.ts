@@ -3,7 +3,22 @@
  * Queensland Building and Construction Commission (QBCC) license search
  * scraper.
  *
- * Source: https://onlineservices.qbcc.qld.gov.au/OnlineLicenceSearch
+ * ⚠ STATUS (Apr 2026): NON-FUNCTIONAL. The QBCC online-licence-search host
+ * `onlineservices.qbcc.qld.gov.au` is unreachable from generic Node
+ * `fetch` (DNS/TLS handshake fails — `fetch failed` with no HTTP status).
+ * The main qbcc.qld.gov.au domain is up, but the public-facing landing
+ * page that linked to the search has also moved (`/online-services/find-local-contractor`
+ * now 404s). It's unclear whether QBCC is mid-migration or has retired
+ * the anonymous lookup; the previous run hung for 15+ minutes spamming
+ * `fetch failed`.
+ *
+ * To restore: confirm the new host, retry with a real browser TLS
+ * fingerprint (Playwright), and rebuild against whatever search URL QBCC
+ * publishes next. Until then this script will hang/error and the
+ * orchestrator should not call it.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
+ * Source: https://onlineservices.qbcc.qld.gov.au/OnlineLicenceSearch (was)
  *
  * QBCC licenses every plumber, drainer, gas fitter, electrical, and roof
  * tiler in QLD. The search is an HTML form. It throws an interstitial

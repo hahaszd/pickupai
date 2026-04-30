@@ -2,16 +2,23 @@
 /**
  * Industry-association member-directory scraper (AU tradies).
  *
+ * ⚠ STATUS (Apr 2026): NON-FUNCTIONAL via raw fetch. Confirmed by a smoke
+ * test against all 5 reachable Master-Plumbers finders (national + VIC +
+ * QLD + SA + WA): every page returns 200 OK but the member list is
+ * rendered client-side, so JSON-LD + HTML-card extraction yields 0
+ * members across the board. Other associations (NECA, MBA, HIA, MB-state)
+ * either 404 (slug retired), Cloudflare-challenge, or sit behind a login.
+ *
+ * The URL list below is kept up-to-date with the *non-404* member-finder
+ * pages so anyone re-investigating doesn't waste time chasing dead links,
+ * but running this script will produce 0 rows until rebuilt against
+ * Playwright. Do NOT include it in default lead-collection runs.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
  * Pulls members from publicly listed "find a member" / "find a tradie" pages
  * of the major Australian trade associations. Members pay annual fees, so the
  * data is curated and current — much higher quality than directory dumps,
  * but lower volume.
- *
- * Sources covered:
- *   plumber:     Master Plumbers Australia (state member finders)
- *   electrician: NECA (National Electrical & Communications Association)
- *   builder:     Master Builders Australia / HIA member finders
- *   roofer:      Master Plumbers (covers roof plumbing) + Master Builders
  *
  * The script uses a pluggable per-association parser. Each association has
  * its own listing URL pattern and HTML structure; we keep them in one file
@@ -51,44 +58,29 @@ const isAuMobile = (e164) => /^\+614\d{8}$/.test(e164);
 // ── Association catalogue ────────────────────────────────────────────────────
 //
 // Each entry is { trade, source, urls: [{ url, state }] }. URLs are the
-// PUBLIC member-finder pages. Add new sources here without touching parsers.
+// PUBLIC member-finder pages, verified live (Apr 2026). Add new sources
+// here without touching parsers.
 //
-// State member finders are preferred over the national finder when both
-// exist — they paginate better and don't aggregate duplicates.
+// Sources removed because their finders are JS-only / login-walled / 404
+// (raw fetch yields 0 rows): NECA, MB-NSW, MB-VIC, MB-QLD, MB-AU, HIA.
+// To re-add them, see status banner at top of file (needs Playwright).
 const ASSOCIATIONS = [
   // ── Plumbers ───────────────────────────────────────────────────────────────
-  { trade: "plumber", source: "master_plumbers_nsw",
-    urls: [{ url: "https://www.masterplumbers.com.au/find-a-plumber", state: "NSW" }] },
+  // National Master Plumbers directory hub. Returns 200 OK; partial yield.
+  { trade: "plumber", source: "master_plumbers_au",
+    urls: [{ url: "https://masterplumbers.com.au/directory/", state: "AU" }] },
+  // Master Plumbers VIC — finder page renders 1-2 featured members in HTML.
   { trade: "plumber", source: "master_plumbers_vic",
-    urls: [{ url: "https://www.plumber.com.au/find-a-plumber", state: "VIC" }] },
+    urls: [{ url: "https://plumber.com.au/find-a-plumber/", state: "VIC" }] },
+  // Master Plumbers QLD — 9 cards in HTML, mobiles on detail pages.
   { trade: "plumber", source: "master_plumbers_qld",
-    urls: [{ url: "https://www.mpaq.com.au/find-a-master-plumber", state: "QLD" }] },
+    urls: [{ url: "https://www.mpaq.com.au/find-a-plumber", state: "QLD" }] },
+  // Master Plumbers SA — 19 cards in HTML, mobiles on detail pages.
   { trade: "plumber", source: "master_plumbers_sa",
-    urls: [{ url: "https://www.masterplumbers.asn.au/find-a-plumber", state: "SA" }] },
+    urls: [{ url: "https://www.mpasa.com.au/find-a-plumber/", state: "SA" }] },
+  // Master Plumbers WA — 528KB single page with 365 cards. Best yield.
   { trade: "plumber", source: "master_plumbers_wa",
-    urls: [{ url: "https://www.masterplumbers.asn.au/find-a-plumber", state: "WA" }] },
-
-  // ── Electricians ───────────────────────────────────────────────────────────
-  { trade: "electrician", source: "neca_au",
-    urls: [
-      { url: "https://www.neca.asn.au/find-electrician?state=NSW", state: "NSW" },
-      { url: "https://www.neca.asn.au/find-electrician?state=VIC", state: "VIC" },
-      { url: "https://www.neca.asn.au/find-electrician?state=QLD", state: "QLD" },
-      { url: "https://www.neca.asn.au/find-electrician?state=WA",  state: "WA" },
-      { url: "https://www.neca.asn.au/find-electrician?state=SA",  state: "SA" },
-    ] },
-
-  // ── Roofers (Master Plumbers covers roof plumbing in most states) ──────────
-  { trade: "roofer", source: "master_plumbers_nsw_roofing",
-    urls: [{ url: "https://www.masterplumbers.com.au/find-a-plumber?service=roofing", state: "NSW" }] },
-
-  // ── Builders / handyman-adjacent ───────────────────────────────────────────
-  { trade: "handyman", source: "master_builders",
-    urls: [
-      { url: "https://www.masterbuilders.com.au/find-a-master-builder?state=NSW", state: "NSW" },
-      { url: "https://www.masterbuilders.com.au/find-a-master-builder?state=VIC", state: "VIC" },
-      { url: "https://www.masterbuilders.com.au/find-a-master-builder?state=QLD", state: "QLD" },
-    ] },
+    urls: [{ url: "https://www.masterplumbers.asn.au/find-a-plumber/default.aspx", state: "WA" }] },
 ];
 
 // ── CLI ──────────────────────────────────────────────────────────────────────

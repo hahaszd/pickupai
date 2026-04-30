@@ -2,6 +2,17 @@
 /**
  * TrueLocal.com.au directory scraper for AU tradie leads.
  *
+ * ⚠ STATUS (Apr 2026): NON-FUNCTIONAL. TrueLocal sits behind Cloudflare bot
+ * protection — every listing-page fetch returns a 403 with the
+ * "Attention Required! | Cloudflare" challenge HTML, so all three extraction
+ * strategies below find nothing. The orchestrator removes truelocal from its
+ * default sources for this reason.
+ *
+ * To restore: rebuild against a real browser (Playwright + a stealth plugin,
+ * or a paid Cloudflare-friendly proxy). Until then this script is left in
+ * the tree for reference only.
+ *
+ * ───────────────────────────────────────────────────────────────────────────
  * TrueLocal lists Australian businesses by trade + suburb. Listing pages
  * follow the pattern `https://www.truelocal.com.au/find/<trade>/<state>/<suburb>`
  * (with fallback `/find/<trade>/<suburb>` for ambiguous suburbs).
