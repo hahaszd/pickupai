@@ -11,6 +11,7 @@ import type {
   OutreachLogRow,
   DailyFunnelStats,
   CampaignFunnelStats,
+  VariantFunnelRow,
   ChatLogRow,
   ServiceRequestRow
 } from "../db/repo.js";
@@ -1111,21 +1112,27 @@ export function adminProspectsPage(
   </div>
 
   <div id="sms-action-bar" style="display:none;position:sticky;bottom:0;left:0;right:0;background:var(--navy-mid);border-top:2px solid var(--brand);padding:1rem;margin-top:1rem;border-radius:8px;box-shadow:0 -4px 12px rgba(0,0,0,.3)">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;flex-wrap:wrap;gap:.5rem">
       <span style="font-weight:600;color:var(--brand);font-size:.9rem" id="selected-count">0 selected</span>
       <div style="display:flex;gap:.35rem;flex-wrap:wrap">
-        <button type="button" class="btn btn-outline" style="font-size:.72rem;padding:.25rem .5rem" onclick="document.getElementById('sel-sms-body').value=\`Hi {name}, missed-call problem? PickupAI is an AI receptionist for Sydney tradies. Answers 24/7, texts you the lead in seconds.\\n\\nHear it now: call +61 2 8000 0796\\nFree 14-day trial: getpickupai.com.au\\n\\nReply STOP to opt out, or email hello@getpickupai.com.au\`">First touch</button>
-        <button type="button" class="btn btn-outline" style="font-size:.72rem;padding:.25rem .5rem" onclick="document.getElementById('sel-sms-body').value=\`Quick follow-up {name} — do you miss calls on the tools? PickupAI picks up when you can't, captures the lead, and texts it to you. 14-day free trial, cancel anytime.\\n\\nHear it: call +61 2 8000 0796\\ngetpickupai.com.au\\n\\nReply STOP to opt out, or email hello@getpickupai.com.au\`">Follow-up</button>
-        <button type="button" class="btn btn-outline" style="font-size:.72rem;padding:.25rem .5rem" onclick="document.getElementById('sel-sms-body').value=\`Last one {name} — we're offering founding pricing ($149/mo locked) to our first 20 customers. After that it's $199/mo.\\n\\nHear it: call +61 2 8000 0796\\nIf missed calls cost you jobs: getpickupai.com.au\\n\\nReply STOP to opt out, or email hello@getpickupai.com.au\`">Final touch</button>
+        <button type="button" class="btn btn-outline" style="font-size:.72rem;padding:.25rem .5rem" onclick="setVariant('A_reply_yes', \`Hi {name}, [Your Name] from PickupAI. We help Sydney tradies stop missing after-hours job calls — AI answers, texts you the lead. Want a 60-sec demo of how it'd sound for your business? Reply YES.\`)">A · Reply YES</button>
+        <button type="button" class="btn btn-outline" style="font-size:.72rem;padding:.25rem .5rem" onclick="setVariant('B_call_demo', \`Hi {name}, missing after-hours plumbing calls = lost jobs. Call 02 8000 0796 right now to hear our AI answer for you. 60 sec, no signup.\`)">B · Call demo</button>
+        <button type="button" class="btn btn-outline" style="font-size:.72rem;padding:.25rem .5rem" onclick="setVariant('C_social_proof', \`Hi {name}, 3 Sydney plumbers booked 12 extra jobs last month using PickupAI to answer after-hours calls. See how: {link}\`)">C · Social proof</button>
+        <button type="button" class="btn btn-outline" style="font-size:.72rem;padding:.25rem .5rem" onclick="setVariant('D_trial', \`Hi {name}, AI answers your missed plumbing calls 24/7 + texts you the lead. Free 14-day trial: {link}\`)">D · Trial</button>
       </div>
     </div>
-    <textarea id="sel-sms-body" name="message" rows="4" required placeholder="Type your SMS here. Use {name} for business name."
+    <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.5rem">
+      <label style="font-size:.78rem;color:var(--gray-400);font-weight:600;text-transform:uppercase;letter-spacing:.4px">Variant tag</label>
+      <input type="text" id="sel-sms-variant" name="variant" placeholder="e.g. A_reply_yes (optional but required for A/B test)"
+        style="flex:1;background:var(--navy);color:#fff;border:1px solid var(--navy-light);border-radius:6px;padding:.35rem .5rem;font-family:monospace;font-size:.78rem" />
+    </div>
+    <textarea id="sel-sms-body" name="message" rows="4" required placeholder="Type your SMS here. Use {name} for business name, {link} for tracked redirect."
       style="width:100%;background:var(--navy);color:#fff;border:1px solid var(--navy-light);border-radius:6px;padding:.5rem;font-family:inherit;font-size:.85rem;margin-bottom:.5rem"></textarea>
     <p style="font-size:.75rem;color:var(--gray-400);margin-bottom:.75rem">
-      Use <code>{name}</code> to insert the business name. Opt-out line appended automatically if not included.
+      Substitutions: <code>{name}</code> = business, <code>{link}</code> = per-recipient tracked redirect, <code>{pid}</code> = raw prospect ID. STOP line appended automatically. Sends blocked outside 9am–7pm Sydney unless <code>force=1</code>.
     </p>
     <button type="submit" id="send-selected-btn" class="btn btn-primary" style="width:100%"
-      onclick="return confirm('Send SMS to ' + document.querySelectorAll('.prospect-cb:checked').length + ' selected prospects?')">
+      onclick="return confirm('Send SMS to ' + document.querySelectorAll('.prospect-cb:checked').length + ' selected prospects' + (document.getElementById('sel-sms-variant').value ? ' (variant=' + document.getElementById('sel-sms-variant').value + ')' : ' WITHOUT a variant tag (you won\\'t be able to A/B compare)') + '?')">
       Send SMS to 0 selected →
     </button>
   </div>
@@ -1133,6 +1140,10 @@ export function adminProspectsPage(
 </div>
 
 <script>
+function setVariant(tag, body){
+  document.getElementById('sel-sms-variant').value = tag;
+  document.getElementById('sel-sms-body').value = body;
+}
 (function(){
   var cbs = document.querySelectorAll('.prospect-cb');
   var bar = document.getElementById('sms-action-bar');
@@ -1181,7 +1192,18 @@ export function adminProspectDetailPage(
 
   for (const l of outreachLog) {
     const preview = l.message && l.message.length > 80 ? l.message.slice(0, 80) + "…" : (l.message ?? "—");
-    timeline.push({ ts: l.sent_at, type: l.channel === "sms" ? "SMS Sent" : l.channel === "demo_call" ? "Demo Call" : esc(l.channel), detail: `${esc(preview)} <span style="color:var(--gray-400)">[${esc(l.status)}]</span>` });
+    const variantBadge = l.variant ? ` <code style="background:#7c3aed22;color:#7c3aed;padding:0 .35rem;border-radius:3px;font-size:.7rem">${esc(l.variant)}</code>` : "";
+    const clickBadge = l.link_clicked_at ? ` <span style="color:#3b82f6;font-size:.72rem;font-weight:700" title="Clicked at ${esc(l.link_clicked_at)}">CLICKED</span>` : "";
+    const replyBadge = l.replied_at ? ` <span style="color:#16a34a;font-size:.72rem;font-weight:700" title="Replied at ${esc(l.replied_at)}: ${esc(l.reply_body ?? "")}">REPLIED</span>` : "";
+    const type = l.channel === "sms" ? "SMS Sent"
+      : l.channel === "demo_call" ? "Demo Call"
+      : l.channel === "sms_reply" ? "SMS Reply"
+      : esc(l.channel);
+    timeline.push({
+      ts: l.sent_at,
+      type,
+      detail: `${esc(preview)} <span style="color:var(--gray-400)">[${esc(l.status)}]</span>${variantBadge}${clickBadge}${replyBadge}`
+    });
   }
 
   for (const c of demoCalls) {
@@ -1351,14 +1373,17 @@ export function adminBulkSmsPage(
     `<option value="${o}"${filters.trade_type === o ? " selected" : ""}>${o ? o.charAt(0).toUpperCase() + o.slice(1) : "All trades"}</option>`
   ).join("");
 
+  // Tested A/B variants. Keep the variant tag short + machine-friendly so it
+  // groups cleanly in the per-variant funnel rollup.
   const templates = [
-    { label: "First touch", text: "Hey {name} — I built an AI receptionist for NSW tradies. It answers missed calls 24/7, captures the job details, and texts you a lead summary. 14-day free trial. Want to hear a demo? getpickupai.com.au" },
-    { label: "Follow-up", text: "Quick follow-up {name} — do you miss calls on the tools? PickupAI picks up when you can't, captures the lead, and texts it to you. 14-day free trial, cancel anytime. getpickupai.com.au" },
-    { label: "Final touch", text: "Last one {name} — we're offering founding pricing ($149/mo locked) to our first 20 customers. After that it's $199/mo. If missed calls cost you jobs, worth a look: getpickupai.com.au" }
+    { tag: "A_reply_yes",    label: "A · Reply YES",      text: "Hi {name}, [Your Name] from PickupAI. We help Sydney tradies stop missing after-hours job calls — AI answers, texts you the lead. Want a 60-sec demo of how it'd sound for your business? Reply YES." },
+    { tag: "B_call_demo",    label: "B · Call demo",      text: "Hi {name}, missing after-hours plumbing calls = lost jobs. Call 02 8000 0796 right now to hear our AI answer for you. 60 sec, no signup." },
+    { tag: "C_social_proof", label: "C · Social proof",   text: "Hi {name}, 3 Sydney plumbers booked 12 extra jobs last month using PickupAI to answer after-hours calls. See how: {link}" },
+    { tag: "D_trial",        label: "D · Trial",          text: "Hi {name}, AI answers your missed plumbing calls 24/7 + texts you the lead. Free 14-day trial: {link}" }
   ];
 
-  const templateButtons = templates.map((t, i) =>
-    `<button type="button" class="btn btn-outline" style="font-size:.78rem" onclick="document.getElementById('sms-body').value=\`${t.text.replace(/`/g, "\\`")}\`">${t.label}</button>`
+  const templateButtons = templates.map((t) =>
+    `<button type="button" class="btn btn-outline" style="font-size:.78rem" onclick="document.getElementById('sms-variant').value='${t.tag}';document.getElementById('sms-body').value=\`${t.text.replace(/`/g, "\\`")}\`">${t.label}</button>`
   ).join(" ");
 
   const content = `
@@ -1380,15 +1405,22 @@ export function adminBulkSmsPage(
       With AU mobile (04) only — <strong>${mobileProspectCount}</strong> can receive bulk SMS
       (landlines/short-dial/invalid mobile excluded: <strong>${excludedNonMobile}</strong>).
       Statuses "do_not_contact", "not_interested", and "not_mobile" are always excluded.
+      Sends blocked outside 9am–7pm Sydney time.
     </p>
+
+    <div class="form-group">
+      <label>Variant tag (required for A/B testing)</label>
+      <input type="text" id="sms-variant" name="variant" placeholder="e.g. A_reply_yes — leave blank only for one-off sends"
+        style="width:100%;background:var(--navy-mid);color:#fff;border:1px solid var(--navy-light);border-radius:6px;padding:.5rem;font-family:monospace;font-size:.85rem" />
+    </div>
 
     <div class="form-group">
       <label>Message template</label>
       <div style="margin-bottom:.5rem">${templateButtons}</div>
-      <textarea id="sms-body" name="message" rows="5" required placeholder="Type your SMS here. Use {name} for business name."
+      <textarea id="sms-body" name="message" rows="5" required placeholder="Type your SMS here. Use {name} for business name, {link} for tracked redirect."
         style="width:100%;background:var(--navy-mid);color:#fff;border:1px solid var(--navy-light);border-radius:6px;padding:.5rem;font-family:inherit"></textarea>
       <p style="font-size:.78rem;color:var(--gray-400);margin-top:.25rem">
-        Use <code>{name}</code> to insert the business name. An opt-out line will be appended automatically if not included.
+        Substitutions: <code>{name}</code> = business, <code>{link}</code> = per-recipient tracked redirect (use this instead of bare URLs to attribute clicks), <code>{pid}</code> = raw prospect ID. STOP line appended automatically.
       </p>
     </div>
 
@@ -1476,7 +1508,7 @@ ${pagination ? `<div style="margin-top:1rem;display:flex;gap:.5rem;justify-conte
 
 // ─── Campaign dashboard ───────────────────────────────────────────────────────
 
-export function adminCampaignPage(stats: CampaignFunnelStats, days: number, flash?: string): string {
+export function adminCampaignPage(stats: CampaignFunnelStats, days: number, flash?: string, variantStats?: VariantFunnelRow[]): string {
   const convRate = stats.total_prospects > 0
     ? (stats.signed_up / stats.total_prospects * 100).toFixed(1) + "%"
     : "—";
@@ -1557,6 +1589,50 @@ export function adminCampaignPage(stats: CampaignFunnelStats, days: number, flas
   <div class="section-title">Conversion Funnel</div>
   ${funnelBars}
 </div>
+
+${variantStats && variantStats.length > 0 ? `
+<div class="card">
+  <div class="section-title">A/B Variant Performance <span style="font-size:.75rem;font-weight:400;color:var(--gray-400);text-transform:none">(kill rule: STOP &gt;2%)</span></div>
+  <div class="form-hint" style="margin-bottom:.6rem">
+    Per-variant funnel for marketing SMS tagged with a <code>variant</code>. Rows with <code>(none)</code> are legacy/un-tagged sends.
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Variant</th>
+        <th>Sent</th>
+        <th>Delivered</th>
+        <th>Failed</th>
+        <th>Clicked</th>
+        <th>Replied</th>
+        <th>STOP</th>
+        <th>STOP %</th>
+        <th>Demo Calls</th>
+        <th>Signups</th>
+      </tr></thead>
+      <tbody>
+        ${variantStats.map(v => {
+          const stopPct = v.delivered > 0 ? (v.opt_out / v.delivered * 100) : 0;
+          const stopColor = stopPct >= 5 ? "#dc2626" : stopPct >= 2 ? "#d97706" : "var(--green)";
+          const clickPct = v.delivered > 0 ? `(${(v.clicked / v.delivered * 100).toFixed(1)}%)` : "";
+          const replyPct = v.delivered > 0 ? `(${(v.replied / v.delivered * 100).toFixed(1)}%)` : "";
+          return `<tr>
+            <td><code style="font-size:.78rem">${esc(v.variant)}</code></td>
+            <td class="number-cell">${v.sent}</td>
+            <td class="number-cell">${v.delivered}</td>
+            <td class="number-cell" style="color:${v.failed > 0 ? "var(--red)" : "var(--gray-400)"}">${v.failed}</td>
+            <td class="number-cell">${v.clicked} <span style="color:var(--gray-400);font-weight:400;font-size:.78rem">${clickPct}</span></td>
+            <td class="number-cell">${v.replied} <span style="color:var(--gray-400);font-weight:400;font-size:.78rem">${replyPct}</span></td>
+            <td class="number-cell" style="color:${stopColor}">${v.opt_out}</td>
+            <td class="number-cell" style="color:${stopColor};font-weight:700">${stopPct.toFixed(1)}%</td>
+            <td class="number-cell">${v.called_demo}</td>
+            <td class="number-cell" style="color:var(--green);font-weight:700">${v.signed_up}</td>
+          </tr>`;
+        }).join("")}
+      </tbody>
+    </table>
+  </div>
+</div>` : ""}
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
   <div class="card">

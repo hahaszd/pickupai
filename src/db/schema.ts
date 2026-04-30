@@ -187,5 +187,21 @@ export const migrationStatements = [
   `ALTER TABLE tenants ADD COLUMN expired_at TEXT`,
   // Set when the daily release sweep deletes the Twilio number; suppresses re-release attempts.
   `ALTER TABLE tenants ADD COLUMN number_released_at TEXT`,
-  `ALTER TABLE outreach_log ADD COLUMN twilio_sid TEXT`
+  `ALTER TABLE outreach_log ADD COLUMN twilio_sid TEXT`,
+  // Marketing-SMS A/B testing + per-recipient attribution.
+  // variant: free-form tag (e.g. "A_reply_yes", "B_call_demo") used to group
+  //   sends for funnel analysis. NULL for pre-instrumented historical rows.
+  // link_clicked_at / replied_at / reply_body: populated by the inbound
+  //   /r/:prospectId redirect and the Mobile Message inbound webhook so we
+  //   can attribute clicks and replies back to the originating SMS.
+  `ALTER TABLE outreach_log ADD COLUMN variant TEXT`,
+  `ALTER TABLE outreach_log ADD COLUMN link_clicked_at TEXT`,
+  `ALTER TABLE outreach_log ADD COLUMN replied_at TEXT`,
+  `ALTER TABLE outreach_log ADD COLUMN reply_body TEXT`,
+  `CREATE INDEX IF NOT EXISTS idx_outreach_variant ON outreach_log(variant, sent_at) WHERE variant IS NOT NULL`,
+  // Hard suppression timestamp. Set whenever a STOP / opt-out is processed.
+  // Independent of `prospects.status` so we can prove "we honoured the opt-out
+  // at <timestamp>" for ACMA record-keeping even if status changes later.
+  `ALTER TABLE prospects ADD COLUMN unsubscribed_at TEXT`,
+  `CREATE INDEX IF NOT EXISTS idx_prospects_unsubscribed ON prospects(unsubscribed_at) WHERE unsubscribed_at IS NOT NULL`
 ];

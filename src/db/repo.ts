@@ -793,6 +793,109 @@ export function getCampaignFunnelStats(db: Db, daysBack = 30): CampaignFunnelSta
   };
 }
 
+// ─── Per-variant A/B funnel stats ─────────────────────────────────────────────
+
+export type VariantFunnelRow = {
+  variant: string;
+  sent: number;
+  delivered: number;
+  failed: number;
+  clicked: number;
+  replied: number;
+  opt_out: number;
+  called_demo: number;
+  signed_up: number;
+};
+
+/**
+ * Per-variant A/B funnel rollup. Joins outreach_log -> prospects -> calls/tenants
+ * to compute the kill-rule metrics named in the plan: delivered, STOP rate,
+ * click rate, reply rate, demo-call rate, signup rate, all bucketed by variant.
+ *
+ * Variants are taken verbatim from outreach_log.variant; rows with NULL variant
+ * are grouped under "(none)" so legacy/un-tagged sends are still visible.
+ */
+export function getVariantFunnelStats(db: Db, daysBack = 30): VariantFunnelRow[] {
+  const sinceIso = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
+
+  const sends = db.all<{
+    log_id: string;
+    prospect_id: string;
+    variant: string | null;
+    status: string;
+    link_clicked_at: string | null;
+    replied_at: string | null;
+  }>(
+    `SELECT log_id, prospect_id, variant, status, link_clicked_at, replied_at
+     FROM outreach_log
+     WHERE channel = 'sms' AND sent_at >= ?`,
+    [sinceIso]
+  );
+
+  if (sends.length === 0) return [];
+
+  const prospectIds = [...new Set(sends.map(s => s.prospect_id))];
+  const prospectRows = prospectIds.length
+    ? db.all<{ prospect_id: string; phone: string | null }>(
+        `SELECT prospect_id, phone FROM prospects WHERE prospect_id IN (${prospectIds.map(() => "?").join(",")})`,
+        prospectIds
+      )
+    : [];
+  const phoneByProspect = new Map(prospectRows.map(p => [p.prospect_id, p.phone]));
+  const phones = [...new Set(prospectRows.map(p => p.phone).filter((x): x is string => !!x))];
+
+  const calledPhones = new Set<string>();
+  const signedUpPhones = new Set<string>();
+  if (phones.length > 0) {
+    const calledRows = db.all<{ from_number: string }>(
+      `SELECT DISTINCT from_number FROM calls
+       WHERE from_number IN (${phones.map(() => "?").join(",")}) AND started_at >= ?`,
+      [...phones, sinceIso]
+    );
+    for (const r of calledRows) calledPhones.add(r.from_number);
+    const signedRows = db.all<{ owner_phone: string }>(
+      `SELECT DISTINCT owner_phone FROM tenants
+       WHERE owner_phone IN (${phones.map(() => "?").join(",")}) AND created_at >= ?`,
+      [...phones, sinceIso]
+    );
+    for (const r of signedRows) signedUpPhones.add(r.owner_phone);
+  }
+
+  const optOutByProspect = new Set(
+    db.all<{ prospect_id: string }>(
+      `SELECT DISTINCT prospect_id FROM outreach_log
+       WHERE channel = 'sms_reply' AND status = 'opt_out' AND sent_at >= ?`,
+      [sinceIso]
+    ).map(r => r.prospect_id)
+  );
+
+  const buckets = new Map<string, VariantFunnelRow>();
+  const bucketFor = (variant: string | null): VariantFunnelRow => {
+    const key = variant ?? "(none)";
+    let row = buckets.get(key);
+    if (!row) {
+      row = { variant: key, sent: 0, delivered: 0, failed: 0, clicked: 0, replied: 0, opt_out: 0, called_demo: 0, signed_up: 0 };
+      buckets.set(key, row);
+    }
+    return row;
+  };
+
+  for (const s of sends) {
+    const row = bucketFor(s.variant);
+    row.sent++;
+    if (/^delivered|^sent$/i.test(s.status)) row.delivered++;
+    if (/failed|undelivered|rejected|skipped/i.test(s.status)) row.failed++;
+    if (s.link_clicked_at) row.clicked++;
+    if (s.replied_at) row.replied++;
+    if (optOutByProspect.has(s.prospect_id)) row.opt_out++;
+    const phone = phoneByProspect.get(s.prospect_id);
+    if (phone && calledPhones.has(phone)) row.called_demo++;
+    if (phone && signedUpPhones.has(phone)) row.signed_up++;
+  }
+
+  return [...buckets.values()].sort((a, b) => b.sent - a.sent);
+}
+
 export type AnalyticsEventRow = {
   event_id: string;
   event_name: string;
@@ -1139,6 +1242,10 @@ export type OutreachLogRow = {
   status: string;
   sent_at: string;
   twilio_sid: string | null;
+  variant: string | null;
+  link_clicked_at: string | null;
+  replied_at: string | null;
+  reply_body: string | null;
 };
 
 export function createProspect(
@@ -1284,20 +1391,97 @@ export function importProspects(
 
 export function createOutreachLog(
   db: Db,
-  data: { prospect_id: string; channel: string; message?: string; status?: string; twilio_sid?: string }
+  data: { prospect_id: string; channel: string; message?: string; status?: string; twilio_sid?: string; variant?: string }
 ): OutreachLogRow {
   const log_id = randomUUID();
   const now = new Date().toISOString();
   db.run(
-    `INSERT INTO outreach_log (log_id, prospect_id, channel, message, status, sent_at, twilio_sid)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [log_id, data.prospect_id, data.channel, data.message ?? null, data.status ?? "sent", now, data.twilio_sid ?? null]
+    `INSERT INTO outreach_log (log_id, prospect_id, channel, message, status, sent_at, twilio_sid, variant)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [log_id, data.prospect_id, data.channel, data.message ?? null, data.status ?? "sent", now, data.twilio_sid ?? null, data.variant ?? null]
   );
-  return { log_id, prospect_id: data.prospect_id, channel: data.channel, message: data.message ?? null, status: data.status ?? "sent", sent_at: now, twilio_sid: data.twilio_sid ?? null };
+  return {
+    log_id,
+    prospect_id: data.prospect_id,
+    channel: data.channel,
+    message: data.message ?? null,
+    status: data.status ?? "sent",
+    sent_at: now,
+    twilio_sid: data.twilio_sid ?? null,
+    variant: data.variant ?? null,
+    link_clicked_at: null,
+    replied_at: null,
+    reply_body: null
+  };
 }
 
 export function updateOutreachLogStatus(db: Db, twilioSid: string, status: string) {
   db.run("UPDATE outreach_log SET status = ? WHERE twilio_sid = ?", [status, twilioSid]);
+}
+
+/**
+ * Mark the most-recent SMS outreach_log row for this prospect as clicked.
+ * Idempotent: only sets link_clicked_at on the latest send so a re-click after
+ * a re-send updates the new row, not the old one.
+ */
+export function markOutreachLogClickedForProspect(db: Db, prospectId: string, at: string = new Date().toISOString()): void {
+  db.run(
+    `UPDATE outreach_log
+     SET link_clicked_at = COALESCE(link_clicked_at, ?)
+     WHERE log_id = (
+       SELECT log_id FROM outreach_log
+       WHERE prospect_id = ? AND channel = 'sms'
+       ORDER BY sent_at DESC LIMIT 1
+     )`,
+    [at, prospectId]
+  );
+}
+
+/**
+ * Record an inbound reply on the most-recent SMS outreach_log row for this
+ * prospect. Body is stored verbatim (truncated to 500 chars to keep rows light).
+ */
+export function markOutreachLogRepliedForProspect(
+  db: Db,
+  prospectId: string,
+  body: string,
+  at: string = new Date().toISOString()
+): void {
+  const trimmed = body.length > 500 ? body.slice(0, 500) : body;
+  db.run(
+    `UPDATE outreach_log
+     SET replied_at = COALESCE(replied_at, ?), reply_body = COALESCE(reply_body, ?)
+     WHERE log_id = (
+       SELECT log_id FROM outreach_log
+       WHERE prospect_id = ? AND channel = 'sms'
+       ORDER BY sent_at DESC LIMIT 1
+     )`,
+    [at, trimmed, prospectId]
+  );
+}
+
+/**
+ * Honour an inbound STOP/UNSUBSCRIBE keyword: stamp prospects.unsubscribed_at
+ * (kept independent of `status` for legal record-keeping) and flip status to
+ * do_not_contact so the bulk-send filter excludes them.
+ */
+export function markProspectUnsubscribed(
+  db: Db,
+  prospectId: string,
+  at: string = new Date().toISOString()
+): void {
+  db.run(
+    "UPDATE prospects SET unsubscribed_at = COALESCE(unsubscribed_at, ?), status = 'do_not_contact' WHERE prospect_id = ?",
+    [at, prospectId]
+  );
+}
+
+/** Export all unsubscribed prospect phone numbers (for ACMA suppression-list record-keeping). */
+export function listUnsubscribedProspects(db: Db): Array<{ prospect_id: string; phone: string | null; business_name: string; unsubscribed_at: string }> {
+  return db.all(
+    "SELECT prospect_id, phone, business_name, unsubscribed_at FROM prospects WHERE unsubscribed_at IS NOT NULL ORDER BY unsubscribed_at DESC",
+    []
+  );
 }
 
 // ─── Onboarding nudge helpers ─────────────────────────────────────────────────

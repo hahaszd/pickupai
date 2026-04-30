@@ -123,6 +123,11 @@ import {
   createOutreachLog,
   listOutreachForProspect,
   updateOutreachLogStatus,
+  markOutreachLogClickedForProspect,
+  markOutreachLogRepliedForProspect,
+  markProspectUnsubscribed,
+  listUnsubscribedProspects,
+  getVariantFunnelStats,
   getCallsByFromNumber,
   getTenantByOwnerPhone,
   getProspectByPhone,
@@ -985,6 +990,54 @@ async function main() {
     app.get("/privacy", gaInject);
   }
 
+  // ── Per-recipient SMS link tracker ────────────────────────────────────────
+  //
+  // Marketing SMS variants embed `${PUBLIC_BASE_URL}/r/{prospect_id}` instead of
+  // the bare site URL so we can attribute every site visit back to the SMS that
+  // produced it. The endpoint:
+  //   1. Stamps `outreach_log.link_clicked_at` on the most-recent SMS row for
+  //      the prospect (idempotent — only sets if NULL).
+  //   2. Writes an `sms_link_clicked` analytics event with variant + UA + IP.
+  //   3. 302s to the landing page with UTM params so GA4 attributes the visit
+  //      to the right campaign/variant.
+  //
+  // Mounted BEFORE express.static so `/r/<uuid>` doesn't collide with a file in
+  // /public. Mounted as a regular GET so caches/short-link previews don't burn
+  // a click — we keep it idempotent on the DB side anyway.
+  app.get("/r/:prospectId", (req, res) => {
+    const pid = req.params.prospectId;
+    const variant = typeof req.query.v === "string" ? req.query.v.slice(0, 32) : undefined;
+
+    // Validate prospect exists, but don't 404 on miss — we still want the user
+    // to land on the site rather than see an error from a typo / forwarded link.
+    const prospect = getProspectById(db, pid);
+    if (prospect) {
+      try {
+        markOutreachLogClickedForProspect(db, pid);
+        trackEvent("sms_link_clicked", {
+          payload: {
+            prospect_id: pid,
+            variant: variant ?? null,
+            ip: req.ip ?? null,
+            ua: req.headers["user-agent"] ?? null
+          }
+        });
+      } catch (err) {
+        log.warn({ err, pid }, "Failed to record SMS link click");
+      }
+    } else {
+      log.info({ pid }, "SMS link click for unknown prospect_id — redirecting anyway");
+    }
+
+    const target = new URL("/", env.PUBLIC_BASE_URL || "https://getpickupai.com.au/");
+    target.searchParams.set("utm_source", "sms");
+    target.searchParams.set("utm_medium", "marketing_sms");
+    target.searchParams.set("utm_campaign", "tradies_v2");
+    if (variant) target.searchParams.set("utm_content", variant);
+    target.searchParams.set("pid", pid);
+    res.redirect(302, target.toString());
+  });
+
   // Serve landing page from /public
   app.use(express.static(PUBLIC_DIR));
 
@@ -1451,17 +1504,60 @@ async function main() {
       payload: { from, to, isDemo }
     });
 
-    if (isDemo && typeof from === "string" && from.trim()) {
-      const prospect = getProspectByPhone(db, toE164Au(from));
-      if (prospect && (prospect.status === "new" || prospect.status === "contacted")) {
-        updateProspect(db, prospect.prospect_id, { status: "replied" });
-        createOutreachLog(db, {
-          prospect_id: prospect.prospect_id,
-          channel: "demo_call",
-          message: `Called demo number ${to}`,
-          status: "inbound"
-        });
-        log.info({ prospectId: prospect.prospect_id, from }, "Auto-updated prospect status to replied (demo call)");
+    // ── SMS-attributed demo-call matcher ───────────────────────────────────
+    // When any inbound call comes in, check whether the caller's number
+    // belongs to a prospect we recently SMSed. If so, credit the call to the
+    // most-recent variant so we can compute per-variant demo-call rate.
+    //
+    // Runs for ALL calls (not just demo) because tradies who saw "Call
+    // 02 8000 0796" sometimes call from a different in-van mobile, and we
+    // still want the attribution. The demo-vs-real distinction is captured in
+    // the `is_demo` column on the calls row above.
+    if (typeof from === "string" && from.trim()) {
+      try {
+        const callerE164 = toE164Au(from);
+        const prospect = getProspectByPhone(db, callerE164);
+        if (prospect) {
+          const recentSms = db.get<{ log_id: string; variant: string | null; sent_at: string }>(
+            `SELECT log_id, variant, sent_at FROM outreach_log
+             WHERE prospect_id = ? AND channel = 'sms'
+             ORDER BY sent_at DESC LIMIT 1`,
+            [prospect.prospect_id]
+          );
+          // Only count the call as SMS-attributed if the SMS was sent within the
+          // last 30 days; older SMS likely aren't what motivated this call.
+          const withinAttributionWindow = recentSms
+            && (Date.now() - new Date(recentSms.sent_at).getTime()) < 30 * 24 * 60 * 60 * 1000;
+
+          if (prospect.status === "new" || prospect.status === "contacted") {
+            updateProspect(db, prospect.prospect_id, { status: "replied" });
+          }
+          createOutreachLog(db, {
+            prospect_id: prospect.prospect_id,
+            channel: "demo_call",
+            message: `Called ${to ?? "unknown"}${isDemo ? " (demo)" : ""}`,
+            status: isDemo ? "inbound_demo" : "inbound_real"
+          });
+          if (withinAttributionWindow) {
+            trackEvent("sms_attributed_demo_call", {
+              call_id: callSid,
+              payload: {
+                prospect_id: prospect.prospect_id,
+                variant: recentSms!.variant,
+                sms_sent_at: recentSms!.sent_at,
+                is_demo: isDemo,
+                from: callerE164,
+                to
+              }
+            });
+          }
+          log.info(
+            { prospectId: prospect.prospect_id, from: callerE164, variant: recentSms?.variant ?? null, isDemo },
+            "SMS-prospect identified as caller"
+          );
+        }
+      } catch (err) {
+        log.warn({ err, from }, "SMS-attribution lookup failed");
       }
     }
 
@@ -1584,57 +1680,98 @@ async function main() {
     res.sendStatus(200);
   });
 
-  const OPT_OUT_KEYWORDS = new Set(["stop", "unsubscribe", "cancel", "end", "quit"]);
-  const OPT_IN_KEYWORDS = new Set(["start", "unstop"]);
+  const OPT_OUT_KEYWORDS = new Set(["stop", "unsubscribe", "cancel", "end", "quit", "stopall", "optout"]);
+  const OPT_IN_KEYWORDS = new Set(["start", "unstop", "yes", "subscribe"]);
 
-  app.post("/twilio/sms/incoming", twilioVerify, (req, res) => {
-    const from = typeof req.body?.From === "string" ? req.body.From.trim() : null;
-    const body = typeof req.body?.Body === "string" ? req.body.Body.trim() : "";
-    const to = typeof req.body?.To === "string" ? req.body.To.trim() : null;
-
-    if (!from) { res.type("text/xml").send("<Response/>"); return; }
-
-    const phone = toE164Au(from);
+  /**
+   * Shared inbound-SMS classifier. Used by both /twilio/sms/incoming and
+   * /mobilemsg/sms/incoming so STOP / opt-in / reply behaviour is identical
+   * regardless of which provider the SMS came through.
+   *
+   * Returns the keyword class for logging by the caller. Side effects:
+   *   - STOP: stamps prospects.unsubscribed_at AND flips status to do_not_contact
+   *   - YES/START on a do_not_contact prospect: flips back to contacted
+   *   - other: advances new/contacted -> replied; records reply on the latest
+   *     outreach_log row so per-variant funnel rollups can credit the right send
+   *
+   * Always writes an outreach_log row with channel='sms_reply' so we have
+   * an immutable audit trail per ACMA record-keeping requirements.
+   */
+  function processInboundSms(rawFrom: string, rawBody: string, providerLabel: string): "opt_out" | "opt_in" | "received" | "no_prospect" {
+    const phone = toE164Au(rawFrom);
+    const body = rawBody.trim();
     const keyword = body.toLowerCase().replace(/[^a-z]/g, "");
     const prospect = getProspectByPhone(db, phone);
 
-    log.info({ from: phone, to, body, prospectId: prospect?.prospect_id ?? null }, "Inbound SMS received");
+    log.info({ provider: providerLabel, from: phone, body, prospectId: prospect?.prospect_id ?? null }, "Inbound SMS received");
 
-    if (prospect) {
-      if (OPT_OUT_KEYWORDS.has(keyword)) {
-        updateProspect(db, prospect.prospect_id, { status: "do_not_contact" });
-        createOutreachLog(db, {
-          prospect_id: prospect.prospect_id,
-          channel: "sms_reply",
-          message: body,
-          status: "opt_out"
-        });
-        log.info({ phone, business: prospect.business_name }, "Prospect opted out via SMS");
-      } else if (OPT_IN_KEYWORDS.has(keyword)) {
-        if (prospect.status === "do_not_contact") {
-          updateProspect(db, prospect.prospect_id, { status: "contacted" });
-        }
+    if (!prospect) return "no_prospect";
+
+    if (OPT_OUT_KEYWORDS.has(keyword)) {
+      markProspectUnsubscribed(db, prospect.prospect_id);
+      createOutreachLog(db, {
+        prospect_id: prospect.prospect_id,
+        channel: "sms_reply",
+        message: body,
+        status: "opt_out"
+      });
+      trackEvent("sms_opt_out", { payload: { prospect_id: prospect.prospect_id, provider: providerLabel } });
+      log.info({ phone, business: prospect.business_name, provider: providerLabel }, "Prospect opted out via SMS");
+      return "opt_out";
+    }
+
+    if (OPT_IN_KEYWORDS.has(keyword)) {
+      // YES/START on a previously-suppressed prospect re-activates them; on a
+      // brand-new prospect it counts as a positive reply (for variant A's
+      // "Reply YES" CTA).
+      if (prospect.status === "do_not_contact") {
+        updateProspect(db, prospect.prospect_id, { status: "contacted" });
         createOutreachLog(db, {
           prospect_id: prospect.prospect_id,
           channel: "sms_reply",
           message: body,
           status: "opt_in"
         });
-        log.info({ phone, business: prospect.business_name }, "Prospect opted back in via SMS");
-      } else {
-        if (prospect.status === "new" || prospect.status === "contacted") {
-          updateProspect(db, prospect.prospect_id, { status: "replied" });
-        }
-        createOutreachLog(db, {
-          prospect_id: prospect.prospect_id,
-          channel: "sms_reply",
-          message: body,
-          status: "received"
-        });
-        log.info({ phone, business: prospect.business_name }, "Prospect replied via SMS");
+        trackEvent("sms_opt_in", { payload: { prospect_id: prospect.prospect_id, provider: providerLabel } });
+        return "opt_in";
       }
+      // Treat YES from a never-opted-out prospect as a positive reply
+      updateProspect(db, prospect.prospect_id, { status: "replied" });
+      markOutreachLogRepliedForProspect(db, prospect.prospect_id, body);
+      createOutreachLog(db, {
+        prospect_id: prospect.prospect_id,
+        channel: "sms_reply",
+        message: body,
+        status: "received_yes"
+      });
+      trackEvent("sms_reply_yes", { payload: { prospect_id: prospect.prospect_id, provider: providerLabel } });
+      return "received";
     }
 
+    if (prospect.status === "new" || prospect.status === "contacted") {
+      updateProspect(db, prospect.prospect_id, { status: "replied" });
+    }
+    markOutreachLogRepliedForProspect(db, prospect.prospect_id, body);
+    createOutreachLog(db, {
+      prospect_id: prospect.prospect_id,
+      channel: "sms_reply",
+      message: body,
+      status: "received"
+    });
+    trackEvent("sms_reply_received", { payload: { prospect_id: prospect.prospect_id, provider: providerLabel } });
+    log.info({ phone, business: prospect.business_name, provider: providerLabel }, "Prospect replied via SMS");
+    return "received";
+  }
+
+  app.post("/twilio/sms/incoming", twilioVerify, (req, res) => {
+    const from = typeof req.body?.From === "string" ? req.body.From.trim() : null;
+    const body = typeof req.body?.Body === "string" ? req.body.Body : "";
+    if (!from) { res.type("text/xml").send("<Response/>"); return; }
+    try {
+      processInboundSms(from, body, "twilio");
+    } catch (err) {
+      log.error({ err, from }, "Twilio inbound SMS handler failed");
+    }
     res.type("text/xml").send("<Response/>");
   });
 
@@ -1646,6 +1783,42 @@ async function main() {
     if (messageId && status) {
       updateOutreachLogStatus(db, messageId, status);
       log.info({ messageId, status, customRef }, "Mobile Message delivery status received");
+    }
+    res.sendStatus(200);
+  });
+
+  /**
+   * Mobile Message AU inbound-SMS webhook.
+   *
+   * Their docs publish slightly inconsistent field names across product tiers
+   * (some accounts get `from`/`message`, others get `sender`/`body`), so we
+   * accept whichever shape arrives and normalise. Always responds 200 to
+   * avoid the provider retrying and double-recording the reply.
+   *
+   * Configure on the Mobile Message side to POST to:
+   *   ${PUBLIC_BASE_URL}/mobilemsg/sms/incoming
+   */
+  app.post("/mobilemsg/sms/incoming", express.json(), (req, res) => {
+    const b = req.body ?? {};
+    const from =
+      typeof b.from === "string" ? b.from
+      : typeof b.sender === "string" ? b.sender
+      : typeof b.source === "string" ? b.source
+      : typeof b.msisdn === "string" ? b.msisdn
+      : null;
+    const body =
+      typeof b.message === "string" ? b.message
+      : typeof b.body === "string" ? b.body
+      : typeof b.text === "string" ? b.text
+      : "";
+    if (!from) {
+      log.warn({ body: req.body }, "Mobile Message inbound webhook missing 'from' field");
+      return res.sendStatus(200);
+    }
+    try {
+      processInboundSms(from, body, "mobilemessage");
+    } catch (err) {
+      log.error({ err, from }, "Mobile Message inbound SMS handler failed");
     }
     res.sendStatus(200);
   });
@@ -1876,7 +2049,8 @@ async function main() {
     const daysRaw = typeof req.query.days === "string" ? Number(req.query.days) : 30;
     const days = Number.isFinite(daysRaw) ? Math.max(1, Math.min(90, Math.floor(daysRaw))) : 30;
     const stats = getCampaignFunnelStats(db, days);
-    res.send(adminCampaignPage(stats, days));
+    const variantStats = getVariantFunnelStats(db, days);
+    res.send(adminCampaignPage(stats, days, undefined, variantStats));
   });
 
   // Users list
@@ -2165,18 +2339,108 @@ async function main() {
     res.redirect(`/admin/prospects?flash=✓ Imported ${result.imported} prospects (${result.skipped} duplicates skipped${notMobilePart})`);
   });
 
+  // ── Marketing-SMS helpers (shared by bulk-sms and send-selected-sms) ──────
+
+  const QUIET_HOURS_START = 9;   // 9am Sydney
+  const QUIET_HOURS_END = 19;    // 7pm Sydney (exclusive)
+  const SYDNEY_TZ = "Australia/Sydney";
+
+  /**
+   * ACMA-aligned quiet-hours guard. Marketing SMS may only land between
+   * 09:00 and 19:00 Sydney time. Returns the current Sydney hour or null
+   * if it's outside the allowed window.
+   *
+   * Bypass with ?force=1 (only honoured for admin endpoints) when an
+   * operator explicitly accepts the risk during testing.
+   */
+  function quietHoursStatus(): { allowed: boolean; sydneyHour: number; reason?: string } {
+    const hourStr = new Date().toLocaleString("en-US", { timeZone: SYDNEY_TZ, hour: "numeric", hour12: false });
+    const sydneyHour = parseInt(hourStr, 10);
+    if (!Number.isFinite(sydneyHour)) return { allowed: true, sydneyHour: -1 };
+    if (sydneyHour < QUIET_HOURS_START || sydneyHour >= QUIET_HOURS_END) {
+      return {
+        allowed: false,
+        sydneyHour,
+        reason: `Sydney time is ${sydneyHour}:00 — marketing SMS only sends between ${QUIET_HOURS_START}:00 and ${QUIET_HOURS_END}:00. Add &force=1 to override.`
+      };
+    }
+    return { allowed: true, sydneyHour };
+  }
+
+  /**
+   * Render a marketing-SMS template with prospect-specific substitutions:
+   *   {name} -> p.business_name
+   *   {pid}  -> p.prospect_id              (raw — for bare paths)
+   *   {link} -> ${PUBLIC_BASE_URL}/r/{pid} (per-recipient tracked redirect,
+   *            with utm_content=variant if a variant is supplied)
+   *
+   * Always appends a STOP/opt-out line if the message doesn't already
+   * mention an opt-out — required by the Spam Act 2003 functional-unsubscribe
+   * rule (we accept STOP via SMS reply or email).
+   */
+  function renderMarketingSms(template: string, p: ProspectRow, variant?: string): string {
+    const baseUrl = (env.PUBLIC_BASE_URL || "https://getpickupai.com.au").replace(/\/$/, "");
+    const tracked = `${baseUrl}/r/${p.prospect_id}${variant ? `?v=${encodeURIComponent(variant)}` : ""}`;
+    let body = template
+      .replace(/\{name\}/gi, p.business_name)
+      .replace(/\{pid\}/gi, p.prospect_id)
+      .replace(/\{link\}/gi, tracked);
+    const lower = body.toLowerCase();
+    const hasOptOut =
+      lower.includes("hello@getpickupai.com.au") ||
+      /\bstop\b/.test(lower) ||
+      lower.includes("opt out") ||
+      lower.includes("opt-out") ||
+      lower.includes("unsubscribe");
+    if (!hasOptOut) body += "\nReply STOP to opt out.";
+    return body;
+  }
+
+  /**
+   * Centralised pre-send filter. Returns one of:
+   *   { ok: true }                    — clear to send
+   *   { ok: false, reason: "..." }    — skip, with a specific exclusion reason
+   *
+   * Honours: hard suppression (unsubscribed_at), status-based exclusion,
+   * non-AU-mobile, missing phone. Per-prospect; no cross-prospect logic so it
+   * stays cheap inside a loop.
+   */
+  function smsPreSendCheck(p: ProspectRow): { ok: true } | { ok: false; reason: string } {
+    if ((p as any).unsubscribed_at) return { ok: false, reason: "unsubscribed" };
+    if (p.status === "do_not_contact") return { ok: false, reason: "do_not_contact" };
+    if (p.status === "not_interested") return { ok: false, reason: "not_interested" };
+    if (p.status === "not_mobile") return { ok: false, reason: "not_mobile" };
+    if (!p.phone) return { ok: false, reason: "no_phone" };
+    if (!isAuMobile(p.phone)) return { ok: false, reason: "not_au_mobile" };
+    return { ok: true };
+  }
+
   app.post("/admin/prospects/bulk-sms", adminHtmlAuth, express.urlencoded({ extended: false }), async (req, res) => {
     const message = req.body?.message?.trim();
     const statusFilter = req.body?.status || undefined;
     const tradeFilter = req.body?.trade_type || undefined;
+    const variant = typeof req.body?.variant === "string" && req.body.variant.trim() ? req.body.variant.trim().slice(0, 32) : undefined;
+    const force = req.body?.force === "1" || req.query?.force === "1";
     if (!message) return res.redirect("/admin/prospects/bulk-sms-form?flash=⚠ Message is required");
 
+    const quiet = quietHoursStatus();
+    if (!quiet.allowed && !force) {
+      return res.redirect(`/admin/prospects/bulk-sms-form?flash=⚠ Quiet hours: ${quiet.reason}`);
+    }
+
     const all = listProspects(db, { status: statusFilter, trade_type: tradeFilter, limit: 99999 });
-    const sendable = all.filter(p =>
-      p.phone && p.status !== "do_not_contact" && p.status !== "not_interested" && p.status !== "not_mobile"
-    );
-    const targets = sendable.filter(p => p.phone && isAuMobile(p.phone));
-    const skippedNonMobile = sendable.length - targets.length;
+    let skippedSuppressed = 0;
+    let skippedNonMobile = 0;
+    const targets: ProspectRow[] = [];
+    for (const p of all) {
+      const check = smsPreSendCheck(p);
+      if (!check.ok) {
+        if (check.reason === "unsubscribed" || check.reason === "do_not_contact" || check.reason === "not_interested") skippedSuppressed++;
+        else skippedNonMobile++;
+        continue;
+      }
+      targets.push(p);
+    }
 
     let sent = 0;
     let failed = 0;
@@ -2185,9 +2449,7 @@ async function main() {
     if (isMobileMessageConfigured()) {
       const batch: BatchMessage[] = targets.map(p => ({
         to: p.phone!,
-        body: message
-          .replace(/\{name\}/gi, p.business_name)
-          + (message.toLowerCase().includes("hello@getpickupai.com.au") ? "" : "\nTo opt out, email hello@getpickupai.com.au"),
+        body: renderMarketingSms(message, p, variant),
         customRef: p.prospect_id
       }));
       const results = await sendMarketingSmsBatch(batch);
@@ -2195,59 +2457,64 @@ async function main() {
         const r = results[i];
         const p = targets[i];
         if (r.result.status === "sent") {
-          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: batch[i].body, status: "sent", twilio_sid: r.result.message_id });
+          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: batch[i].body, status: "sent", twilio_sid: r.result.message_id, variant });
           updateProspect(db, p.prospect_id, { status: p.status === "new" ? "contacted" : p.status, last_contacted_at: new Date().toISOString() });
           sent++;
         } else {
           const reason = r.result.status === "skipped" ? r.result.reason : r.result.reason;
-          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: batch[i].body, status: `failed:${reason}` });
+          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: batch[i].body, status: `failed:${reason}`, variant });
           failed++;
           failureReasons.push(`${p.phone}:${reason}`);
         }
       }
     } else {
-    for (const p of targets) {
-      const body = message
-        .replace(/\{name\}/gi, p.business_name)
-        + (message.toLowerCase().includes("hello@getpickupai.com.au") ? "" : "\nTo opt out, email hello@getpickupai.com.au");
-      try {
-        const smsStatusCb = `${env.PUBLIC_BASE_URL}/twilio/sms/status`;
-        const sms = await sendOwnerSms(db, body, p.phone!, smsStatusCb);
-        if (sms.status === "sent") {
-          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: "sent", twilio_sid: sms.sid });
-          updateProspect(db, p.prospect_id, { status: p.status === "new" ? "contacted" : p.status, last_contacted_at: new Date().toISOString() });
-          sent++;
-          await new Promise(r => setTimeout(r, 1000));
-        } else {
-          createOutreachLog(db, {
-            prospect_id: p.prospect_id,
-            channel: "sms",
-            message: body,
-            status: `skipped:${sms.reason}`
-          });
+      for (const p of targets) {
+        const body = renderMarketingSms(message, p, variant);
+        try {
+          const smsStatusCb = `${env.PUBLIC_BASE_URL}/twilio/sms/status`;
+          const sms = await sendOwnerSms(db, body, p.phone!, smsStatusCb);
+          if (sms.status === "sent") {
+            createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: "sent", twilio_sid: sms.sid, variant });
+            updateProspect(db, p.prospect_id, { status: p.status === "new" ? "contacted" : p.status, last_contacted_at: new Date().toISOString() });
+            sent++;
+            await new Promise(r => setTimeout(r, 1000));
+          } else {
+            createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: `skipped:${sms.reason}`, variant });
+            failed++;
+            failureReasons.push(`${p.phone}:${sms.reason}`);
+          }
+        } catch (e: any) {
+          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: "failed", variant });
           failed++;
-          failureReasons.push(`${p.phone}:${sms.reason}`);
+          failureReasons.push(`${p.phone}:error`);
+          log.warn({ e, phone: p.phone }, "Bulk SMS failed for prospect");
         }
-      } catch (e: any) {
-        createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: "failed" });
-        failed++;
-        failureReasons.push(`${p.phone}:error`);
-        log.warn({ e, phone: p.phone }, "Bulk SMS failed for prospect");
       }
-    }
     }
     const failSummary = failureReasons.length
       ? ` (${failureReasons.slice(0, 3).join(", ")}${failureReasons.length > 3 ? ", ..." : ""})`
       : "";
-    const skipPart = skippedNonMobile > 0 ? `, ${skippedNonMobile} skipped (not AU mobile)` : "";
+    const skipParts = [
+      skippedNonMobile > 0 ? `${skippedNonMobile} not AU mobile` : "",
+      skippedSuppressed > 0 ? `${skippedSuppressed} suppressed (opt-out/DNC)` : ""
+    ].filter(Boolean).join(", ");
+    const skipMsg = skipParts ? `, ${skipParts}` : "";
+    const variantTag = variant ? ` [variant=${variant}]` : "";
     res.redirect(
-      `/admin/prospects?flash=✓ Bulk SMS complete: ${sent} sent, ${failed} failed${skipPart}${failSummary}`
+      `/admin/prospects?flash=✓ Bulk SMS${variantTag}: ${sent} sent, ${failed} failed${skipMsg}${failSummary}`
     );
   });
 
   app.post("/admin/prospects/send-selected-sms", adminHtmlAuth, express.urlencoded({ extended: false }), async (req, res) => {
     const message = req.body?.message?.trim();
+    const variant = typeof req.body?.variant === "string" && req.body.variant.trim() ? req.body.variant.trim().slice(0, 32) : undefined;
+    const force = req.body?.force === "1" || req.query?.force === "1";
     if (!message) return res.redirect("/admin/prospects?flash=⚠ Message is required");
+
+    const quiet = quietHoursStatus();
+    if (!quiet.allowed && !force) {
+      return res.redirect(`/admin/prospects?flash=⚠ Quiet hours: ${quiet.reason}`);
+    }
 
     let ids: string[] = [];
     if (Array.isArray(req.body?.prospect_ids)) ids = req.body.prospect_ids;
@@ -2258,18 +2525,21 @@ async function main() {
     let failed = 0;
     let skippedStatus = 0;
     let skippedNonMobile = 0;
+    let skippedSuppressed = 0;
     const failureReasons: string[] = [];
 
     const validTargets: { p: ProspectRow; body: string }[] = [];
     for (const id of ids) {
       const p = getProspectById(db, id);
       if (!p) continue;
-      if (p.status === "do_not_contact" || p.status === "not_interested" || p.status === "not_mobile") { skippedStatus++; continue; }
-      if (!p.phone || !isAuMobile(p.phone)) { skippedNonMobile++; continue; }
-      const body = message
-        .replace(/\{name\}/gi, p.business_name)
-        + (message.toLowerCase().includes("hello@getpickupai.com.au") ? "" : "\nTo opt out, email hello@getpickupai.com.au");
-      validTargets.push({ p, body });
+      const check = smsPreSendCheck(p);
+      if (!check.ok) {
+        if (check.reason === "unsubscribed") skippedSuppressed++;
+        else if (check.reason === "do_not_contact" || check.reason === "not_interested" || check.reason === "not_mobile") skippedStatus++;
+        else skippedNonMobile++;
+        continue;
+      }
+      validTargets.push({ p, body: renderMarketingSms(message, p, variant) });
     }
 
     if (isMobileMessageConfigured() && validTargets.length > 0) {
@@ -2283,49 +2553,51 @@ async function main() {
         const r = results[i];
         const { p, body } = validTargets[i];
         if (r.result.status === "sent") {
-          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: "sent", twilio_sid: r.result.message_id });
+          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: "sent", twilio_sid: r.result.message_id, variant });
           updateProspect(db, p.prospect_id, { status: p.status === "new" ? "contacted" : p.status, last_contacted_at: new Date().toISOString() });
           sent++;
         } else {
           const reason = r.result.status === "skipped" ? r.result.reason : r.result.reason;
-          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: `failed:${reason}` });
+          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: `failed:${reason}`, variant });
           failed++;
           failureReasons.push(`${p.phone}:${reason}`);
         }
       }
     } else {
-    for (const { p, body } of validTargets) {
-      try {
-        const smsStatusCb = `${env.PUBLIC_BASE_URL}/twilio/sms/status`;
-        const sms = await sendOwnerSms(db, body, p.phone!, smsStatusCb);
-        if (sms.status === "sent") {
-          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: "sent", twilio_sid: sms.sid });
-          updateProspect(db, p.prospect_id, { status: p.status === "new" ? "contacted" : p.status, last_contacted_at: new Date().toISOString() });
-          sent++;
-          await new Promise(r => setTimeout(r, 1000));
-        } else {
-          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: `skipped:${sms.reason}` });
+      for (const { p, body } of validTargets) {
+        try {
+          const smsStatusCb = `${env.PUBLIC_BASE_URL}/twilio/sms/status`;
+          const sms = await sendOwnerSms(db, body, p.phone!, smsStatusCb);
+          if (sms.status === "sent") {
+            createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: "sent", twilio_sid: sms.sid, variant });
+            updateProspect(db, p.prospect_id, { status: p.status === "new" ? "contacted" : p.status, last_contacted_at: new Date().toISOString() });
+            sent++;
+            await new Promise(r => setTimeout(r, 1000));
+          } else {
+            createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: `skipped:${sms.reason}`, variant });
+            failed++;
+            failureReasons.push(`${p.phone}:${sms.reason}`);
+          }
+        } catch (e: any) {
+          createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: "failed", variant });
           failed++;
-          failureReasons.push(`${p.phone}:${sms.reason}`);
+          failureReasons.push(`${p.phone}:error`);
+          log.warn({ e, phone: p.phone }, "Selected SMS failed for prospect");
         }
-      } catch (e: any) {
-        createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message: body, status: "failed" });
-        failed++;
-        failureReasons.push(`${p.phone}:error`);
-        log.warn({ e, phone: p.phone }, "Selected SMS failed for prospect");
       }
-    }
     }
     const failSummary = failureReasons.length
       ? ` (${failureReasons.slice(0, 3).join(", ")}${failureReasons.length > 3 ? ", ..." : ""})`
       : "";
     const skipParts = [
       skippedNonMobile > 0 ? `${skippedNonMobile} not AU mobile` : "",
-      skippedStatus > 0 ? `${skippedStatus} excluded by status` : ""
+      skippedStatus > 0 ? `${skippedStatus} excluded by status` : "",
+      skippedSuppressed > 0 ? `${skippedSuppressed} unsubscribed` : ""
     ].filter(Boolean).join(", ");
     const skipMsg = skipParts ? `, skipped: ${skipParts}` : "";
+    const variantTag = variant ? ` [variant=${variant}]` : "";
     res.redirect(
-      `/admin/prospects?flash=✓ Selected SMS: ${sent} sent, ${failed} failed${skipMsg}${failSummary}`
+      `/admin/prospects?flash=✓ Selected SMS${variantTag}: ${sent} sent, ${failed} failed${skipMsg}${failSummary}`
     );
   });
 
