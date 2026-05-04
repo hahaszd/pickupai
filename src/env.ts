@@ -130,14 +130,26 @@ const envSchema = z.object({
   SMTP_PASS:   z.string().optional(),
   SMTP_FROM:   z.string().optional().default("PickupAI <noreply@getpickupai.com.au>"),
 
-  // ── Mobile Message (optional — cheap marketing SMS provider) ────────────
-  // When all three are set, outbound marketing/prospect SMS is sent via
-  // Mobile Message instead of Twilio, reducing cost from ~$0.10 to ~$0.02/msg.
-  // Sign up at https://app.mobilemessage.com.au/register
+  // ── Mobile Message (optional — cheap SMS provider) ──────────────────────
+  // When all three are set, ALL outbound SMS (marketing + transactional) is
+  // sent via Mobile Message instead of Twilio, reducing cost from ~$0.10 to
+  // ~$0.02/msg. Sign up at https://app.mobilemessage.com.au/register
   MOBILE_MSG_API_USER: z.string().optional(),
   MOBILE_MSG_API_PASSWORD: z.string().optional(),
-  // Alphanumeric sender name (e.g. "GetPickupAI") or dedicated number
+  // Alphanumeric sender name (e.g. "PickupAI") or dedicated number.
+  // ACMA registers the sender name to the person, not the carrier — you must
+  // register it both on the ACMA SMS Sender ID Register AND get Mobile
+  // Message support to whitelist the exact same string on your account.
+  // Must match the registered ID exactly (case-sensitive on some carriers).
   MOBILE_MSG_SENDER: z.string().optional(),
+  // Per-account opt-out shortlink that Mobile Message hosts on our behalf
+  // (e.g. "mb.st/5xrt"). When a recipient taps it, MM records their number
+  // in our account's unsubscribe list and blocks future marketing sends to
+  // it. Find / generate the link in the MM dashboard under
+  // Send Messages → Insert Opt-Out Message. When set, every outbound SMS
+  // gets "\nOptOut <link>" appended; when unset, the email opt-out line is
+  // used as a fallback.
+  MOBILE_MSG_OPT_OUT_LINK: z.string().optional(),
 
   // ── Google Analytics (optional) ───────────────────────────────────────────
   // GA4 Measurement ID (e.g. G-XXXXXXXXXX). When set, the gtag.js snippet is

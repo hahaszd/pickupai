@@ -86,8 +86,59 @@ Plus, every commercial message must:
 ## Sender identification
 
 All marketing SMS sent through `renderMarketingSms()` include the brand name
-("PickupAI") and a working opt-out path (STOP reply OR
-hello@getpickupai.com.au). This satisfies s.17 + s.18 of the Spam Act.
+("PickupAI") and a working opt-out path. This satisfies s.17 + s.18 of the
+Spam Act.
+
+### ACMA SMS Sender ID Register
+
+- **Registered name**: `PickupAI` (case-sensitive — used verbatim as
+  `MOBILE_MSG_SENDER`).
+- **Registered to**: ZHANG, ZILIN.
+- **Lodged via**: Twilio Inc. (carrier of record on the ACMA application).
+  This does not lock us to Twilio for sending — the ACMA register binds the
+  name to the person, not the carrier — but the Mobile Message account also
+  needs the same name whitelisted by their support team. Send proof of the
+  ACMA approval to `support@mobilemessage.com.au` to do that.
+- **Approved**: 30 April 2026.
+- **Reference**: <https://www.acma.gov.au/sms-sender-id-register>.
+
+### Opt-out link (one-way alphanumeric workaround)
+
+Australian alphanumeric sender IDs are one-way — recipients cannot tap
+"Reply" on `PickupAI`. To preserve a working unsubscribe path, every
+outbound SMS includes a per-account opt-out shortlink that Mobile Message
+hosts on our behalf. The link lives in the env var
+`MOBILE_MSG_OPT_OUT_LINK` (e.g. `mb.st/5xrt`) and is appended by
+`appendOptOutLine()` in `src/server.ts` as `OptOut <link>`.
+
+When a recipient taps the link, MM records their number on our account's
+unsubscribe list and rejects future marketing sends to that number from
+the API. The full opt-out lifecycle (page hosting, click tracking,
+suppression enforcement) lives on MM's side. Generate or rotate the link
+in the MM dashboard under Send Messages → Insert Opt-Out Message.
+
+If `MOBILE_MSG_OPT_OUT_LINK` is unset (e.g. local dev or pre-rollout), the
+appended line falls back to `To opt out, email hello@getpickupai.com.au`,
+which is honoured by the email opt-out path described above.
+
+#### Suppression-data caveat (deferred follow-up)
+
+Because the unsubscribe is recorded on MM's side, our
+`prospects.unsubscribed_at` column is **not** automatically updated when a
+recipient clicks the link. While Mobile Message is the only marketing
+sender, this is fine — MM blocks the send before it goes out. But if a
+campaign were ever switched back to Twilio, those people would be
+messaged again because our DB still considers them contactable.
+
+Recommended follow-up (out of scope for the initial rollout): a periodic
+job that pulls MM's account unsubscribe list and mirrors it into
+`prospects.unsubscribed_at`. Until that's built, treat MM as the single
+source of truth for opt-outs.
+
+The `/mobilemsg/sms/incoming` webhook stays wired up for any STOPs that
+do arrive via SMS (e.g. through a Twilio fallback during a Mobile Message
+outage); `processInboundSms()` continues to call
+`markProspectUnsubscribed()` on those.
 
 ## Suppression-list maintenance
 

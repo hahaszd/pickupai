@@ -2116,19 +2116,23 @@ async function main() {
       return res.redirect(`/admin/users/${req.params.id}?flash=✓ Number ${newNumber} assigned (SMS not sent)`);
     }
 
-    // Send setup SMS to owner
+    // Send setup SMS to owner via the unified dispatcher (Mobile Message
+    // when configured, Twilio fallback). Routing + tenant_sms_log handled
+    // inside sendTenantSms.
     try {
-      const { twilioClient: tc } = await import("./twilio/client.js");
       const smsBody = buildProvisionSms(updated.name, newNumber, env.PUBLIC_BASE_URL);
-      const toPhone = toE164Au(updated.owner_phone);
-      const msg = await tc.messages.create(env.TWILIO_MESSAGING_SERVICE_SID
-        ? { to: toPhone, body: smsBody, messagingServiceSid: env.TWILIO_MESSAGING_SERVICE_SID }
-        : { to: toPhone, body: smsBody, from: env.TWILIO_SMS_NUMBERS[0] ?? env.TWILIO_DEFAULT_VOICE_NUMBER });
-      logTenantSms(db, { tenant_id: req.params.id, to_phone: toPhone, body: smsBody, status: "sent", twilio_sid: msg.sid });
-      log.info({ tenantId: req.params.id, number: newNumber }, "provision-number SMS sent");
-      res.redirect(
-        `/admin/users/${req.params.id}?flash=✓ Number ${formatAuPhone(newNumber)} assigned & setup SMS sent to ${formatAuPhone(updated.owner_phone)}`
-      );
+      const sms = await sendTenantSms(db, req.params.id, smsBody, updated.owner_phone);
+      if (sms.status === "sent") {
+        log.info({ tenantId: req.params.id, number: newNumber }, "provision-number SMS sent");
+        res.redirect(
+          `/admin/users/${req.params.id}?flash=✓ Number ${formatAuPhone(newNumber)} assigned & setup SMS sent to ${formatAuPhone(updated.owner_phone)}`
+        );
+      } else {
+        log.warn({ tenantId: req.params.id, reason: sms.reason }, "provision-number SMS skipped");
+        res.redirect(
+          `/admin/users/${req.params.id}?flash=⚠ Number assigned but SMS notification skipped (${sms.reason}). Check server logs for details.`
+        );
+      }
     } catch (err: any) {
       log.error({ err }, "provision-number SMS failed");
       res.redirect(
@@ -2368,32 +2372,59 @@ async function main() {
   }
 
   /**
+   * Append a Spam-Act 2003 functional-unsubscribe path to an outbound SMS
+   * body if (and only if) one isn't already present.
+   *
+   * Preference order for the appended line:
+   *   1. "OptOut <MOBILE_MSG_OPT_OUT_LINK>" — when set. The link is a
+   *      per-account shortlink hosted by Mobile Message (e.g. mb.st/5xrt).
+   *      When the recipient taps it, MM records their number on our
+   *      account's unsubscribe list and blocks future marketing sends.
+   *      Suppression lives on MM's side; our `prospects.unsubscribed_at`
+   *      column is not updated by this path.
+   *   2. "To opt out, email hello@getpickupai.com.au" — fallback when no
+   *      link is configured (e.g. local dev or pre-rollout state).
+   *
+   * The "already has an opt-out" detection deliberately does NOT short-
+   * circuit on a bare \bstop\b match — phrases like "stop missing calls"
+   * are common in marketing copy and would silently disable the append,
+   * leaving the message non-compliant. Only a literal opt-out link, email
+   * address, "opt out" / "optout" / "unsubscribe" counts.
+   */
+  function appendOptOutLine(body: string): string {
+    const link = env.MOBILE_MSG_OPT_OUT_LINK;
+    const optOutLine = link
+      ? `\nOptOut ${link}`
+      : `\nTo opt out, email hello@getpickupai.com.au`;
+    const lower = body.toLowerCase();
+    const hasOptOut =
+      lower.includes("hello@getpickupai.com.au") ||
+      lower.includes("opt out") ||
+      lower.includes("opt-out") ||
+      lower.includes("optout") ||
+      lower.includes("unsubscribe") ||
+      (link ? body.includes(link) : false);
+    return hasOptOut ? body : body + optOutLine;
+  }
+
+  /**
    * Render a marketing-SMS template with prospect-specific substitutions:
    *   {name} -> p.business_name
    *   {pid}  -> p.prospect_id              (raw — for bare paths)
    *   {link} -> ${PUBLIC_BASE_URL}/r/{pid} (per-recipient tracked redirect,
    *            with utm_content=variant if a variant is supplied)
    *
-   * Always appends a STOP/opt-out line if the message doesn't already
-   * mention an opt-out — required by the Spam Act 2003 functional-unsubscribe
-   * rule (we accept STOP via SMS reply or email).
+   * Always appends a STOP/opt-out line via appendOptOutLine() — required by
+   * the Spam Act 2003 functional-unsubscribe rule.
    */
   function renderMarketingSms(template: string, p: ProspectRow, variant?: string): string {
     const baseUrl = (env.PUBLIC_BASE_URL || "https://getpickupai.com.au").replace(/\/$/, "");
     const tracked = `${baseUrl}/r/${p.prospect_id}${variant ? `?v=${encodeURIComponent(variant)}` : ""}`;
-    let body = template
+    const body = template
       .replace(/\{name\}/gi, p.business_name)
       .replace(/\{pid\}/gi, p.prospect_id)
       .replace(/\{link\}/gi, tracked);
-    const lower = body.toLowerCase();
-    const hasOptOut =
-      lower.includes("hello@getpickupai.com.au") ||
-      /\bstop\b/.test(lower) ||
-      lower.includes("opt out") ||
-      lower.includes("opt-out") ||
-      lower.includes("unsubscribe");
-    if (!hasOptOut) body += "\nReply STOP to opt out.";
-    return body;
+    return appendOptOutLine(body);
   }
 
   /**
@@ -2624,10 +2655,7 @@ async function main() {
     let message = req.body?.message?.trim();
     if (!message) return res.redirect(`/admin/prospects/${req.params.id}?flash=⚠ Message is required`);
 
-    const OPT_OUT_LINE = "\nTo opt out, email hello@getpickupai.com.au";
-    if (!message.toLowerCase().includes("hello@getpickupai.com.au")) {
-      message += OPT_OUT_LINE;
-    }
+    message = appendOptOutLine(message);
 
     try {
       if (isMobileMessageConfigured()) {

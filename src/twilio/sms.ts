@@ -6,6 +6,7 @@ import { getSystemConfig } from "../db/repo.js";
 import { twilioClient } from "./client.js";
 import { formatAuPhone, toE164Au } from "../utils/phone.js";
 import { isWithinHours } from "../utils/time.js";
+import { isMobileMessageConfigured, sendMarketingSms } from "../sms/mobile-message.js";
 
 const log = pino({ level: "info" });
 
@@ -197,6 +198,23 @@ export async function sendOwnerSms(
     return { status: "skipped", reason: "no_recipient" };
   }
   const to = toE164Au(raw);
+
+  // Prefer Mobile Message when configured: it's ~5x cheaper and supports
+  // alphanumeric sender IDs (PickupAI). Fall through to Twilio on hard
+  // failure so a Mobile Message outage doesn't kill operational SMS.
+  // statusCallback is intentionally ignored here — Mobile Message uses its
+  // own status webhook configured via configureMobileMessageWebhooks.
+  if (isMobileMessageConfigured()) {
+    const r = await sendMarketingSms(to, body);
+    if (r.status === "sent") {
+      return { status: "sent", sid: r.message_id, to, from: env.MOBILE_MSG_SENDER! };
+    }
+    if (r.status === "skipped") {
+      return { status: "skipped", reason: "no_sender" };
+    }
+    log.warn({ to, reason: r.reason }, "Mobile Message send failed; falling back to Twilio");
+  }
+
   if (env.TWILIO_MESSAGING_SERVICE_SID) {
     const message = await twilioClient.messages.create({
       to, body,
