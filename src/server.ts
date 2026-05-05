@@ -188,7 +188,7 @@ import {
 } from "./dashboard/pages.js";
 import { gaHeadSnippet } from "./analytics/ga.js";
 import Stripe from "stripe";
-import { isMobileMessageConfigured, sendMarketingSms, sendMarketingSmsBatch, configureMobileMessageWebhooks, type BatchMessage } from "./sms/mobile-message.js";
+import { isMobileMessageConfigured, sendMarketingSms, sendMarketingSmsBatch, configureMobileMessageWebhooks, smsProviderConfig, type BatchMessage } from "./sms/mobile-message.js";
 
 /** Lazy Stripe client — only instantiated if STRIPE_SECRET_KEY is set */
 function getStripe(): Stripe | null {
@@ -2050,7 +2050,14 @@ async function main() {
     const days = Number.isFinite(daysRaw) ? Math.max(1, Math.min(90, Math.floor(daysRaw))) : 30;
     const stats = getCampaignFunnelStats(db, days);
     const variantStats = getVariantFunnelStats(db, days);
-    res.send(adminCampaignPage(stats, days, undefined, variantStats));
+    res.send(adminCampaignPage(stats, days, smsProviderConfig(), undefined, variantStats));
+  });
+
+  // Scriptable health check for the SMS routing config. Mirrors what the
+  // pill at the top of /admin/prospects shows, but as JSON so it can be
+  // polled from a terminal or wired into uptime monitoring.
+  app.get("/admin/health/sms", adminHtmlAuth, (_req, res) => {
+    res.json(smsProviderConfig());
   });
 
   // Users list
@@ -2284,7 +2291,7 @@ async function main() {
     };
     const prospects = listProspects(db, filters);
     const stats = getProspectStats(db);
-    res.send(adminProspectsPage(prospects, stats, filters, flash));
+    res.send(adminProspectsPage(prospects, stats, filters, smsProviderConfig(), flash));
   });
 
   app.get("/admin/prospects/import-form", adminHtmlAuth, (req, res) => {
@@ -2654,6 +2661,15 @@ async function main() {
     if (!p || !p.phone) return res.redirect(`/admin/prospects/${req.params.id}?flash=⚠ No phone number`);
     let message = req.body?.message?.trim();
     if (!message) return res.redirect(`/admin/prospects/${req.params.id}?flash=⚠ Message is required`);
+
+    // Same quiet-hours guard as the bulk and send-selected endpoints. Override
+    // with ?force=1 (or hidden form field force=1) when an admin needs to
+    // send a one-off outside the marketing window during testing.
+    const force = req.body?.force === "1" || req.query?.force === "1";
+    const quiet = quietHoursStatus();
+    if (!quiet.allowed && !force) {
+      return res.redirect(`/admin/prospects/${req.params.id}?flash=⚠ Quiet hours: ${quiet.reason}`);
+    }
 
     message = appendOptOutLine(message);
 

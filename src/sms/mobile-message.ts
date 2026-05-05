@@ -10,6 +10,50 @@ export function isMobileMessageConfigured(): boolean {
   return !!(env.MOBILE_MSG_API_USER && env.MOBILE_MSG_API_PASSWORD && env.MOBILE_MSG_SENDER);
 }
 
+export interface SmsProviderConfig {
+  provider: "mobilemessage" | "twilio";
+  sender: string | null;
+  ready: boolean;
+}
+
+/**
+ * Snapshot of which SMS provider would handle the next outbound send if it
+ * were attempted right now. Mirrors the routing gate used by `sendOwnerSms`
+ * and the admin send endpoints — Mobile Message is preferred when fully
+ * configured; Twilio is the fallback.
+ *
+ * `ready=true` means the chosen provider has all credentials present and a
+ * send call would not be skipped at the configuration step. `ready=false`
+ * means even the Twilio fallback is missing creds, so SMS is currently broken.
+ */
+export function smsProviderConfig(): SmsProviderConfig {
+  if (isMobileMessageConfigured()) {
+    return { provider: "mobilemessage", sender: env.MOBILE_MSG_SENDER!, ready: true };
+  }
+  return {
+    provider: "twilio",
+    sender: null,
+    ready: !!(env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN),
+  };
+}
+
+/**
+ * Identify which provider produced an existing outreach_log row by inspecting
+ * its stored `twilio_sid` value (which historically holds the Twilio SID OR
+ * the Mobile Message message_id, since both share the same column).
+ *
+ * Twilio SMS SIDs are always `SM` + 32 hex chars (MMS uses `MM`). Mobile
+ * Message uses non-conforming UUID-ish strings, so the heuristic is:
+ *   - matches `/^SM[a-f0-9]{32}$/i`  -> Twilio
+ *   - any other non-empty string     -> Mobile Message
+ *   - null / empty / undefined       -> unknown (no SID was ever stored)
+ */
+export function detectProviderFromSid(twilioSid: string | null | undefined): "MM" | "Twilio" | null {
+  if (!twilioSid) return null;
+  if (/^SM[a-f0-9]{32}$/i.test(twilioSid)) return "Twilio";
+  return "MM";
+}
+
 function authHeader(): string {
   const creds = Buffer.from(`${env.MOBILE_MSG_API_USER}:${env.MOBILE_MSG_API_PASSWORD}`).toString("base64");
   return `Basic ${creds}`;

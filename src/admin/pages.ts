@@ -16,6 +16,34 @@ import type {
   ServiceRequestRow
 } from "../db/repo.js";
 import { formatAuPhone } from "../utils/phone.js";
+import type { SmsProviderConfig } from "../sms/mobile-message.js";
+import { detectProviderFromSid } from "../sms/mobile-message.js";
+
+/**
+ * Render a small pill badge that shows which SMS provider the server would
+ * use for the next outbound send. Surfacing this at the top of every send-
+ * adjacent admin page makes silent provider drift (the most recent example:
+ * MM dormant for ~2 weeks because MOBILE_MSG_API_USER was unset on Railway)
+ * instantly visible.
+ */
+function smsProviderPill(cfg: SmsProviderConfig): string {
+  if (cfg.provider === "mobilemessage" && cfg.ready) {
+    return `<div style="display:inline-flex;align-items:center;gap:.4rem;padding:.35rem .75rem;border-radius:6px;font-size:.8rem;font-weight:600;background:#22c55e22;color:#22c55e;border:1px solid #22c55e44;margin-bottom:1rem">
+      <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#22c55e"></span>
+      SMS provider: Mobile Message &middot; sender: ${esc(cfg.sender ?? "?")}
+    </div>`;
+  }
+  if (cfg.provider === "twilio" && cfg.ready) {
+    return `<div style="display:inline-flex;align-items:center;gap:.4rem;padding:.35rem .75rem;border-radius:6px;font-size:.8rem;font-weight:600;background:#f59e0b22;color:#f59e0b;border:1px solid #f59e0b44;margin-bottom:1rem">
+      <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f59e0b"></span>
+      SMS provider: Twilio fallback (Mobile Message not configured) &middot; alphanumeric sender disabled
+    </div>`;
+  }
+  return `<div style="display:inline-flex;align-items:center;gap:.4rem;padding:.35rem .75rem;border-radius:6px;font-size:.8rem;font-weight:600;background:#ef444422;color:#ef4444;border:1px solid #ef444444;margin-bottom:1rem">
+    <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444"></span>
+    SMS provider: NONE configured &middot; sends will fail
+  </div>`;
+}
 
 // ─── Shared helpers ────────────────────────────────────────────────────────────
 
@@ -1048,6 +1076,7 @@ export function adminProspectsPage(
   prospects: ProspectRow[],
   stats: ProspectStats,
   filters: { status?: string; trade_type?: string; suburb?: string },
+  smsConfig: SmsProviderConfig,
   flash?: string
 ): string {
   const statusOpts = ["", "new", "contacted", "replied", "demo_booked", "trial", "paying", "not_interested", "do_not_contact", "not_mobile"];
@@ -1074,6 +1103,8 @@ export function adminProspectsPage(
   `).join("");
 
   const content = `
+${smsProviderPill(smsConfig)}
+
 <div class="stat-grid">
   <div class="stat-card"><div class="stat-value">${stats.total}</div><div class="stat-label">Total</div></div>
   <div class="stat-card"><div class="stat-value">${stats.new_count}</div><div class="stat-label">New</div></div>
@@ -1195,6 +1226,13 @@ export function adminProspectDetailPage(
     const variantBadge = l.variant ? ` <code style="background:#7c3aed22;color:#7c3aed;padding:0 .35rem;border-radius:3px;font-size:.7rem">${esc(l.variant)}</code>` : "";
     const clickBadge = l.link_clicked_at ? ` <span style="color:#3b82f6;font-size:.72rem;font-weight:700" title="Clicked at ${esc(l.link_clicked_at)}">CLICKED</span>` : "";
     const replyBadge = l.replied_at ? ` <span style="color:#16a34a;font-size:.72rem;font-weight:700" title="Replied at ${esc(l.replied_at)}: ${esc(l.reply_body ?? "")}">REPLIED</span>` : "";
+    // Provider tag: only meaningful for outbound SMS rows that have a stored
+    // SID. Inbound replies and rows without a SID are intentionally untagged
+    // (they don't tell us anything about which provider we sent through).
+    const provider = l.channel === "sms" ? detectProviderFromSid(l.twilio_sid) : null;
+    const providerBadge = provider
+      ? ` <code style="background:${provider === "MM" ? "#22c55e22" : "#94a3b822"};color:${provider === "MM" ? "#22c55e" : "#94a3b8"};padding:0 .35rem;border-radius:3px;font-size:.7rem;font-weight:700" title="${provider === "MM" ? "Sent via Mobile Message" : "Sent via Twilio"}">${provider}</code>`
+      : "";
     const type = l.channel === "sms" ? "SMS Sent"
       : l.channel === "demo_call" ? "Demo Call"
       : l.channel === "sms_reply" ? "SMS Reply"
@@ -1202,7 +1240,7 @@ export function adminProspectDetailPage(
     timeline.push({
       ts: l.sent_at,
       type,
-      detail: `${esc(preview)} <span style="color:var(--gray-400)">[${esc(l.status)}]</span>${variantBadge}${clickBadge}${replyBadge}`
+      detail: `${esc(preview)} <span style="color:var(--gray-400)">[${esc(l.status)}]</span>${providerBadge}${variantBadge}${clickBadge}${replyBadge}`
     });
   }
 
@@ -1508,7 +1546,7 @@ ${pagination ? `<div style="margin-top:1rem;display:flex;gap:.5rem;justify-conte
 
 // ─── Campaign dashboard ───────────────────────────────────────────────────────
 
-export function adminCampaignPage(stats: CampaignFunnelStats, days: number, flash?: string, variantStats?: VariantFunnelRow[]): string {
+export function adminCampaignPage(stats: CampaignFunnelStats, days: number, smsConfig: SmsProviderConfig, flash?: string, variantStats?: VariantFunnelRow[]): string {
   const convRate = stats.total_prospects > 0
     ? (stats.signed_up / stats.total_prospects * 100).toFixed(1) + "%"
     : "—";
@@ -1562,6 +1600,8 @@ export function adminCampaignPage(stats: CampaignFunnelStats, days: number, flas
   }).join("");
 
   const content = `
+${smsProviderPill(smsConfig)}
+
 <div style="display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap;margin-bottom:1.25rem">
   <div class="page-title" style="margin:0">Campaign Dashboard</div>
   <div style="font-size:.82rem;color:#64748b">Last ${days} day${days === 1 ? "" : "s"}</div>
