@@ -197,7 +197,7 @@ async function main() {
     }
   }
 
-  console.log(`\nAll done. Run "node scripts/count-prospects.mjs" to inspect the resulting DB state.`);
+  console.log(`\nAll done. Visit /admin/prospects to inspect the resulting DB state.`);
 }
 
 main().catch(err => {

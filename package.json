@@ -16,7 +16,6 @@
     "test:e2e": "tsx scripts/test-lifecycle.ts",
     "prospects:cleanup": "node scripts/normalize-and-mark-prospects.mjs",
     "prospects:cleanup:apply": "node scripts/normalize-and-mark-prospects.mjs --apply",
-    "prospects:count": "node scripts/count-prospects.mjs",
     "prospects:recover-mobiles": "node scripts/recover-mobiles-from-websites.mjs",
     "prospects:recover-mobiles:apply": "node scripts/recover-mobiles-from-websites.mjs --apply",
     "prospects:enrich": "node scripts/enrich-prospects-from-website.mjs",
