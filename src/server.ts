@@ -2658,7 +2658,23 @@ async function main() {
 
   app.post("/admin/prospects/:id/sms", adminHtmlAuth, express.urlencoded({ extended: false }), async (req, res) => {
     const p = getProspectById(db, req.params.id);
-    if (!p || !p.phone) return res.redirect(`/admin/prospects/${req.params.id}?flash=⚠ No phone number`);
+    if (!p) return res.redirect(`/admin/prospects?flash=⚠ Prospect not found`);
+
+    // Suppression / status guard. NEVER bypass-able (no force=1 escape hatch) —
+    // sending to an unsubscribed_at-stamped or do_not_contact prospect is an
+    // ACMA violation regardless of admin intent. Mirrors the smsPreSendCheck
+    // already enforced by bulk-sms and send-selected-sms so this per-prospect
+    // form can't be a sneak path around the suppression list. Catches
+    // unsubscribed, do_not_contact, not_interested, not_mobile, no_phone, and
+    // not_au_mobile in one place.
+    const guard = smsPreSendCheck(p);
+    if (!guard.ok) {
+      return res.redirect(`/admin/prospects/${req.params.id}?flash=⚠ Skipped: ${guard.reason}`);
+    }
+    // smsPreSendCheck returns no_phone if p.phone is null/missing, so reaching
+    // here proves it's set — non-null assert for the downstream send calls.
+    const phone = p.phone!;
+
     let message = req.body?.message?.trim();
     if (!message) return res.redirect(`/admin/prospects/${req.params.id}?flash=⚠ Message is required`);
 
@@ -2675,7 +2691,7 @@ async function main() {
 
     try {
       if (isMobileMessageConfigured()) {
-        const mm = await sendMarketingSms(p.phone, message, p.prospect_id);
+        const mm = await sendMarketingSms(phone, message, p.prospect_id);
         if (mm.status === "sent") {
           createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message, status: "sent", twilio_sid: mm.message_id });
           updateProspect(db, p.prospect_id, { last_contacted_at: new Date().toISOString() });
@@ -2688,7 +2704,7 @@ async function main() {
         }
       } else {
       const smsStatusCb = `${env.PUBLIC_BASE_URL}/twilio/sms/status`;
-      const sms = await sendOwnerSms(db, message, p.phone, smsStatusCb);
+      const sms = await sendOwnerSms(db, message, phone, smsStatusCb);
       if (sms.status === "sent") {
         createOutreachLog(db, { prospect_id: p.prospect_id, channel: "sms", message, status: "sent", twilio_sid: sms.sid });
         updateProspect(db, p.prospect_id, { last_contacted_at: new Date().toISOString() });
