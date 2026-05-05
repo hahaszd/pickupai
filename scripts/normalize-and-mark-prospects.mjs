@@ -14,9 +14,11 @@
 import initSqlJs from "sql.js";
 import pg from "pg";
 
-const DATABASE_URL =
-  process.env.DATABASE_URL ??
-  "postgresql://neondb_owner:npg_p7TKVWbOQy2F@ep-long-mountain-a75ui4v2-pooler.ap-southeast-2.aws.neon.tech/neondb?sslmode=require";
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
+  console.error("ERROR: DATABASE_URL env var required. Run via: node --env-file=.env scripts/normalize-and-mark-prospects.mjs");
+  process.exit(1);
+}
 
 const APPLY = process.argv.includes("--apply");
 

@@ -50,12 +50,13 @@ const DEFAULT_SOURCES = ["hipages", "oneflare", "localsearch"];
 const ALL_SOURCES     = ["hipages", "oneflare", "serviceseeking", "truelocal", "localsearch"];
 const OUTPUT_DIR      = "data/leads";
 
-// Production DB. Mirrors the hardcoded URL the other scripts/*.mjs already use,
-// so the import phase writes to Neon (not the local SQLite file) when invoked
-// from a dev machine with no DATABASE_URL in .env.
-const DATABASE_URL =
-  process.env.DATABASE_URL ??
-  "postgresql://neondb_owner:npg_p7TKVWbOQy2F@ep-long-mountain-a75ui4v2-pooler.ap-southeast-2.aws.neon.tech/neondb?sslmode=require";
+// Production DB connection string. MUST be supplied via env so we never
+// silently write to production from a dev machine with stale credentials.
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
+  console.error("ERROR: DATABASE_URL env var required. Run via: node --env-file=.env scripts/collect-au-tradies.mjs");
+  process.exit(1);
+}
 
 function parseArgs() {
   const args = process.argv.slice(2);

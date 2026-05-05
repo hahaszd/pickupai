@@ -1,81 +1,97 @@
 # Security Note — Hardcoded Credentials in `scripts/`
 
-## Summary
+## Status as of May 2026
 
-Several diagnostic/admin scripts in `scripts/` historically embedded production
-credentials directly in source. As part of Phase 6 of the SMS-funnel
-remediation, the following files were refactored to read from environment
-variables instead:
+The `scripts/` folder previously embedded production credentials (Neon
+Postgres URL with password, Twilio account SID + auth token, PickupAI admin
+token) directly in source. **All known instances have now been removed from
+the working tree.** History is a separate matter (see "Known historical leak"
+below).
+
+### Refactored to env-only
+
+These read from `process.env` and hard-fail with a clear error if the var is
+missing:
 
 - `scripts/send-sms-batch.mjs` — admin token, base URL
 - `scripts/check-twilio-status.mjs` — Twilio account SID + auth token
 - `scripts/check-inbound-sms.mjs` — Twilio account SID + auth token
 - `scripts/check-responses.mjs` — Neon Postgres URL
+- `scripts/diagnose-batch-1.mjs` — Neon Postgres URL
+- `scripts/enrich-prospects-from-website.mjs` — Neon Postgres URL
+- `scripts/collect-au-tradies.mjs` — Neon Postgres URL
+- `scripts/recover-mobiles-from-websites.mjs` — Neon Postgres URL
+- `scripts/normalize-and-mark-prospects.mjs` — Neon Postgres URL
 
-## Still hardcoded (not yet refactored — owner to action)
+The pattern in every refactored script:
 
-A grep against the same Twilio SID, Twilio auth token, Twilio API key, and
-Neon Postgres password (the four production credentials referenced by the
-already-refactored files above) finds them inside:
+```javascript
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
+  console.error("ERROR: DATABASE_URL env var required. Run via: node --env-file=.env scripts/<name>.mjs");
+  process.exit(1);
+}
+```
 
-- `scripts/enrich-prospects-from-website.mjs`
-- `scripts/collect-au-tradies.mjs`
-- `scripts/count-prospects.mjs`
+The `npm run` aliases for the 4 prospect-pipeline scripts (`prospects:cleanup`,
+`prospects:recover-mobiles`, `prospects:enrich`, `leads:collect-au`, plus their
+`:apply` variants) prepend `node --env-file=.env` so credentials are loaded
+from the gitignored local `.env` file automatically.
+
+### Deleted (never tracked)
+
+These were untracked one-off diagnostic scripts that overlapped with the
+existing `/admin/*` UI or with `diagnose-batch-1.mjs`. Removed in commit
+`3a45cdc` rather than refactored:
+
 - `scripts/check-caller.mjs`
 - `scripts/check-inbound-calls.mjs`
 - `scripts/check-queued.mjs`
-- `scripts/query-prospects.mjs`
 - `scripts/check-twilio-billing.mjs`
-- `scripts/fix-stuck-sms.mjs`
+- `scripts/count-prospects.mjs`
 - `scripts/fix-stop-prospects.mjs`
-- `scripts/recover-mobiles-from-websites.mjs`
-- `scripts/normalize-and-mark-prospects.mjs`
+- `scripts/fix-stuck-sms.mjs`
+- `scripts/query-prospects.mjs`
 
-These weren't touched as part of the SMS-funnel work — they're broader admin
-utilities owned by the operator. They should be cleaned up before the repo
-is shared with a contractor or pushed to a public host.
+## Known historical leak — Neon Postgres password (rotated)
 
-## Recommended actions, in priority order
+The Neon `neondb_owner` password was leaked into git history in commits
+`5b0cca4` and `2c4a572` (Apr 29, 2026) via the four prospect-pipeline scripts
+listed above. Those commits were pushed to `origin/main` on the public repo
+`github.com/hahaszd/pickupai`, which means the password was world-readable for
+~6 days.
 
-1. **Rotate all three credentials NOW**, in production:
-   - Twilio: regenerate the auth token in the Twilio console.
-   - Neon: rotate the database password (or rotate the entire role).
-   - PickupAI admin token: regenerate `ADMIN_TOKEN` in Railway env vars.
+**Mitigation taken:** The Neon password was rotated twice on May 5, 2026
+(once after discovery; once again because the first rotation value was
+inadvertently pasted into a chat transcript). Both old passwords are dead.
 
-   Even once you delete the strings from source, they're potentially in your
-   shell history, terminal logs, and IDE swap files. Rotation is the only
-   safe move.
+**Residual exposure:** The first rotated password is still queryable in the
+public git history via `git log -p`. Anyone who scraped the repo before
+rotation can no longer use that credential to access the database, but the
+*string* is still visible. Consider scrubbing history with `git filter-repo`
+if the public visibility of the (now-defunct) string is a concern — note that
+this rewrites history, requires force-push, and breaks any existing clones.
 
-2. **Add `.env*` and any local credential files to `.gitignore`**. Verify none
-   of `scripts/*.mjs` were ever committed with credentials by running (replace
-   the placeholders with the actual values you find in your local working
-   copy of the scripts listed above):
+**No leak found for:** Twilio account SID, Twilio auth token, PickupAI admin
+token. Those credentials only ever lived in untracked files (now deleted).
 
-   ```bash
-   git log --all --source --oneline -S '<your-twilio-sid>' -- scripts/
-   git log --all --source --oneline -S '<your-neon-password-fragment>' -- scripts/
-   ```
+## Recommended hygiene going forward
 
-   If anything comes back, the credentials are in history and rotation in
-   step 1 is doubly important. (Note: do NOT paste the actual secrets into
-   any file you commit — GitHub push protection will reject it, and even if
-   it didn't, the secret would now be in two places instead of one.)
+1. **Never paste credentials into chat, comments, commit messages, or any
+   tracked file.** Local `.env` and the production secret store (Railway env
+   vars) are the only places. `.env` is in `.gitignore`.
 
-3. **Refactor the remaining 12 scripts** to read from `process.env` the same
-   way as the four already-refactored ones. The common pattern is:
+2. **Verify with `git log -S` before pushing anything that contains a `pg`,
+   `twilio`, or `process.env.X = "..."` literal.** Cheap, takes 2 seconds.
 
-   ```javascript
-   const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
-   const TWILIO_AUTH_TOKEN  = process.env.TWILIO_AUTH_TOKEN;
-   if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
-     console.error("ERROR: TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN env vars required.");
-     process.exit(1);
-   }
-   ```
+3. **Use `node --env-file=.env`** (Node 20+ built-in) for any script that
+   needs secrets, so the `.env` is the single source of truth and forgetting
+   it produces a clean failure rather than a silent prod-write.
 
-4. **Use a local `.env.local` file** loaded with `dotenv` (or `node --env-file`
-   on Node 20+) so you don't have to type credentials into the shell every
-   time. Add the file to `.gitignore`.
+4. **If a credential ever does leak**, rotate IMMEDIATELY at the dashboard
+   (Twilio Console for SMS auth tokens, Neon Console for DB roles, Railway
+   env vars for the app's own admin token). Code changes alone never undo
+   exposure — only rotation does.
 
 ## Why this matters
 
@@ -87,5 +103,5 @@ These are PRODUCTION credentials. With them, anyone who reads the repo can:
 - Take administrative actions on the live PickupAI app (admin token) — modify
   tenants, send arbitrary SMS, delete data.
 
-The blast radius if any one of these leaks is significant. Fix today, not
-"when we have time".
+The blast radius if any one of these leaks is significant. Treat secret
+hygiene as a daily practice, not a quarterly cleanup.
