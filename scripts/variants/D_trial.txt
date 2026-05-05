@@ -1,1 +1,1 @@
-Hi {name}, AI answers your missed plumbing calls 24/7 + texts you the lead. Free 14-day trial: {link}
+Hi, AI answers your missed plumbing calls 24/7 + texts you the lead. Free 14-day trial: {link}

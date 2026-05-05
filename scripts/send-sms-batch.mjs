@@ -93,10 +93,14 @@ if (message.length > 320) {
   console.error(`WARN: message is ${message.length} chars (>2 SMS segments). Consider trimming.`);
 }
 
-const prospectIds = readAll(args.prospectIdsFile)
+const rawLines = readAll(args.prospectIdsFile)
   .split(/\r?\n/)
   .map(line => line.trim())
   .filter(line => line && !line.startsWith("#"));
+
+const prospectIds = rawLines
+  .map(line => line.split("#")[0].trim())
+  .filter(line => line);
 
 if (prospectIds.length === 0) {
   console.error("ERROR: no prospect IDs found");
@@ -115,8 +119,8 @@ console.log(`│ Endpoint:   ${BASE_URL}/admin/prospects/send-selected-sms`);
 console.log("├─ MESSAGE ─────────────────────────────────────────────────────");
 for (const ln of message.split("\n")) console.log(`│ ${ln}`);
 console.log("├─ FIRST 5 PROSPECT IDs ────────────────────────────────────────");
-for (const id of prospectIds.slice(0, 5)) console.log(`│ ${id}`);
-if (prospectIds.length > 5) console.log(`│ ... + ${prospectIds.length - 5} more`);
+for (const line of rawLines.slice(0, 5)) console.log(`│ ${line}`);
+if (rawLines.length > 5) console.log(`│ ... + ${rawLines.length - 5} more`);
 console.log("└──────────────────────────────────────────────────────────────");
 console.log("");
 
