@@ -1680,6 +1680,22 @@ async function main() {
     res.sendStatus(200);
   });
 
+  // Substring-match opt-out detection. Catches MM's "Unsubscribed via opt-out
+  // link" auto-reply (which collapses to a single non-matching keyword token
+  // after the body.toLowerCase().replace(/[^a-z]/g, "") normalisation), plus
+  // free-text variants like "please unsubscribe me" or "opt me out".
+  // Mirrored from the same check in appendOptOutLine() so detection is
+  // symmetric on outbound-suppression and inbound-classification paths.
+  function bodyContainsOptOutLanguage(body: string): boolean {
+    const lower = body.toLowerCase();
+    return (
+      lower.includes("opt out") ||
+      lower.includes("opt-out") ||
+      lower.includes("optout") ||
+      lower.includes("unsubscribe")
+    );
+  }
+
   const OPT_OUT_KEYWORDS = new Set(["stop", "unsubscribe", "cancel", "end", "quit", "stopall", "optout"]);
   const OPT_IN_KEYWORDS = new Set(["start", "unstop", "yes", "subscribe"]);
 
@@ -1707,7 +1723,7 @@ async function main() {
 
     if (!prospect) return "no_prospect";
 
-    if (OPT_OUT_KEYWORDS.has(keyword)) {
+    if (OPT_OUT_KEYWORDS.has(keyword) || bodyContainsOptOutLanguage(body)) {
       markProspectUnsubscribed(db, prospect.prospect_id);
       createOutreachLog(db, {
         prospect_id: prospect.prospect_id,
@@ -2403,13 +2419,9 @@ async function main() {
     const optOutLine = link
       ? `\nOptOut ${link}`
       : `\nTo opt out, email hello@getpickupai.com.au`;
-    const lower = body.toLowerCase();
     const hasOptOut =
-      lower.includes("hello@getpickupai.com.au") ||
-      lower.includes("opt out") ||
-      lower.includes("opt-out") ||
-      lower.includes("optout") ||
-      lower.includes("unsubscribe") ||
+      body.toLowerCase().includes("hello@getpickupai.com.au") ||
+      bodyContainsOptOutLanguage(body) ||
       (link ? body.includes(link) : false);
     return hasOptOut ? body : body + optOutLine;
   }
