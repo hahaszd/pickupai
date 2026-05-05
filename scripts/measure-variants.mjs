@@ -31,6 +31,10 @@ const KILL_STOP_RATE = 0.02;       // 2%
 const ABORT_STOP_RATE = 0.05;      // 5%
 const MIN_ENGAGEMENT_RATE = 0.01;  // 1% combined engagement to be considered a winner
 
+// Cost per delivered message (AUD). Override at CLI when negotiated rates apply.
+const TWILIO_COST = Number(process.env.TWILIO_COST ?? 0.10);
+const MM_COST = Number(process.env.MM_COST ?? 0.02);
+
 function pct(num, den, places = 1) {
   if (!den) return "—";
   return `${((num / den) * 100).toFixed(places)}%`;
@@ -38,6 +42,21 @@ function pct(num, den, places = 1) {
 
 function pad(s, n) { return String(s).padEnd(n); }
 function rpad(s, n) { return String(s).padStart(n); }
+
+function aud(n) { return `$${n.toFixed(2)}`; }
+
+/**
+ * Mirror of detectProviderFromSid in src/sms/mobile-message.ts. Twilio SMS
+ * SIDs are SM + 32 hex; Mobile Message uses non-conforming IDs. Anything
+ * non-empty that doesn't match the Twilio shape is MM. null = no SID
+ * stored (treated as Unknown for cost purposes — usually means a skipped
+ * or pre-routing send).
+ */
+function detectProviderFromSid(sid) {
+  if (!sid) return null;
+  if (/^SM[a-f0-9]{32}$/i.test(sid)) return "Twilio";
+  return "MM";
+}
 
 const pool = new pg.Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
 
@@ -60,9 +79,11 @@ try {
     return out;
   };
 
-  // Pull all tagged sms sends (variant IS NOT NULL) in window
+  // Pull all tagged sms sends (variant IS NOT NULL) in window. twilio_sid
+  // is needed for provider detection so per-variant cost is accurate when
+  // a batch falls back from MM to Twilio mid-run (e.g. MM rate-limit).
   const sends = queryAll(
-    `SELECT log_id, prospect_id, variant, status, link_clicked_at, replied_at, reply_body, sent_at
+    `SELECT log_id, prospect_id, variant, status, link_clicked_at, replied_at, reply_body, sent_at, twilio_sid
      FROM outreach_log
      WHERE channel = 'sms' AND sent_at >= ? AND variant IS NOT NULL`,
     [sinceIso]
@@ -112,7 +133,9 @@ try {
     )) signedUpPhones.add(r.owner_phone);
   }
 
-  // Bucket sends by variant
+  // Bucket sends by variant. Provider counts only include successfully
+  // delivered messages (so cost reflects what we actually paid for, not
+  // failed attempts which most providers don't bill).
   const buckets = new Map();
   for (const s of sends) {
     if (variantFilter.length && !variantFilter.includes(s.variant)) continue;
@@ -122,12 +145,20 @@ try {
         variant: s.variant,
         sent: 0, delivered: 0, failed: 0,
         clicked: 0, replied: 0, opt_out: 0,
-        called_demo: 0, signed_up: 0
+        called_demo: 0, signed_up: 0,
+        mm_delivered: 0, twilio_delivered: 0, unknown_delivered: 0
       };
       buckets.set(s.variant, b);
     }
     b.sent++;
-    if (/^delivered$|^sent$/i.test(s.status ?? "")) b.delivered++;
+    const isDelivered = /^delivered$|^sent$/i.test(s.status ?? "");
+    if (isDelivered) {
+      b.delivered++;
+      const provider = detectProviderFromSid(s.twilio_sid);
+      if (provider === "MM") b.mm_delivered++;
+      else if (provider === "Twilio") b.twilio_delivered++;
+      else b.unknown_delivered++;
+    }
     if (/failed|undelivered|rejected|skipped/i.test(s.status ?? "")) b.failed++;
     if (s.link_clicked_at) b.clicked++;
     if (s.replied_at) b.replied++;
@@ -137,27 +168,57 @@ try {
     if (phone && signedUpPhones.has(phone)) b.signed_up++;
   }
 
+  // Add cost field to each bucket once delivery counts are final.
+  for (const b of buckets.values()) {
+    b.cost = b.mm_delivered * MM_COST + b.twilio_delivered * TWILIO_COST;
+  }
+
   if (buckets.size === 0) {
     console.log("\nNo matching variants found in window.");
     process.exit(0);
   }
 
   // ── Print table ────────────────────────────────────────────────────────
-  console.log(`\n${"=".repeat(108)}`);
-  console.log(`${pad("VARIANT", 22)}${rpad("SENT", 6)}${rpad("DELIV", 7)}${rpad("FAIL", 6)}${rpad("CLICK", 7)}${rpad("CLK%", 7)}${rpad("REPLY", 7)}${rpad("RPL%", 7)}${rpad("STOP", 6)}${rpad("STOP%", 7)}${rpad("CALLS", 7)}${rpad("SIGN", 6)}`);
-  console.log("=".repeat(108));
+  // MM and TW columns count delivered messages by provider (so a 50/50
+  // mix tells you the variant ran half on MM, half on Twilio fallback).
+  // COST applies the per-provider rates above to delivered counts only.
+  const tableWidth = 126;
+  console.log(`\n${"=".repeat(tableWidth)}`);
+  console.log(
+    pad("VARIANT", 22) +
+    rpad("SENT", 6) +
+    rpad("DELIV", 7) +
+    rpad("FAIL", 6) +
+    rpad("MM", 5) +
+    rpad("TW", 5) +
+    rpad("COST", 8) +
+    rpad("CLICK", 7) +
+    rpad("CLK%", 7) +
+    rpad("REPLY", 7) +
+    rpad("RPL%", 7) +
+    rpad("STOP", 6) +
+    rpad("STOP%", 7) +
+    rpad("CALLS", 7) +
+    rpad("SIGN", 6)
+  );
+  console.log("=".repeat(tableWidth));
 
   const rows = [...buckets.values()].sort((a, b) => b.sent - a.sent);
   let abortTriggered = false;
+  let totalCost = 0;
   for (const r of rows) {
     const stopRate = r.delivered ? r.opt_out / r.delivered : 0;
     const flag = stopRate > ABORT_STOP_RATE ? " ✗ABORT" : stopRate > KILL_STOP_RATE ? " ✗kill" : "";
     if (stopRate > ABORT_STOP_RATE) abortTriggered = true;
+    totalCost += r.cost;
     console.log(
       pad(r.variant, 22) +
       rpad(r.sent, 6) +
       rpad(r.delivered, 7) +
       rpad(r.failed, 6) +
+      rpad(r.mm_delivered, 5) +
+      rpad(r.twilio_delivered, 5) +
+      rpad(aud(r.cost), 8) +
       rpad(r.clicked, 7) +
       rpad(pct(r.clicked, r.delivered), 7) +
       rpad(r.replied, 7) +
@@ -169,7 +230,8 @@ try {
       flag
     );
   }
-  console.log("=".repeat(108));
+  console.log("=".repeat(tableWidth));
+  console.log(`Total cost across all variants (delivered only): ${aud(totalCost)}  @ MM=${aud(MM_COST)}/msg, Twilio=${aud(TWILIO_COST)}/msg`);
 
   // ── Verdict ─────────────────────────────────────────────────────────────
   console.log("\n# VERDICT\n");
@@ -202,15 +264,29 @@ try {
 
   const winner = scored[0];
 
+  // Cost-per-engagement is the most useful single number for "should I
+  // scale this?" — it normalises away batch size, provider mix, and
+  // signal quality in one ratio.
+  const costPerEng = winner.engagement ? winner.cost / winner.engagement : Infinity;
+  const costPerSignup = winner.signed_up ? winner.cost / winner.signed_up : null;
+  const providerNote = winner.twilio_delivered > 0 && winner.mm_delivered > 0
+    ? `(mixed: ${winner.mm_delivered} MM + ${winner.twilio_delivered} Twilio)`
+    : winner.twilio_delivered > 0 ? `(all Twilio fallback)`
+    : winner.mm_delivered > 0 ? `(all MM)`
+    : `(no delivered sends)`;
+
   if (winner.engRate < MIN_ENGAGEMENT_RATE) {
     console.log(`WEAK WINNER: best variant is ${winner.variant} with only ${pct(winner.engagement, winner.delivered)} engagement.`);
     console.log(`             Below the 1% bar. Iterate copy or expand sample size before scaling.`);
+    console.log(`             Spend on this variant: ${aud(winner.cost)} ${providerNote}`);
   } else {
     console.log(`WINNER: ${winner.variant}`);
     console.log(`        Engagement rate: ${pct(winner.engagement, winner.delivered)} (${winner.engagement} / ${winner.delivered} delivered)`);
     console.log(`        STOP rate:       ${pct(winner.opt_out, winner.delivered)} — under 2% threshold`);
     console.log(`        Demo calls:      ${winner.called_demo}`);
     console.log(`        Signups:         ${winner.signed_up}`);
+    console.log(`        Cost:            ${aud(winner.cost)} ${providerNote}`);
+    console.log(`        Cost / engagement: ${aud(costPerEng)}${costPerSignup !== null ? `   |   Cost / signup: ${aud(costPerSignup)}` : ""}`);
     console.log(``);
     console.log(`Next: Phase 5 — send ${Math.min(winner.sent * 16, 800)} more of "${winner.variant}" to fresh prospects.`);
     console.log(`      Phone-call follow-up to anyone who clicked or replied but didn't book.`);

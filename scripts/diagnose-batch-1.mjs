@@ -23,11 +23,33 @@ if (!DATABASE_URL) {
 const DAYS = Number(process.env.DAYS ?? 7);
 const sinceIso = new Date(Date.now() - DAYS * 24 * 60 * 60 * 1000).toISOString();
 
+// Per-message cost in AUD. These are list prices for the AU corridor as of
+// May 2026 (Twilio AU long-code A2P, Mobile Message standard rate). Override
+// at the CLI when negotiated rates apply.
+const TWILIO_COST = Number(process.env.TWILIO_COST ?? 0.10);
+const MM_COST = Number(process.env.MM_COST ?? 0.02);
+
 const pool = new pg.Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
 
 function pct(num, den) {
   if (!den) return "—";
   return `${((num / den) * 100).toFixed(1)}%`;
+}
+
+function aud(n) {
+  return `$${n.toFixed(2)}`;
+}
+
+/**
+ * Mirror of detectProviderFromSid in src/sms/mobile-message.ts. Twilio SMS
+ * SIDs are SM + 32 hex (MMS uses MM); Mobile Message uses non-conforming
+ * IDs. Anything non-empty that doesn't match the Twilio shape is MM.
+ * Returns null when no SID was ever stored on the row.
+ */
+function detectProviderFromSid(sid) {
+  if (!sid) return null;
+  if (/^SM[a-f0-9]{32}$/i.test(sid)) return "Twilio";
+  return "MM";
 }
 
 function fmtTime(iso) {
@@ -106,6 +128,37 @@ try {
     for (const f of failed.slice(0, 10)) {
       console.log(`  ${fmtTime(f.sent_at)} | ${f.status} | ${f.twilio_sid ?? "no-sid"}`);
     }
+  }
+
+  // ── 1B. Provider breakdown + cost estimate ─────────────────────────────
+  header("1B. PROVIDER BREAKDOWN (MM vs Twilio)");
+
+  const providerBuckets = new Map(); // provider -> { sent, delivered, failed, cost }
+  for (const r of allSms) {
+    const p = detectProviderFromSid(r.twilio_sid) ?? "Unknown";
+    let b = providerBuckets.get(p);
+    if (!b) { b = { sent: 0, delivered: 0, failed: 0 }; providerBuckets.set(p, b); }
+    b.sent++;
+    if (/delivered|sent/i.test(r.status ?? "")) b.delivered++;
+    if (/failed|undelivered|rejected|skipped/i.test(r.status ?? "")) b.failed++;
+  }
+
+  const costPerProvider = { Twilio: TWILIO_COST, MM: MM_COST, Unknown: 0 };
+  let totalCost = 0;
+  const costNotes = [];
+  for (const [name, b] of providerBuckets) {
+    const rate = costPerProvider[name] ?? 0;
+    const c = b.delivered * rate;
+    totalCost += c;
+    if (rate > 0) costNotes.push(`${b.delivered} ${name} @ ${aud(rate)} = ${aud(c)}`);
+    else costNotes.push(`${b.delivered} ${name} (no rate — excluded)`);
+    console.log(`  ${name.padEnd(8)} sent=${String(b.sent).padStart(4)}  delivered=${String(b.delivered).padStart(4)}  failed=${String(b.failed).padStart(4)}  rate=${pct(b.delivered, b.sent)}  cost-basis=${aud(rate)}/msg`);
+  }
+  if (providerBuckets.size === 0) {
+    console.log(`  (no SMS rows in window)`);
+  } else {
+    console.log(`\n  Estimated total cost (delivered only): ${aud(totalCost)}`);
+    console.log(`    breakdown: ${costNotes.join(" + ")}`);
   }
 
   // ── 2. Send timing pattern ─────────────────────────────────────────────
@@ -253,7 +306,8 @@ try {
   console.log(`  Replies:     ${positiveReplies.length}`);
   console.log(`  Demo calls:  ${calledFromBatch}`);
   console.log(`  Signups:     ${signedUp}`);
-  console.log(`  $$/sent:     unknown — Mobile Message dashboard for cost`);
+  console.log(`  Cost (est):  ${aud(totalCost)}  (${costNotes.join(" + ") || "no provider data"})`);
+  console.log(`  $$/signup:   ${signedUp ? aud(totalCost / signedUp) : "—"}`);
 
   // ── 7. Verdict ─────────────────────────────────────────────────────────
   header("7. AUTOMATED VERDICT");
@@ -270,6 +324,23 @@ try {
   if (callRate < 0.005 && smsProspects.length >= 50) verdicts.push("WARN: <0.5% demo-call rate — CTA + offer not landing.");
   if (replyRate < 0.005 && smsProspects.length >= 50) verdicts.push("WARN: <0.5% reply rate — message doesn't invite engagement.");
   if (signedUp === 0 && smsProspects.length >= 50) verdicts.push("WARN: 0 signups from batch — full funnel untested.");
+
+  // Note when the batch was a Twilio/MM mix — projected cost from the plan
+  // was MM-only ($0.02/msg); a high Twilio share means real spend was
+  // materially higher than the planning baseline.
+  const twilioBucket = providerBuckets.get("Twilio");
+  const mmBucket = providerBuckets.get("MM");
+  const twilioSent = twilioBucket?.sent ?? 0;
+  const mmSent = mmBucket?.sent ?? 0;
+  const totalProviderSent = twilioSent + mmSent;
+  if (totalProviderSent > 0) {
+    const tPct = twilioSent / totalProviderSent;
+    if (tPct > 0.5) {
+      verdicts.push(`NOTE: batch was ${(tPct * 100).toFixed(0)}% Twilio / ${((1 - tPct) * 100).toFixed(0)}% MM — projected cost basis was MM-only, real spend ~${(TWILIO_COST / MM_COST).toFixed(0)}× higher per Twilio msg.`);
+    } else if (tPct > 0.05) {
+      verdicts.push(`NOTE: batch was ${(tPct * 100).toFixed(0)}% Twilio / ${((1 - tPct) * 100).toFixed(0)}% MM — partial Twilio fallback, mixed cost basis.`);
+    }
+  }
 
   for (const v of verdicts) console.log(`  - ${v}`);
 
