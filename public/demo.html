@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PickupAI Demo - Hear Your AI Receptionist Answer a Plumbing Call</title>
+  <meta name="description" content="60-second demo: hear how PickupAI answers a missed plumbing call, captures the job details, and texts you the lead. Start your free 14-day trial - no card." />
+  <meta name="robots" content="noindex" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>%F0%9F%93%9E</text></svg>" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --brand: #2563eb; --brand-dark: #1d4ed8; --brand-light: #eff6ff;
+      --gray-100: #f1f5f9; --gray-200: #e2e8f0; --gray-500: #64748b;
+      --gray-700: #334155; --gray-900: #0f172a;
+    }
+    html, body { height: 100%; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: var(--gray-900); background: #fff;
+      display: flex; flex-direction: column; min-height: 100vh;
+    }
+    main {
+      max-width: 600px; margin: 0 auto; padding: 2rem 1.5rem; flex: 1;
+      display: flex; flex-direction: column; justify-content: center;
+    }
+    .brand { font-weight: 800; font-size: 1.05rem; color: var(--brand); margin-bottom: 1.75rem; text-align: center; }
+    .brand span { color: var(--gray-900); }
+    h1 { font-size: clamp(1.6rem, 5vw, 2.2rem); font-weight: 800; line-height: 1.2; margin-bottom: 0.75rem; }
+    .lead { font-size: 1.05rem; color: var(--gray-700); line-height: 1.5; margin-bottom: 2rem; }
+    .demo-card {
+      background: var(--gray-100); border: 1px solid var(--gray-200); border-radius: 12px;
+      padding: 1.25rem; margin-bottom: 2rem;
+    }
+    .demo-label {
+      font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+      color: var(--brand); letter-spacing: 0.6px; margin-bottom: 0.5rem;
+    }
+    .demo-scenario { font-size: 0.95rem; color: var(--gray-700); margin-bottom: 0.85rem; line-height: 1.5; }
+    audio { width: 100%; }
+    .cta-block {
+      background: var(--brand); color: #fff; border-radius: 12px;
+      padding: 1.5rem; text-align: center;
+    }
+    .cta-block h2 { font-size: 1.15rem; font-weight: 700; margin-bottom: 0.5rem; }
+    .cta-block p { font-size: 0.92rem; opacity: 0.92; margin-bottom: 1.25rem; line-height: 1.45; }
+    .cta-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      background: #fff; color: var(--brand);
+      padding: 0.85rem 1.75rem; border-radius: 8px; text-decoration: none;
+      font-weight: 700; font-size: 1rem; min-height: 48px;
+    }
+    .meta {
+      font-size: 0.82rem; color: var(--gray-500); text-align: center;
+      margin-top: 1.75rem; line-height: 1.5;
+    }
+    .meta a { color: var(--brand); text-decoration: underline; }
+    @media (max-width: 480px) {
+      main { padding: 1.5rem 1rem; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="brand">Pickup<span>AI</span></div>
+    <h1>Hear PickupAI answer a missed plumbing call</h1>
+    <p class="lead">60-second sample. This is what your customers hear and what lands on your phone after every call.</p>
+
+    <div class="demo-card">
+      <div class="demo-label">Plumber - After-hours emergency</div>
+      <div class="demo-scenario">Burst pipe under a kitchen sink at 9:43pm. Customer rings. The AI answers, gets the address and urgency, and texts you the lead before the call ends.</div>
+      <audio controls preload="metadata">
+        <source src="/demos/plumber-emergency.mp3" type="audio/mpeg" />
+        Your browser doesn't support audio. <a href="/demos/plumber-emergency.mp3">Download the demo (MP3)</a>.
+      </audio>
+    </div>
+
+    <div class="cta-block">
+      <h2>Ready to stop missing jobs?</h2>
+      <p>Start your free 14-day trial - no card needed to begin. Live in under 10 minutes.</p>
+      <a href="/dashboard/signup" class="cta-btn">Start free trial &rarr;</a>
+    </div>
+
+    <p class="meta">
+      100% Australian. AU phone numbers, Australian voice, data stored in Australia.<br />
+      <a href="/">See full PickupAI features &rarr;</a>
+    </p>
+  </main>
+</body>
+</html>

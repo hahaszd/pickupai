@@ -124,6 +124,7 @@ import {
   listOutreachForProspect,
   updateOutreachLogStatus,
   markOutreachLogClickedForProspect,
+  getMostRecentSmsVariantForProspect,
   markOutreachLogRepliedForProspect,
   markProspectUnsubscribed,
   listUnsubscribedProspects,
@@ -1029,7 +1030,12 @@ async function main() {
       log.info({ pid }, "SMS link click for unknown prospect_id — redirecting anyway");
     }
 
-    const target = new URL("/", env.PUBLIC_BASE_URL || "https://getpickupai.com.au/");
+    // Land SMS clickers on the focused /demo page (not the full homepage).
+    // SMS clickers are mid-task -- if the page doesn't deliver demo + clear
+    // CTA above the fold, conversion drops to ~0 (observed in Batch 2: 17
+    // clicks, 0 signups via the homepage). UTM params still attribute the
+    // hit to the SMS campaign for downstream analytics.
+    const target = new URL("/demo", env.PUBLIC_BASE_URL || "https://getpickupai.com.au/");
     target.searchParams.set("utm_source", "sms");
     target.searchParams.set("utm_medium", "marketing_sms");
     target.searchParams.set("utm_campaign", "tradies_v2");
@@ -1044,6 +1050,12 @@ async function main() {
   // Clean URLs for legal pages
   app.get("/terms", (_req, res) => res.sendFile(path.join(PUBLIC_DIR, "terms.html")));
   app.get("/privacy", (_req, res) => res.sendFile(path.join(PUBLIC_DIR, "privacy.html")));
+
+  // Focused SMS-arrival landing page. /r/:pid redirects here so SMS clickers
+  // see a single-screen demo + trial CTA instead of the full marketing
+  // homepage. Per-recipient attribution is preserved by the redirect's UTM
+  // params and downstream phone-match in /dashboard/signup.
+  app.get("/demo", (_req, res) => res.sendFile(path.join(PUBLIC_DIR, "demo.html")));
 
   const twilioVerify = twilioValidateMiddleware({
     authToken: env.TWILIO_AUTH_TOKEN,
@@ -2965,13 +2977,20 @@ async function main() {
     const signupProspect = getProspectByPhone(db, toE164Au(owner_phone as string));
     if (signupProspect && signupProspect.status !== "paying" && signupProspect.status !== "do_not_contact") {
       updateProspect(db, signupProspect.prospect_id, { status: "trial" });
+      // Stamp the originating SMS variant onto the conversion row so per-
+      // prospect funnel analysis can attribute the signup back to the
+      // variant that drove it. Falls back to null for organic signups (no
+      // matching SMS history) -- those still get a 'converted' row, just
+      // without variant attribution.
+      const conversionVariant = getMostRecentSmsVariantForProspect(db, signupProspect.prospect_id);
       createOutreachLog(db, {
         prospect_id: signupProspect.prospect_id,
         channel: "signup",
         message: `Signed up as "${name}"`,
-        status: "converted"
+        status: "converted",
+        variant: conversionVariant ?? undefined
       });
-      log.info({ prospectId: signupProspect.prospect_id }, "Auto-updated prospect status to trial (signup)");
+      log.info({ prospectId: signupProspect.prospect_id, variant: conversionVariant }, "Auto-updated prospect status to trial (signup)");
     }
 
     // Start in "demo" state — user explores demos before committing to payment

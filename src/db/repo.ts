@@ -1438,6 +1438,27 @@ export function markOutreachLogClickedForProspect(db: Db, prospectId: string, at
 }
 
 /**
+ * Lookup helper for marketing-SMS attribution. Returns the variant tag of the
+ * most-recent variant-tagged SMS to this prospect, or null if none exists.
+ *
+ * Used at signup time (`POST /dashboard/signup`) to stamp the originating
+ * variant onto the "converted" outreach_log row, so per-prospect funnel
+ * analysis can answer "which variant did this signup come from?" without
+ * a phone-based join. Note: `scripts/measure-variants.mjs` separately uses
+ * phone-match against `tenants.created_at` for headline signup counts, so
+ * this lookup is for fidelity/auditability rather than the headline metric.
+ */
+export function getMostRecentSmsVariantForProspect(db: Db, prospectId: string): string | null {
+  const row = db.get<{ variant: string | null }>(
+    `SELECT variant FROM outreach_log
+     WHERE prospect_id = ? AND channel = 'sms' AND variant IS NOT NULL
+     ORDER BY sent_at DESC LIMIT 1`,
+    [prospectId]
+  );
+  return row?.variant ?? null;
+}
+
+/**
  * Record an inbound reply on the most-recent SMS outreach_log row for this
  * prospect. Body is stored verbatim (truncated to 500 chars to keep rows light).
  */
