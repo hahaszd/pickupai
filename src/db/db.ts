@@ -74,8 +74,29 @@ export async function openDb(sqlitePath: string, pgUrl?: string): Promise<Db> {
         console.info("[db] No existing snapshot in PostgreSQL — starting fresh");
       }
     } catch (err) {
-      console.error("[db] PostgreSQL load failed, falling back to local file:", err);
-      pgPool = null;
+      // CRITICAL: Refuse to silently fall back to ephemeral local-file SQLite.
+      //
+      // Setting DATABASE_URL is an explicit commitment to use PostgreSQL as the
+      // durable store. Silently falling back here would route every subsequent
+      // write into the container's ephemeral filesystem and discard it on the
+      // next reboot — a failure mode that masquerades as a healthy app while
+      // silently destroying production data (this exact issue caused a
+      // 12-hour outage on 2026-05-08, after a Neon password rotation left
+      // Railway with stale credentials).
+      //
+      // Fail loud instead, so the deploy is visibly broken and the operator
+      // can rotate / refresh / restore before any data is written into a
+      // doomed local file.
+      //
+      // Escape hatch for dev: unset DATABASE_URL to use a local SQLite file.
+      console.error("[db] PostgreSQL load failed at boot:", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `[db] DATABASE_URL is set but PostgreSQL is unreachable. Refusing to ` +
+        `fall back to ephemeral local-file SQLite (would silently lose writes ` +
+        `on next reboot). Fix the connection or unset DATABASE_URL. ` +
+        `Original error: ${msg}`
+      );
     }
   }
 
@@ -147,7 +168,15 @@ export async function openDb(sqlitePath: string, pgUrl?: string): Promise<Db> {
     if (pendingFlush) return;
     pendingFlush = setTimeout(async () => {
       pendingFlush = null;
-      await flush();
+      try {
+        await flush();
+      } catch (err) {
+        // Don't crash on a transient flush failure (network blips happen) but
+        // surface the error loudly so persistent issues are visible. If the
+        // PG connection is permanently broken at runtime, every subsequent
+        // scheduleFlush will log here, giving operators a clear signal.
+        console.error("[db] flush to PostgreSQL failed:", err);
+      }
     }, 300);
   };
 
