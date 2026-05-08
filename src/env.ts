@@ -154,7 +154,23 @@ const envSchema = z.object({
   // ── Google Analytics (optional) ───────────────────────────────────────────
   // GA4 Measurement ID (e.g. G-XXXXXXXXXX). When set, the gtag.js snippet is
   // injected into all public and dashboard pages. Leave unset to disable.
-  GA_MEASUREMENT_ID: z.string().optional()
+  GA_MEASUREMENT_ID: z.string().optional(),
+
+  // ── Operator test override (optional) ───────────────────────────────────
+  // E.164 phone number that bypasses smsPreSendCheck's `unsubscribed_at`
+  // suppression — STRICTLY for verifying the marketing pipeline end-to-end
+  // on an operator's own phone after the number has been opted-out by
+  // earlier compliance tests. Two safety guarantees:
+  //   1. Bypass is gated by exact-match on E.164 phone — no wildcard, no
+  //      regex. Any other suppressed prospect remains blocked.
+  //   2. Bypass also seeds an idempotent test-prospect row at boot
+  //      (deterministic prospect_id = "00000000-0000-0000-0000-000000000001")
+  //      so multi-instance Railway boots converge to the same row without
+  //      racing on UUID generation.
+  // Every bypass triggers a WARN-level log line for ACMA audit trail.
+  // Leave unset in production-normal; set ONLY when actively running an
+  // operator-side smoke test through send-sms-batch.mjs.
+  TEST_OVERRIDE_PHONE: z.string().regex(/^\+\d{8,15}$/, "must be E.164 format like +61420955412").optional()
 });
 
 export type Env = z.infer<typeof envSchema>;

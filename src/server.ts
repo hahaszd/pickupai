@@ -537,6 +537,56 @@ function seedDefaultTenant(db: any) {
   }
 }
 
+// ─── Seed operator test prospect (paired with TEST_OVERRIDE_PHONE bypass) ───
+//
+// Creates a deterministic prospect row with prospect_id =
+// "00000000-0000-0000-0000-000000000001" and phone = env.TEST_OVERRIDE_PHONE,
+// so the bulk-send script (which references prospects by ID) has a stable
+// target on the operator's own number.
+//
+// Idempotent across multi-instance Railway boots: uses INSERT OR IGNORE on
+// the fixed prospect_id, so concurrent boots converge to the same row even
+// if their loaded snapshots momentarily diverge. Updates phone + clears
+// unsubscribed_at on every boot in case the operator rotated the override
+// or the row was previously suppressed.
+//
+// Skips entirely when TEST_OVERRIDE_PHONE is unset, so production-normal
+// boots have no behavioural change and no extra prospect row is created.
+const TEST_PROSPECT_ID = "00000000-0000-0000-0000-000000000001";
+
+function seedTestProspect(db: any) {
+  if (!env.TEST_OVERRIDE_PHONE) return;
+  const phone = env.TEST_OVERRIDE_PHONE;
+  try {
+    db.run(
+      `INSERT OR IGNORE INTO prospects (
+        prospect_id, business_name, owner_name, phone, email, website,
+        trade_type, suburb, state, source, status, google_rating, review_count,
+        notes, last_contacted_at, next_followup_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        TEST_PROSPECT_ID, "PickupAI Operator Smoke Test", null, phone, null, null,
+        "plumber", "Parramatta", "NSW", "manual_test", "new",
+        null, null,
+        "Seeded automatically when TEST_OVERRIDE_PHONE is set; do not delete via admin UI without unsetting the env var first.",
+        null, null, new Date().toISOString()
+      ]
+    );
+    db.run(
+      `UPDATE prospects
+       SET phone = ?, status = 'new', unsubscribed_at = NULL
+       WHERE prospect_id = ?`,
+      [phone, TEST_PROSPECT_ID]
+    );
+    log.warn(
+      { prospect_id: TEST_PROSPECT_ID, phone },
+      "[seedTestProspect] TEST_OVERRIDE_PHONE is set — operator smoke-test prospect seeded/refreshed; smsPreSendCheck will bypass unsubscribed_at for this number"
+    );
+  } catch (err) {
+    log.warn({ err }, "Failed to seed test prospect");
+  }
+}
+
 // ─── Fallback tenant (for callers to any unregistered number) ─────────────────
 
 function buildFallbackTenant(): TenantRow {
@@ -581,6 +631,7 @@ async function main() {
 
   const db = await openDb(env.SQLITE_PATH, env.DATABASE_URL);
   seedDefaultTenant(db);
+  seedTestProspect(db);
 
   // Auto-configure Twilio webhook URLs to point to this server instance.
   // Whichever environment (dev/prod) starts last takes ownership of the numbers.
@@ -2466,11 +2517,26 @@ async function main() {
    * Honours: hard suppression (unsubscribed_at), status-based exclusion,
    * non-AU-mobile, missing phone. Per-prospect; no cross-prospect logic so it
    * stays cheap inside a loop.
+   *
+   * TEST_OVERRIDE_PHONE escape hatch: when env.TEST_OVERRIDE_PHONE is set
+   * AND the prospect's phone matches it exactly, the unsubscribed_at check
+   * is bypassed so an operator can run an end-to-end smoke test on their
+   * own number after compliance tests have stamped it. Each bypass emits a
+   * WARN-level audit log and is gated by the env var being explicitly set
+   * — leave the env var unset in production-normal to keep the suppression
+   * list strictly enforced. See src/env.ts for the full design rationale.
    */
   function smsPreSendCheck(p: ProspectRow): { ok: true } | { ok: false; reason: string } {
-    if ((p as any).unsubscribed_at) return { ok: false, reason: "unsubscribed" };
-    if (p.status === "do_not_contact") return { ok: false, reason: "do_not_contact" };
-    if (p.status === "not_interested") return { ok: false, reason: "not_interested" };
+    const isTestOverride = !!env.TEST_OVERRIDE_PHONE && p.phone === env.TEST_OVERRIDE_PHONE;
+    if ((p as any).unsubscribed_at && !isTestOverride) return { ok: false, reason: "unsubscribed" };
+    if (isTestOverride && (p as any).unsubscribed_at) {
+      log.warn(
+        { phone: p.phone, prospect_id: p.prospect_id, unsubscribed_at: (p as any).unsubscribed_at },
+        "[smsPreSendCheck] TEST_OVERRIDE_PHONE bypass — sending marketing SMS to a previously-suppressed number (operator smoke test)"
+      );
+    }
+    if (p.status === "do_not_contact" && !isTestOverride) return { ok: false, reason: "do_not_contact" };
+    if (p.status === "not_interested" && !isTestOverride) return { ok: false, reason: "not_interested" };
     if (p.status === "not_mobile") return { ok: false, reason: "not_mobile" };
     if (!p.phone) return { ok: false, reason: "no_phone" };
     if (!isAuMobile(p.phone)) return { ok: false, reason: "not_au_mobile" };

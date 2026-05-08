@@ -1,0 +1,4 @@
+# Operator smoke-test cohort — single deterministic prospect_id seeded by
+# seedTestProspect() at server boot when env.TEST_OVERRIDE_PHONE is set.
+# See src/server.ts (TEST_PROSPECT_ID constant) and src/env.ts.
+00000000-0000-0000-0000-000000000001 # PickupAI Operator Smoke Test
