@@ -11,6 +11,16 @@ export type Db = {
   get: <T = any>(sql: string, params?: any[]) => T | null;
   all: <T = any>(sql: string, params?: any[]) => T[];
   flush: () => Promise<void>;
+  /**
+   * Direct Postgres pool, when DATABASE_URL is configured. Use this for
+   * append-only / high-concurrency event streams that must NOT go through
+   * the in-memory sql.js blob — otherwise they'll be lost in the
+   * multi-instance flush race (each Railway instance overwrites the entire
+   * blob row when it flushes, silently dropping concurrent instances'
+   * writes). null in dev/local-SQLite mode; callers should fall back to the
+   * sync sql.js path in that case.
+   */
+  pg: Pool | null;
 };
 
 // ── PostgreSQL persistence helpers ────────────────────────────────────────────
@@ -56,6 +66,26 @@ async function pgSave(pool: Pool, data: Buffer): Promise<void> {
   );
 }
 
+/**
+ * Ensure auxiliary PG-native tables (those that bypass the sql.js blob)
+ * exist. funnel_events lives here because per-row INSERTs survive
+ * multi-instance concurrent writes — unlike the sqlite_blob row which
+ * is fully overwritten on each flush.
+ */
+async function pgEnsureAuxTables(pool: Pool): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS funnel_events (
+      id           BIGSERIAL PRIMARY KEY,
+      prospect_id  TEXT NOT NULL,
+      event        TEXT NOT NULL,
+      variant      TEXT,
+      occurred_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_funnel_events_prospect ON funnel_events(prospect_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_funnel_events_event_variant_at ON funnel_events(event, variant, occurred_at)`);
+}
+
 // ── openDb ────────────────────────────────────────────────────────────────────
 
 export async function openDb(sqlitePath: string, pgUrl?: string): Promise<Db> {
@@ -73,6 +103,7 @@ export async function openDb(sqlitePath: string, pgUrl?: string): Promise<Db> {
       } else {
         console.info("[db] No existing snapshot in PostgreSQL — starting fresh");
       }
+      await pgEnsureAuxTables(pgPool);
     } catch (err) {
       // CRITICAL: Refuse to silently fall back to ephemeral local-file SQLite.
       //
@@ -224,7 +255,8 @@ export async function openDb(sqlitePath: string, pgUrl?: string): Promise<Db> {
         pendingFlush = null;
       }
       await flush();
-    }
+    },
+    pg: pgPool
   };
 
   return wrap;

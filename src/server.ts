@@ -1098,21 +1098,27 @@ async function main() {
   // ── Funnel-event ingest (public, low-trust) ───────────────────────────────
   //
   // Fired by client-side JS on /demo and /dashboard/signup so we can see
-  // where SMS-clickers drop off between landing and signing up. Each event
-  // becomes an `outreach_log` row with `channel='funnel_<event>'` so the
-  // existing measure-variants script aggregates them automatically.
+  // where SMS-clickers drop off between landing and signing up.
   //
-  // Public endpoint by necessity (browsers fire it without auth) — guarded
-  // against abuse with:
-  //   - Allowed-event whitelist (no arbitrary channel strings)
-  //   - prospect_id must resolve to a real prospect (404 otherwise)
-  //   - variant truncated to 32 chars
-  //   - No PII in the row beyond the prospect_id we already have
-  //   - Body is treated as untrusted; only three fields read
+  // CRITICAL: writes go DIRECTLY to PostgreSQL (`funnel_events` table), not
+  // through the in-memory sql.js blob. Why: every db.run() in our codebase
+  // schedules a debounced flush of the *entire* blob to the `sqlite_blob`
+  // row. When two Railway instances each receive an event, they each
+  // mutate their own in-memory copy and then both flush — last write wins,
+  // so concurrent events are silently lost. We confirmed this empirically
+  // with the operator's smoke test: only 1 of 5 expected events landed.
+  // PG-native INSERTs sidestep the race because every row gets a unique
+  // BIGSERIAL id; concurrent INSERTs from different instances all survive.
   //
-  // Designed to be fired via navigator.sendBeacon (fire-and-forget; the
-  // browser may complete the POST after navigation). That's why response
-  // is 204 No Content with no body — nothing client-side reads it.
+  // Local-dev fallback: when running without DATABASE_URL (db.pg is null),
+  // we fall back to the legacy outreach_log path via sql.js so dev still
+  // works. Single-instance dev doesn't have the race.
+  //
+  // Public endpoint by necessity (browsers fire it without auth). Abuse
+  // guards: allowed-event whitelist, pid must resolve to a real prospect,
+  // variant truncated to 32 chars, no PII beyond prospect_id we already
+  // have. Designed to be fired via navigator.sendBeacon, so response is
+  // always 204 No Content.
   const ALLOWED_FUNNEL_EVENTS = new Set([
     "demo_view",
     "audio_play",
@@ -1122,7 +1128,7 @@ async function main() {
     "signup_form_submit"
   ]);
 
-  app.post("/api/funnel/event", express.json(), (req, res) => {
+  app.post("/api/funnel/event", express.json(), async (req, res) => {
     const body = req.body ?? {};
     const pid = typeof body.pid === "string" ? body.pid.slice(0, 64) : null;
     const event = typeof body.event === "string" ? body.event : null;
@@ -1135,18 +1141,23 @@ async function main() {
 
     const prospect = getProspectById(db, pid);
     if (!prospect) {
-      // Quietly accept but don't log — this is normal for crawlers / forwarded
-      // links / typos. Returning 204 so misbehaving clients don't retry.
       return res.status(204).end();
     }
 
     try {
-      createOutreachLog(db, {
-        prospect_id: pid,
-        channel: `funnel_${event}`,
-        status: "logged",
-        variant: variant ?? undefined
-      });
+      if (db.pg) {
+        await db.pg.query(
+          `INSERT INTO funnel_events (prospect_id, event, variant) VALUES ($1, $2, $3)`,
+          [pid, event, variant]
+        );
+      } else {
+        createOutreachLog(db, {
+          prospect_id: pid,
+          channel: `funnel_${event}`,
+          status: "logged",
+          variant: variant ?? undefined
+        });
+      }
     } catch (err) {
       log.warn({ err, pid, event }, "Failed to record funnel event");
     }

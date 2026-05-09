@@ -294,13 +294,15 @@ try {
 
   // ── Funnel drop-off (post-click attribution) ───────────────────────────
   //
-  // Reads `funnel_*` channel events written by /api/funnel/event from the
-  // /demo and /dashboard/signup client-side trackers. Each row shows the
-  // count of distinct prospects who reached that step, plus the drop-off
-  // since the previous step. The funnel order is deliberately fixed —
-  // a non-monotonic count (e.g. signup_view > signup_cta_tap) is fine and
-  // happens when /demo events fail but the user navigates manually, but
-  // step-to-step drop-offs are what tell us where to invest copy fixes.
+  // Reads from the PG-native `funnel_events` table written by
+  // /api/funnel/event. This table bypasses the sql.js blob so concurrent
+  // writes from multiple Railway instances all survive (the blob path
+  // overwrites instance-by-instance and silently drops events).
+  //
+  // Per-variant per-event distinct-prospect counts mean reloads / double-
+  // taps don't double-count. Step-to-step drop-offs are the actionable
+  // signal; non-monotonic counts (e.g. signup_view > signup_cta_tap) can
+  // happen when users bookmark or hit /dashboard/signup directly.
   const FUNNEL_STEPS = [
     { key: "delivered",          label: "Delivered" },
     { key: "clicked",            label: "Clicked SMS link" },
@@ -313,23 +315,43 @@ try {
     { key: "signed_up",          label: "Tenant created" }
   ];
 
-  const funnelRows = queryAll(
-    `SELECT prospect_id, channel, variant, sent_at FROM outreach_log
-     WHERE channel LIKE 'funnel_%' AND sent_at >= ?`,
-    [sinceIso]
-  );
+  let funnelRows = [];
+  try {
+    const pgRes = await pool.query(
+      `SELECT prospect_id, event, variant, occurred_at FROM funnel_events
+       WHERE occurred_at >= $1`,
+      [sinceIso]
+    );
+    funnelRows = pgRes.rows;
+  } catch (err) {
+    // Table may not exist on environments that haven't deployed the funnel
+    // ingest endpoint yet. Fall back to the old outreach_log path so the
+    // verdict still prints.
+    if (err && /relation .*funnel_events.* does not exist/i.test(err.message ?? "")) {
+      const legacyRows = queryAll(
+        `SELECT prospect_id, channel, variant, sent_at FROM outreach_log
+         WHERE channel LIKE 'funnel_%' AND sent_at >= ?`,
+        [sinceIso]
+      );
+      funnelRows = legacyRows.map(r => ({
+        prospect_id: r.prospect_id,
+        event: r.channel.replace(/^funnel_/, ""),
+        variant: r.variant,
+        occurred_at: r.sent_at
+      }));
+    } else {
+      throw err;
+    }
+  }
 
-  // Build per-variant per-event distinct-prospect sets so multiple fires
-  // from the same prospect (e.g. reload, double-tap) only count once.
   const funnelByVariant = new Map();
   for (const r of funnelRows) {
     if (variantFilter.length && r.variant && !variantFilter.includes(r.variant)) continue;
     const v = r.variant ?? "(unknown)";
     let bucket = funnelByVariant.get(v);
     if (!bucket) { bucket = new Map(); funnelByVariant.set(v, bucket); }
-    const event = r.channel.replace(/^funnel_/, "");
-    if (!bucket.has(event)) bucket.set(event, new Set());
-    bucket.get(event).add(r.prospect_id);
+    if (!bucket.has(r.event)) bucket.set(r.event, new Set());
+    bucket.get(r.event).add(r.prospect_id);
   }
 
   if (funnelByVariant.size > 0 || rows.some(r => r.clicked > 0)) {
