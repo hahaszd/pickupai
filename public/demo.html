@@ -103,6 +103,58 @@
         }, { passive: false });
       })();
     </script>
+    <!--
+      Funnel-event tracker. Reads pid + utm_content (variant) from the URL
+      (set by /r/:pid redirect) and POSTs lightweight events to
+      /api/funnel/event so we can see where SMS-clickers drop off.
+      Also rewrites the "Start free trial" CTA href to carry pid + variant
+      forward to /dashboard/signup so the landing-page event there can
+      attribute correctly. No-op when pid is missing (organic visitors).
+    -->
+    <script>
+      (function () {
+        var params = new URLSearchParams(window.location.search);
+        var pid = params.get('pid');
+        var variant = params.get('utm_content');
+        if (!pid) return;
+
+        function fire(event) {
+          try {
+            var data = JSON.stringify({ pid: pid, event: event, variant: variant });
+            var blob = new Blob([data], { type: 'application/json' });
+            if (navigator.sendBeacon) {
+              navigator.sendBeacon('/api/funnel/event', blob);
+            } else {
+              fetch('/api/funnel/event', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: data,
+                keepalive: true
+              }).catch(function () {});
+            }
+          } catch (_e) { /* tracking must never break the page */ }
+        }
+
+        fire('demo_view');
+
+        var audio = document.querySelector('audio');
+        if (audio) audio.addEventListener('play', function () { fire('audio_play'); }, { once: true });
+
+        var callBtn = document.getElementById('callBtn');
+        if (callBtn) callBtn.addEventListener('click', function () { fire('demo_call_tap'); });
+
+        var signupCta = document.querySelector('.cta-btn');
+        if (signupCta) {
+          try {
+            var url = new URL(signupCta.getAttribute('href'), window.location.origin);
+            url.searchParams.set('pid', pid);
+            if (variant) url.searchParams.set('v', variant);
+            signupCta.setAttribute('href', url.pathname + url.search);
+          } catch (_e) {}
+          signupCta.addEventListener('click', function () { fire('signup_cta_tap'); });
+        }
+      })();
+    </script>
     <p class="cta-call-meta">Free. About 60 seconds. Standard call rates apply from your carrier.</p>
 
     <p class="alt-label">Or listen to a sample first:</p>

@@ -362,10 +362,44 @@ export function signupPage(error?: string, prefill: Record<string, string> = {})
           return false;
         }
         if(typeof gtag==='function') gtag('event','sign_up',{method:'email'});
+        if(typeof window.__pickupAiFunnelFire==='function') window.__pickupAiFunnelFire('signup_form_submit');
         var btn = form.querySelector('button[type=submit]');
         btn.disabled=true;
         btn.textContent='Creating account...';
       });
+    })();
+    </script>
+    <!--
+      Funnel-event tracker for /dashboard/signup. Reads pid + v from the URL
+      (carried forward from /demo's "Start free trial" CTA) and emits
+      signup_view on load and signup_form_submit on form submit.
+      No-op when pid is missing (organic signups bypass attribution).
+    -->
+    <script>
+    (function(){
+      var params = new URLSearchParams(window.location.search);
+      var pid = params.get('pid');
+      var variant = params.get('v');
+      if (!pid) return;
+
+      function fire(event){
+        try {
+          var data = JSON.stringify({ pid: pid, event: event, variant: variant });
+          var blob = new Blob([data], { type: 'application/json' });
+          if (navigator.sendBeacon) {
+            navigator.sendBeacon('/api/funnel/event', blob);
+          } else {
+            fetch('/api/funnel/event', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: data,
+              keepalive: true
+            }).catch(function(){});
+          }
+        } catch (_e) {}
+      }
+      window.__pickupAiFunnelFire = fire;
+      fire('signup_view');
     })();
     </script>
     <p style="text-align:center;margin-top:1.25rem;font-size:.85rem;color:var(--gray-600);">

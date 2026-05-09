@@ -292,6 +292,80 @@ try {
     console.log(`      Phone-call follow-up to anyone who clicked or replied but didn't book.`);
   }
 
+  // ── Funnel drop-off (post-click attribution) ───────────────────────────
+  //
+  // Reads `funnel_*` channel events written by /api/funnel/event from the
+  // /demo and /dashboard/signup client-side trackers. Each row shows the
+  // count of distinct prospects who reached that step, plus the drop-off
+  // since the previous step. The funnel order is deliberately fixed —
+  // a non-monotonic count (e.g. signup_view > signup_cta_tap) is fine and
+  // happens when /demo events fail but the user navigates manually, but
+  // step-to-step drop-offs are what tell us where to invest copy fixes.
+  const FUNNEL_STEPS = [
+    { key: "delivered",          label: "Delivered" },
+    { key: "clicked",            label: "Clicked SMS link" },
+    { key: "demo_view",          label: "Demo page rendered" },
+    { key: "audio_play",         label: "Audio sample played" },
+    { key: "demo_call_tap",      label: "Tap-to-call demo" },
+    { key: "signup_cta_tap",     label: "Tapped 'Start free trial'" },
+    { key: "signup_view",        label: "Signup form viewed" },
+    { key: "signup_form_submit", label: "Signup form submitted" },
+    { key: "signed_up",          label: "Tenant created" }
+  ];
+
+  const funnelRows = queryAll(
+    `SELECT prospect_id, channel, variant, sent_at FROM outreach_log
+     WHERE channel LIKE 'funnel_%' AND sent_at >= ?`,
+    [sinceIso]
+  );
+
+  // Build per-variant per-event distinct-prospect sets so multiple fires
+  // from the same prospect (e.g. reload, double-tap) only count once.
+  const funnelByVariant = new Map();
+  for (const r of funnelRows) {
+    if (variantFilter.length && r.variant && !variantFilter.includes(r.variant)) continue;
+    const v = r.variant ?? "(unknown)";
+    let bucket = funnelByVariant.get(v);
+    if (!bucket) { bucket = new Map(); funnelByVariant.set(v, bucket); }
+    const event = r.channel.replace(/^funnel_/, "");
+    if (!bucket.has(event)) bucket.set(event, new Set());
+    bucket.get(event).add(r.prospect_id);
+  }
+
+  if (funnelByVariant.size > 0 || rows.some(r => r.clicked > 0)) {
+    console.log(`\n# FUNNEL DROP-OFF (per-variant)\n`);
+    const labelW = 32;
+    for (const r of rows) {
+      const fb = funnelByVariant.get(r.variant);
+      const counts = {
+        delivered:          r.delivered,
+        clicked:            r.clicked,
+        demo_view:          fb?.get("demo_view")?.size ?? 0,
+        audio_play:         fb?.get("audio_play")?.size ?? 0,
+        demo_call_tap:      fb?.get("demo_call_tap")?.size ?? 0,
+        signup_cta_tap:     fb?.get("signup_cta_tap")?.size ?? 0,
+        signup_view:        fb?.get("signup_view")?.size ?? 0,
+        signup_form_submit: fb?.get("signup_form_submit")?.size ?? 0,
+        signed_up:          r.signed_up
+      };
+      console.log(`  [${r.variant}]`);
+      let prev = null;
+      for (const step of FUNNEL_STEPS) {
+        const n = counts[step.key];
+        const dropPct = prev !== null && prev > 0 ? (((prev - n) / prev) * 100).toFixed(0) + "% drop" : "";
+        const ofDelivered = counts.delivered > 0 ? pct(n, counts.delivered) : "—";
+        console.log(`    ${pad(step.label, labelW)} ${rpad(n, 4)}   ${rpad(ofDelivered, 7)}   ${dropPct}`);
+        prev = n;
+      }
+      console.log("");
+    }
+
+    const noFunnelData = !funnelRows.length;
+    if (noFunnelData) {
+      console.log(`  (No funnel_* events recorded yet. After deploying instrumentation, the next batch will populate these rows.)`);
+    }
+  }
+
   // ── Reply samples (qualitative signal) ─────────────────────────────────
   const positiveReplies = sends.filter(s => s.replied_at && s.reply_body);
   if (positiveReplies.length > 0) {
