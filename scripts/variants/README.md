@@ -63,8 +63,8 @@ high-intent users will phone our demo line; everyone else clicks the URL.
 
 ### C · Cost-framing (`C_cost_framing`)
 
-> Hi, missed plumbing calls cost tradies $800-$2,000/month. PickupAI catches
-> them 24/7: {link}
+> Hi, missed calls cost tradies $800-$2,000/month. PickupAI answers your
+> calls 24/7: {link}
 
 **Hypothesis**: a dollar-anchored pain hook converts better than a free-trial
 hook on the same audience. Tests cost-framing against trial-framing.
@@ -75,6 +75,18 @@ of $800-$2,000/month in lost jobs. Individual results vary." Keep the SMS
 copy aligned with the homepage claim so the marketing surface presents one
 defensible story under ACL s.18 (misleading-conduct rules).
 
+**Wording history**:
+- Original pre-Batch-3 draft: "missed plumbing calls cost tradies
+  $800-$2,000/month. PickupAI catches them 24/7" — revised because (a)
+  "plumbing" in the subject implied a plumber-specific stat we don't have
+  data for, and (b) "catches them" doesn't fit answering missed calls.
+- Plan E (May 2026 morning): "PickupAI answers your **plumbing** calls 24/7"
+  paired with a 100%-plumber cohort.
+- **Current** (Plan F2, 2026-05-08): "PickupAI answers your calls 24/7" —
+  removed "plumbing" to test generic copy on a multi-trade cohort
+  (plumber + electrician + roofer + handyman). Smoke-tested on operator's
+  phone before bulk send.
+
 **Retired predecessor**: this variant slot used to be `C_social_proof` with
 the copy "Sydney plumbers using PickupAI book extra jobs from after-hours
 calls". Retired May 2026 because we did not have multiple paying Sydney
@@ -84,12 +96,26 @@ ACL s.18 risk. Do not revive without (a) verifiable multi-customer base and
 
 ### D · Trial offer + tracked link (`D_trial`)
 
-> Hi, AI answers your missed plumbing calls 24/7 + texts you the lead.
-> Free 14-day trial, no card: {link}
+> Hi, AI answers tradies' missed calls 24/7 + texts you the lead.
+> Free 14-day trial. Cancel anytime: {link}
 
 **Hypothesis (control)**: closest to the original outreach offer; tests
-whether removing trial-signup friction ("no card") lifts conversion. If this
+whether a trust-signal trial pitch ("Cancel anytime") converts. If this
 beats C, the cost-framing angle isn't worth the test slot.
+
+**Wording history**:
+- Original pre-Batch-3 draft: "AI answers your missed plumbing calls 24/7
+  ... Free 14-day trial, no card" — revised because the trial DOES require
+  a card (per `src/chat/system-prompt.ts` and the dashboard signup CTA "Add
+  your card to start your 14-day free trial"). Saying "no card" in
+  marketing copy was an ACL s.18 risk and a conversion-killer at the Stripe
+  page. Replaced with "Cancel anytime" — true, friction-reducing, defensible.
+- Plan E (May 2026 morning): "AI answers your **missed plumbing calls** 24/7"
+  paired with a 100%-plumber cohort.
+- **Current** (Plan F2, 2026-05-08): "AI answers **tradies' missed calls**
+  24/7" — removed "plumbing", added possessive "tradies'" so the audience
+  marker survives within the first 6 words (without it, the SMS reads
+  generic-spam to a tradie). Sent to a multi-trade cohort.
 
 ## Send mechanics
 
