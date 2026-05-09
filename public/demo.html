@@ -103,58 +103,6 @@
         }, { passive: false });
       })();
     </script>
-    <!--
-      Funnel-event tracker. Reads pid + utm_content (variant) from the URL
-      (set by /r/:pid redirect) and POSTs lightweight events to
-      /api/funnel/event so we can see where SMS-clickers drop off.
-      Also rewrites the "Start free trial" CTA href to carry pid + variant
-      forward to /dashboard/signup so the landing-page event there can
-      attribute correctly. No-op when pid is missing (organic visitors).
-    -->
-    <script>
-      (function () {
-        var params = new URLSearchParams(window.location.search);
-        var pid = params.get('pid');
-        var variant = params.get('utm_content');
-        if (!pid) return;
-
-        function fire(event) {
-          try {
-            var data = JSON.stringify({ pid: pid, event: event, variant: variant });
-            var blob = new Blob([data], { type: 'application/json' });
-            if (navigator.sendBeacon) {
-              navigator.sendBeacon('/api/funnel/event', blob);
-            } else {
-              fetch('/api/funnel/event', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: data,
-                keepalive: true
-              }).catch(function () {});
-            }
-          } catch (_e) { /* tracking must never break the page */ }
-        }
-
-        fire('demo_view');
-
-        var audio = document.querySelector('audio');
-        if (audio) audio.addEventListener('play', function () { fire('audio_play'); }, { once: true });
-
-        var callBtn = document.getElementById('callBtn');
-        if (callBtn) callBtn.addEventListener('click', function () { fire('demo_call_tap'); });
-
-        var signupCta = document.querySelector('.cta-btn');
-        if (signupCta) {
-          try {
-            var url = new URL(signupCta.getAttribute('href'), window.location.origin);
-            url.searchParams.set('pid', pid);
-            if (variant) url.searchParams.set('v', variant);
-            signupCta.setAttribute('href', url.pathname + url.search);
-          } catch (_e) {}
-          signupCta.addEventListener('click', function () { fire('signup_cta_tap'); });
-        }
-      })();
-    </script>
     <p class="cta-call-meta">Free. About 60 seconds. Standard call rates apply from your carrier.</p>
 
     <p class="alt-label">Or listen to a sample first:</p>
@@ -175,8 +123,87 @@
 
     <p class="meta">
       100% Australian. AU phone numbers, Australian voice, data stored in Australia.<br />
-      <a href="/">See full PickupAI features &rarr;</a>
+      <a href="/" class="features-link">See full PickupAI features &rarr;</a>
     </p>
   </main>
+
+  <!--
+    Funnel-event tracker. Placed at end-of-body deliberately so every
+    interactive element (audio, .cta-btn, .features-link) is already in
+    the DOM when querySelector runs — earlier placement caused 4 of 5
+    listeners to silently no-op against null elements (verified during
+    operator smoke test on 2026-05-09).
+
+    Reads pid + utm_content (variant) from the URL (set by /r/:pid
+    redirect) and POSTs lightweight events to /api/funnel/event so we
+    can see where SMS-clickers drop off. Rewrites the "Start free trial"
+    CTA href to carry pid + variant forward to /dashboard/signup so the
+    landing-page tracker there attributes correctly.
+
+    No-op when pid is missing (organic visitors bypass attribution).
+  -->
+  <script>
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var pid = params.get('pid');
+      var variant = params.get('utm_content');
+      if (!pid) return;
+
+      function fire(event) {
+        try {
+          var data = JSON.stringify({ pid: pid, event: event, variant: variant });
+          var blob = new Blob([data], { type: 'application/json' });
+          if (navigator.sendBeacon) {
+            navigator.sendBeacon('/api/funnel/event', blob);
+          } else {
+            fetch('/api/funnel/event', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: data,
+              keepalive: true
+            }).catch(function () {});
+          }
+        } catch (_e) { /* tracking must never break the page */ }
+      }
+
+      // De-dupe helper: many CTAs receive both touchend AND click on iOS,
+      // and the existing dial handler suppresses click via preventDefault
+      // on touchend. We listen to BOTH so we catch whichever fires first,
+      // then guard so we don't double-record the same tap.
+      function fireOnce(eventName) {
+        var fired = false;
+        return function () {
+          if (fired) return;
+          fired = true;
+          fire(eventName);
+        };
+      }
+
+      fire('demo_view');
+
+      var audio = document.querySelector('audio');
+      if (audio) audio.addEventListener('play', function () { fire('audio_play'); }, { once: true });
+
+      var callBtn = document.getElementById('callBtn');
+      if (callBtn) {
+        var onCallTap = fireOnce('demo_call_tap');
+        callBtn.addEventListener('touchend', onCallTap, { passive: true });
+        callBtn.addEventListener('click', onCallTap);
+      }
+
+      var signupCta = document.querySelector('.cta-btn');
+      if (signupCta) {
+        try {
+          var url = new URL(signupCta.getAttribute('href'), window.location.origin);
+          url.searchParams.set('pid', pid);
+          if (variant) url.searchParams.set('v', variant);
+          signupCta.setAttribute('href', url.pathname + url.search);
+        } catch (_e) {}
+        var onSignupTap = fireOnce('signup_cta_tap');
+        signupCta.addEventListener('touchend', onSignupTap, { passive: true });
+        signupCta.addEventListener('click', onSignupTap);
+      }
+    })();
+  </script>
 </body>
 </html>
