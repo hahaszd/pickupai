@@ -52,6 +52,15 @@ const envSchema = z.object({
   // Valid: nova, shimmer, echo, onyx, fable, alloy, ash, sage, coral.
   // Falls back to OPENAI_VOICE if unset; falls back to "nova" if neither is valid for TTS.
   OPENAI_TTS_VOICE: z.string().optional(),
+  // Realtime API model. Default is gpt-realtime-2 (GA 2026-05-07) — stronger
+  // instruction following, more reliable tool calls, 128K context, configurable
+  // reasoning. To roll back without a redeploy, set OPENAI_REALTIME_MODEL=gpt-realtime-1.5.
+  OPENAI_REALTIME_MODEL: z.string().default("gpt-realtime-2"),
+  // Reasoning effort for gpt-realtime-2. Higher = smarter but more latency.
+  // "low" is OpenAI's recommended default for live voice. Ignored by 1.5.
+  OPENAI_REALTIME_REASONING_EFFORT: z
+    .enum(["minimal", "low", "medium", "high", "xhigh"])
+    .default("low"),
   // Hard guardrail: force-call completion if model never invokes end_call().
   // Defaults to 5 minutes to avoid stuck media streams and leaked call resources.
   MAX_CALL_DURATION_MS: z.coerce.number().int().positive().default(300000),

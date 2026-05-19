@@ -13,10 +13,11 @@ import { isWithinHours } from "../utils/time.js";
 
 const log = pino({ level: "info" });
 
-// Updated to gpt-realtime-1.5 per OpenAI announcement (2026-03-10).
-// Improvements: stronger instruction following, more reliable tool calling,
-// improved multilingual accuracy.
-const OPENAI_REALTIME_MODEL = "gpt-realtime-1.5";
+// Realtime model + WS URL are driven by env so we can roll back instantly
+// (set OPENAI_REALTIME_MODEL=gpt-realtime-1.5 in Railway) without redeploying.
+// Default is gpt-realtime-2 (GA 2026-05-07): GPT-5-class reasoning, 128K
+// context, more reliable tool calls, configurable reasoning effort.
+const OPENAI_REALTIME_MODEL = env.OPENAI_REALTIME_MODEL;
 const OPENAI_REALTIME_URL = `wss://api.openai.com/v1/realtime?model=${OPENAI_REALTIME_MODEL}`;
 
 // ─── Tool definitions sent to OpenAI ─────────────────────────────────────────
@@ -809,6 +810,10 @@ export class RealtimeSession {
   // ── Session initialisation ────────────────────────────────────────────────
 
   private initSession(instructions: string) {
+    // Only gpt-realtime-2 (and later) accept reasoning.effort. Guard so that
+    // setting OPENAI_REALTIME_MODEL=gpt-realtime-1.5 as an emergency rollback
+    // doesn't get rejected by the 1.5 schema.
+    const supportsReasoning = OPENAI_REALTIME_MODEL.startsWith("gpt-realtime-2");
     const sessionUpdate = {
       type: "session.update",
       session: {
@@ -818,6 +823,9 @@ export class RealtimeSession {
         instructions,
         tools: TOOLS,
         tool_choice: "auto",
+        ...(supportsReasoning
+          ? { reasoning: { effort: env.OPENAI_REALTIME_REASONING_EFFORT } }
+          : {}),
         audio: {
           input: {
             format: { type: "audio/pcmu" },
