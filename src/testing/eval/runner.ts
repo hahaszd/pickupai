@@ -29,19 +29,51 @@ type ChatMessage = {
   tool_call_id?: string;
 };
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Seconds OpenAI says to wait, taken from the message it already gives us
+ * ("Please try again in 6.702s"), falling back to exponential backoff.
+ */
+function retryDelayMs(body: string, attempt: number): number {
+  const stated = body.match(/try again in ([\d.]+)s/);
+  if (stated) return Math.ceil(parseFloat(stated[1]) * 1000) + 500;
+  return Math.min(30_000, 2 ** attempt * 1000);
+}
+
+const MAX_RETRIES = Number(process.env.EVAL_MAX_RETRIES ?? 6);
+
+/**
+ * A rate limit is the expected case, not an error.
+ *
+ * The system prompt under test is ~7k tokens and is resent every turn, so a
+ * single conversation burns through a modest per-minute allowance quickly. On a
+ * 30k TPM tier one request is a fifth of the budget. Without retrying, any real
+ * run dies partway through and the tokens already spent are wasted.
+ */
 async function chat(body: Record<string, unknown>): Promise<any> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY is required to run the eval");
 
-  const res = await fetch(OPENAI_URL, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify(body)
-  });
-  if (!res.ok) {
-    throw new Error(`OpenAI ${res.status}: ${(await res.text()).slice(0, 400)}`);
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(OPENAI_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    if (res.ok) return res.json();
+
+    const text = await res.text();
+    // 429 is rate limiting; 5xx is OpenAI having a moment. Both are worth
+    // waiting out. 4xx anything else is our mistake and retrying won't fix it.
+    const retryable = res.status === 429 || res.status >= 500;
+    if (!retryable || attempt >= MAX_RETRIES) {
+      throw new Error(`OpenAI ${res.status}: ${text.slice(0, 300)}`);
+    }
+    const wait = retryDelayMs(text, attempt);
+    process.stderr.write(`  [${res.status}] waiting ${Math.round(wait / 1000)}s…\n`);
+    await sleep(wait);
   }
-  return res.json();
 }
 
 /**

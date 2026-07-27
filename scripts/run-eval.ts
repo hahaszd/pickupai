@@ -26,10 +26,13 @@ function arg(name: string): string | undefined {
 }
 const has = (name: string) => process.argv.includes(`--${name}`);
 
-// How many conversations run at once. Each is several sequential API calls, so
-// serial execution makes a full run painfully slow; too high and you hit rate
-// limits mid-run and lose the whole thing.
-const CONCURRENCY = Number(arg("concurrency") ?? 4);
+// How many conversations run at once.
+//
+// Default 1. The system prompt under test is ~7k tokens and is resent every
+// turn, so on a 30k tokens-per-minute tier a single request is a fifth of the
+// minute's budget and two conversations in parallel simply queue behind each
+// other on retries. Raise it with --concurrency if the account has headroom.
+const CONCURRENCY = Number(arg("concurrency") ?? 1);
 
 async function pooled<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
