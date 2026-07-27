@@ -105,6 +105,72 @@ describe("formatOwnerSms", () => {
   });
 });
 
+describe("notes reach the owner", () => {
+  // notes was collected by the assistant and rendered nowhere. The worst case
+  // was a voicemail: the owner got "VOICEMAIL:" plus a name and a number, and
+  // not one word of what the caller actually said.
+  it("puts the voicemail message in the text", () => {
+    const result = formatOwnerSms({
+      lead: makeLead({
+        issue_summary: null,
+        notes: "Voicemail: Hi it's Sandra from unit 4, the hot water's out again, please call me back this arvo."
+      }),
+      callId: "call-vm",
+      callerIntent: "voicemail"
+    });
+    expect(result).toContain("VOICEMAIL");
+    expect(result).toContain("Message: Voicemail: Hi it's Sandra from unit 4");
+    expect(result).toContain("the hot water's out again");
+  });
+
+  it("gives a voicemail more room than a supplementary note", () => {
+    const long = "x".repeat(400);
+    const vm = formatOwnerSms({ lead: makeLead({ notes: long }), callId: "c", callerIntent: "voicemail" });
+    const job = formatOwnerSms({ lead: makeLead({ notes: long }), callId: "c", callerIntent: "new_job" });
+    expect(vm.length).toBeGreaterThan(job.length);
+    expect(vm).toContain("Message: ");
+    expect(job).toContain("Notes: ");
+  });
+
+  it("carries an insurance claim number through on a normal job", () => {
+    const result = formatOwnerSms({
+      lead: makeLead({ notes: "Insurer NRMA, claim CL-7740291, assessor already attended." }),
+      callId: "call-ins",
+      callerIntent: "new_job"
+    });
+    expect(result).toContain("Notes: Insurer NRMA, claim CL-7740291");
+  });
+
+  it("does not repeat a note already inside the issue summary", () => {
+    // The prompt tells the model to record insurance details "in issue_summary
+    // or notes", so the same text can arrive in both.
+    const shared = "Insurer NRMA, claim CL-7740291";
+    const result = formatOwnerSms({
+      lead: makeLead({ issue_summary: `Storm damage to downpipe. ${shared}.`, notes: shared }),
+      callId: "call-dupe",
+      callerIntent: "new_job"
+    });
+    expect(result).not.toContain("Notes:");
+    expect(result).toContain("Details: Storm damage to downpipe.");
+  });
+
+  it("adds nothing when there are no notes", () => {
+    const result = formatOwnerSms({ lead: makeLead({ notes: null }), callId: "c", callerIntent: "new_job" });
+    expect(result).not.toContain("Notes:");
+    expect(result).not.toContain("Message:");
+  });
+
+  it("keeps the partial-capture warning distinguishable from a note", () => {
+    const result = formatOwnerSms({
+      lead: makeLead({ name: null, notes: "Audio unclear for part of the call." }),
+      callId: "c",
+      callerIntent: "new_job"
+    });
+    expect(result).toContain("Notes: Audio unclear");
+    expect(result).toContain("Note: Some details weren't captured");
+  });
+});
+
 describe("forwarding code generation", () => {
   it("strips the + from an E.164 AU mobile number", () => {
     const code = generateForwardingCode("+61468000835");

@@ -68,14 +68,6 @@ be treated as suspicious, not as success. See `docs/eval.md`.
 
 ## P2
 
-### `notes` never reaches the owner's SMS
-`formatOwnerSms` (`src/twilio/sms.ts:112-124`) emits Name / Phone / Address /
-Property / Details / Scope / Preferred time / Next / View — and never `notes`.
-The prompt routes real content there: voicemail messages
-(`session.ts:602`), insurance claim numbers (`:597`), and "audio unclear"
-warnings (`:535`). A tradie gets `VOICEMAIL:` with a name and number and none
-of the message. Found by all four per-trade product reviews.
-
 ### `issue_summary` truncated to 120 characters in the owner SMS
 `truncSms(compact(l.issue_summary), 120)` (`sms.ts:118`). The handyman
 multi-job call — the most valuable call that trade takes — arrives as
@@ -180,3 +172,5 @@ production path.
 | 2026-07-27 | `/admin/health/sms` reports the actual sending provider | `c1c6e55` |
 | 2026-07-27 | `scripts/tenant-profile.ts` | `9fa55fc` |
 | 2026-07-27 | Unlisted trades no longer "an Australian other business"; `docs/channel-evidence.md` | `a52b592` |
+| 2026-07-27 | Demo suburb follows the tenant's service area; `BACKLOG.md` created | `ca19ffa` |
+| 2026-07-27 | `notes` now reaches the owner SMS — voicemail bodies, claim numbers, audio warnings | `b7b3430` |

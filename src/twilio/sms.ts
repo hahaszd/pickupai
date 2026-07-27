@@ -109,6 +109,28 @@ export function formatOwnerSms(opts: {
   const propertyLabel = compact(l.property_type);
   const jobSizeLabel = compact(l.job_size);
 
+  // `notes` was collected and then thrown away — it appeared nowhere in this
+  // message. The prompt routes real content there: the body of a voicemail
+  // (session.ts, "Voicemail: [their message]"), an insurer and claim number,
+  // and "audio unclear" warnings. A tradie was getting VOICEMAIL: plus a name
+  // and number, with none of what the caller actually said.
+  //
+  // Two budgets, because the two cases are not alike. On a voicemail the note
+  // IS the message and deserves room; elsewhere it is a supplement and gets the
+  // same allowance as the issue summary.
+  const notes = compact(l.notes);
+  const isVoicemail = intent === "voicemail";
+  // The prompt tells the model to put insurance details "in issue_summary or
+  // notes", so the same text can land in both. Don't print it twice.
+  const notesAreDuplicate =
+    !!notes && hasSummary && compact(l.issue_summary).toLowerCase().includes(notes.toLowerCase());
+  const notesLine =
+    !notes || notesAreDuplicate
+      ? null
+      : isVoicemail
+      ? `Message: ${truncSms(notes, 300)}`
+      : `Notes: ${truncSms(notes, 120)}`;
+
   const lines = [
     `${header}:`,
     hasName ? `Name: ${compact(l.name)}` : null,
@@ -116,6 +138,7 @@ export function formatOwnerSms(opts: {
     hasAddress ? `Address: ${truncSms(compact(l.address), 80)}` : null,
     propertyLabel ? `Property: ${propertyLabel}` : null,
     hasSummary ? `Details: ${truncSms(compact(l.issue_summary), 120)}` : null,
+    notesLine,
     jobSizeLabel ? `Scope: ${jobSizeLabel}` : null,
     compact(l.preferred_time) ? `Preferred time: ${compact(l.preferred_time)}` : null,
     compact(l.next_action) ? `Next: ${compact(l.next_action)}` : null,
