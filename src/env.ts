@@ -52,10 +52,18 @@ const envSchema = z.object({
   // Valid: nova, shimmer, echo, onyx, fable, alloy, ash, sage, coral.
   // Falls back to OPENAI_VOICE if unset; falls back to "nova" if neither is valid for TTS.
   OPENAI_TTS_VOICE: z.string().optional(),
-  // Realtime API model. Default is gpt-realtime-2 (GA 2026-05-07) — stronger
-  // instruction following, more reliable tool calls, 128K context, configurable
-  // reasoning. To roll back without a redeploy, set OPENAI_REALTIME_MODEL=gpt-realtime-1.5.
-  OPENAI_REALTIME_MODEL: z.string().default("gpt-realtime-2"),
+  // Realtime API model. Default is gpt-realtime-2.1 (released 2026-07-06),
+  // which prices identically to gpt-realtime-2 and improves the two things a
+  // phone receptionist lives on: alphanumeric recognition — reading back phone
+  // numbers, addresses and quote figures — and silence/interruption handling,
+  // the same class of problem the greeting timing was iterated on seven times.
+  //
+  // Roll back without a redeploy by setting OPENAI_REALTIME_MODEL in Railway:
+  //   gpt-realtime-2    previous default, still current, not deprecated
+  //   gpt-realtime-1.5  older still; note it bills text output at $16/1M
+  //                     against 2.x's $24, an undocumented 50% jump
+  // See docs/research/openai-platform-2026-07.md.
+  OPENAI_REALTIME_MODEL: z.string().default("gpt-realtime-2.1"),
   // Reasoning effort for gpt-realtime-2. Higher = smarter but more latency.
   // "low" is OpenAI's recommended default for live voice. Ignored by 1.5.
   OPENAI_REALTIME_REASONING_EFFORT: z

@@ -18,7 +18,14 @@ const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
  * barge-in, latency, the greeting playback race, or anything Twilio does.
  * Those need a real call.
  */
-const ASSISTANT_MODEL = process.env.EVAL_ASSISTANT_MODEL ?? "gpt-4o";
+// gpt-5.6-luna over gpt-4o: cheaper on input ($1.00 vs $2.50) and output
+// ($6.00 vs $10.00), a 90% cache discount rather than 50% — which matters
+// because the ~7k system prompt is resent every turn — and a Tier-1 rate limit
+// of 500,000 TPM against gpt-4o's 30,000. That last one dissolves the
+// throttling this harness kept hitting without paying anything.
+// See docs/research/openai-platform-2026-07.md.
+const ASSISTANT_MODEL = process.env.EVAL_ASSISTANT_MODEL ?? "gpt-5.6-luna";
+// Unchanged: at $0.15/$0.60 nothing OpenAI currently lists undercuts it.
 const CALLER_MODEL = process.env.EVAL_CALLER_MODEL ?? "gpt-4o-mini";
 const MAX_TURNS = Number(process.env.EVAL_MAX_TURNS ?? 14);
 
@@ -64,9 +71,25 @@ async function chat(body: Record<string, unknown>): Promise<any> {
     if (res.ok) return res.json();
 
     const text = await res.text();
-    // 429 is rate limiting; 5xx is OpenAI having a moment. Both are worth
-    // waiting out. 4xx anything else is our mistake and retrying won't fix it.
-    const retryable = res.status === 429 || res.status >= 500;
+
+    // A 429 is not always a rate limit. Since 22 Jul 2026 OpenAI also returns
+    // 429 when a hard monthly spend cap is reached, and the two are otherwise
+    // indistinguishable — so a naive backoff loop spins silently against a wall
+    // until it exhausts its retries, and reports a timeout when the real answer
+    // is "the account is out of money". Only retry a 429 that identifies itself
+    // as a rate limit. Tier 1's cap is $100/month.
+    const looksLikeRateLimit =
+      /rate_limit_exceeded|try again in [\d.]+s|requests per|tokens per/i.test(text);
+    if (res.status === 429 && !looksLikeRateLimit) {
+      throw new Error(
+        `OpenAI 429 that is NOT a rate limit — most likely the account's spend cap. ` +
+        `Retrying will not help. Check billing limits at platform.openai.com/settings/organization/limits.\n${text.slice(0, 300)}`
+      );
+    }
+
+    // 5xx is OpenAI having a moment and is worth waiting out. Any other 4xx is
+    // our mistake and retrying will not fix it.
+    const retryable = (res.status === 429 && looksLikeRateLimit) || res.status >= 500;
     if (!retryable || attempt >= MAX_RETRIES) {
       throw new Error(`OpenAI ${res.status}: ${text.slice(0, 300)}`);
     }

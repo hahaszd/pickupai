@@ -135,6 +135,17 @@ pays a wasted API round-trip before falling back to Twilio.
 All `@typescript-eslint/no-explicit-any`, concentrated at the sql.js and Twilio
 webhook boundaries. Error count must stay at 0.
 
+### Move to Tier 2 on OpenAI ($50 cumulative spend)
+Owner action, billing page. The account is Tier 1: **30,000 TPM on `gpt-4o`**,
+which is what the eval keeps backing off against. Tier 2 is **450,000 TPM** and
+costs nothing extra — tiers change the rate ceiling only, never the per-token
+price. Confirmed against the rate-limits guide in
+`docs/research/openai-platform-2026-07.md`.
+
+Note Tier 1 also carries a **$100/month hard spend cap**, which since 22 Jul
+2026 returns a `429` indistinguishable from a rate limit. The eval now detects
+and reports that case rather than retrying into it, but the cap is still a wall.
+
 ## P3
 
 ### Rotate the Neon database password

@@ -4,7 +4,7 @@ An AI receptionist that answers inbound calls via Twilio, collects job details i
 
 ## What's included
 
-- **Real-time AI voice** — speech-to-speech via OpenAI Realtime API (`gpt-realtime-2`,
+- **Real-time AI voice** — speech-to-speech via OpenAI Realtime API (`gpt-realtime-2.1`,
   overridable per-deploy with `OPENAI_REALTIME_MODEL`)
 - **Twilio integration** — inbound voice, call recording, media streams, SMS notifications
 - **Multi-tenant** — each business gets its own AI personality, trade-specific prompts, and service area rules
@@ -132,7 +132,7 @@ See `src/env.ts` for the full schema. Key variables:
 | `STRIPE_PRICE_ID` | No | Stripe subscription price ID |
 | `STRIPE_WEBHOOK_SECRET` | No | Stripe webhook signing secret |
 | `DATABASE_URL` | No | PostgreSQL URL — persistence + direct writes for high-concurrency tables |
-| `OPENAI_REALTIME_MODEL` | No | Realtime model, default `gpt-realtime-2`; set `gpt-realtime-1.5` to roll back |
+| `OPENAI_REALTIME_MODEL` | No | Realtime model, default `gpt-realtime-2.1`; set `gpt-realtime-2` or `gpt-realtime-1.5` to roll back without redeploying |
 | `OPENAI_REALTIME_REASONING_EFFORT` | No | `minimal`–`xhigh`, default `low` (ignored by 1.5) |
 | `MOBILE_MSG_API_USER` / `MOBILE_MSG_API_PASSWORD` / `MOBILE_MSG_SENDER` | No | When all set, all outbound SMS moves from Twilio (~$0.10) to Mobile Message (~$0.02) |
 | `MOBILE_MSG_OPT_OUT_LINK` | No | Hosted opt-out shortlink appended to every outbound SMS |

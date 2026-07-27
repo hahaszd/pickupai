@@ -61,7 +61,7 @@ In your service → **Variables**, add:
 | `STRIPE_PRICE_ID` | Stripe subscription price ID |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret |
 | `DATABASE_URL` | PostgreSQL URL (e.g. free Neon). Strongly recommended — see "Persistence" below. Without it the `/app/data` volume from Step 3 is mandatory. |
-| `OPENAI_REALTIME_MODEL` | Optional. Defaults to `gpt-realtime-2`; set `gpt-realtime-1.5` to roll back without redeploying |
+| `OPENAI_REALTIME_MODEL` | Optional. Defaults to `gpt-realtime-2.1`. Set `gpt-realtime-2` or `gpt-realtime-1.5` to roll back **without redeploying** — changing this variable is the fastest way to undo a voice regression |
 | `OPENAI_REALTIME_REASONING_EFFORT` | Optional. `low` (default) is OpenAI's recommendation for live voice |
 | `MOBILE_MSG_API_USER` / `MOBILE_MSG_API_PASSWORD` / `MOBILE_MSG_SENDER` | Optional. Set all three to route outbound SMS via Mobile Message instead of Twilio |
 | `MOBILE_MSG_OPT_OUT_LINK` | Optional but expected in production — appends the hosted opt-out link to every SMS |
