@@ -153,6 +153,12 @@ things, that the 560-SMS campaign produced zero genuine human clicks — the 60
 `link_clicked_at` stamps are carrier link scanners — and that the only real
 user in the product's history arrived organically.
 
+**`BACKLOG.md` at the repo root is the single list of outstanding work.** Add
+an item with a priority the moment it is discovered — a bug found while doing
+something else, a feature agreed in conversation, a deliberate deferral, an
+open question. Read it after finishing a task and recommend what is next,
+ranked, rather than asking what was outstanding.
+
 **When an investigation turns up something that changes a decision, write it
 into that file in the same turn.** A finding that lives only in a conversation
 is a finding that gets re-derived from the database months later, or

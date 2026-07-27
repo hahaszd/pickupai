@@ -3330,6 +3330,8 @@ async function main() {
           demoGenStatus.set(tenant.tenant_id, "ready");
           const script = DEMO_SCRIPTS[tenant.trade_type] ?? FALLBACK_SCRIPT;
           const sample = script.sms(tenant.name);
+        sample.address = localiseDemo(sample.address, (tenant as any).service_area);
+          sample.address = localiseDemo(sample.address, (tenant as any).service_area);
           const smsBody = [
             `NEW JOB (URGENT):`,
             `Name: ${sample.name}`,
@@ -3589,6 +3591,19 @@ async function main() {
   const VALID_TTS_VOICES = new Set<string>(["nova", "onyx", "shimmer", "sage", "alloy", "echo", "fable", "ash", "coral"]);
   interface ScriptLine { speaker: "ai" | "customer"; text: string; }
 
+  // Demo fixtures are written with Sydney suburbs — Parramatta, Chatswood,
+  // Penrith. A Melbourne tenant whose personalised demo says "52 Smith Street,
+  // Parramatta NSW 2150" reads it as "this was not built for me", and that is
+  // exactly what the one real organic signup was shown. Rewrite the suburb to
+  // whatever the tenant told us their service area is; leave the fixtures alone
+  // when they have not told us anything.
+  const DEMO_FIXTURE_SUBURBS = /\b(Parramatta|Chatswood|Penrith)(,?\s*(NSW\s*)?\d{4})?\b/g;
+  const localiseDemo = (text: string, serviceArea?: string | null): string => {
+    const area = (serviceArea ?? "").split(/[,\n;]/)[0].trim();
+    if (!area) return text;
+    return text.replace(DEMO_FIXTURE_SUBURBS, area);
+  };
+
   const DEMO_SCRIPTS: Record<string, {
     customerVoice: TtsVoice;
     scenario: (biz: string, aiName: string, area: string | null) => ScriptLine[];
@@ -3771,7 +3786,8 @@ async function main() {
     const aiName = tenant.ai_name || "Olivia";
     const bizName = tenant.name;
     const area = (tenant as any).service_area ?? null;
-    const lines = script.scenario(bizName, aiName, area);
+    const lines = script.scenario(bizName, aiName, area)
+      .map((l) => ({ ...l, text: localiseDemo(l.text, area) }));
 
     const rawVoice = env.OPENAI_TTS_VOICE || env.OPENAI_VOICE || "nova";
     const aiVoice: TtsVoice = VALID_TTS_VOICES.has(rawVoice) ? (rawVoice as TtsVoice) : "nova";
