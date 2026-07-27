@@ -142,7 +142,16 @@ const TRADE_CONFIGS: Record<string, TradeConfig> = {
   • Any burning smell, sparks, or visible damage?
   • Is it safe to be in the affected area right now?`,
     emergencyKeywords: "sparks, burning smell, electrical fire, no power, power outage, shock, live wire",
-    emergencySafetyTip: "If it's safe to do so, switch off the affected circuit at the switchboard and do not touch any exposed wiring."
+    // The advice MUST branch. A single tip cannot serve this keyword list: the
+    // previous one sent every caller to the switchboard, including the ones
+    // whose switchboard is the thing failing, and including simple outages
+    // where there is nothing to do. Never direct a caller to open or operate a
+    // board that may be the fault.
+    emergencySafetyTip: `Match the advice to what they actually describe — do NOT give the same advice every time.
+    - Burning smell, smoke, sparking, buzzing, or anything hot to the touch at the switchboard, meter box or a power point: "Please get everyone away from it now and call 000. Don't open the switchboard or touch anything near it." Do NOT ask them to operate the board.
+    - One appliance is clearly the source: "If you can reach the plug safely, switch it off at the wall and unplug it — but don't touch it if there's any heat, smell or damage."
+    - Power is simply off with no smell, smoke, heat or damage: there is nothing urgent for them to do. Do NOT send them to the switchboard. Ask whether the neighbours have power too — if the whole street is out it is the electricity network's fault, not something we attend.
+    - Any exposed, damaged or fallen wiring: "Stay well clear of it and keep everyone else away — don't touch it with anything, including a broom or a stick." If it is a fallen overhead line, tell them to call 000.`
   },
   roofer: {
     label: "roofing",
@@ -185,12 +194,24 @@ const TRADE_CONFIGS: Record<string, TradeConfig> = {
   },
   handyman: {
     label: "handyman and general maintenance",
+    // Handyman callers routinely arrive with several small jobs at once, and
+    // some of them are licence-restricted. Both are asked about here rather
+    // than left to the Scope section alone.
     intakeQuestions: `
-  • What type of job is it — trade-specific (plumbing, electrical) or general maintenance?
-  • Is it a repair or an installation?
-  • Roughly how big is the job?`,
-    emergencyKeywords: "flooding, no power, structural damage, burst pipe",
-    emergencySafetyTip: "If there's active water, turn off the mains tap near your water meter. If it's an electrical issue, switch off the affected circuit at the switchboard. The team will prioritise getting someone out."
+  • What needs doing? Then ask: "Is there anything else on the list while someone's out?" — handyman callers usually have more than one job, and a multi-job visit is worth far more than a single call-out. Keep going until they say that's everything, and record EVERY job in issue_summary as a list.
+  • For anything electrical or plumbing-related, check whether it is hard-wired / connected to the water supply (see the Scope section — we cannot do that work) or a simple fix we can.
+  • Is it a repair or an installation, and do they already have the parts or materials?
+  • Is anyone home during the day, and is there anything tricky about getting in — unit number, gate, key, dog?
+  • Is any of it up high or a two-person job — gutters, ceilings, upstairs windows?`,
+    // Deliberately NOT "flooding, no power, burst pipe": those are the licensed
+    // emergencies a handyman must not attend, and promising to "prioritise
+    // getting someone out" for them sent the owner to a job they cannot legally
+    // do. Security and structural risk are the genuine handyman emergencies.
+    emergencyKeywords: "structural damage, ceiling sagging, door or window won't lock, break-in damage, storm damage",
+    emergencySafetyTip: `Match the advice to the situation:
+    - Can't secure the house (broken lock, door or window that won't shut after a break-in): treat it as urgent — this is a security risk, not just a repair.
+    - Sagging or bulging ceiling, or anything structural: "Please keep everyone out from under it until someone's had a look."
+    - If they describe flooding, burst pipes, gas, or electrical faults: these need a licensed plumber, gasfitter or electrician — follow the Scope section, take their details, and do NOT promise that we will attend.`
   },
   builder: {
     label: "building and construction",
@@ -305,9 +326,25 @@ Note: if the situation involves immediate danger to life (gas leak, fire, struct
 # Emergency Handling
 If there is any immediate risk to life or safety: acknowledge urgency, set urgency_level to "emergency", and collect details quickly.`;
 
+  // Handymen need a *licensing* boundary, not a trade boundary. "General
+  // maintenance" is unbounded, so the generic else-branch below gave them no
+  // decline path at all — the AI would happily book a new power point or a tap
+  // replacement, which is unlicensed work the owner cannot legally do.
+  const handymanScopeSection = `
+# Scope — Licensed Work
+${businessPlaceholder} does handyman and general maintenance. Some work is licence-restricted in Australia and this business cannot do it:
+- Electrical: anything hard-wired or inside a wall, switchboard, or fixed appliance — new or moved power points and switches, light fittings, hard-wired smoke alarms, ceiling fans. (Plugging in or swapping a plug-in appliance is fine.)
+- Plumbing: anything connected to the water supply or waste — replacing taps, mixers, toilets, hot water units, or anything behind a wall. (A washer or a tap handle is generally fine.)
+- Gas work of any kind, and roof work involving asbestos or cement sheeting.
+When a caller asks for one of these:
+Say: "That one needs a licensed [electrician/plumber/gasfitter] — we're not able to do that side of it. But I'll take your details and pass it on, and the team can point you to someone."
+NEVER agree to do it, and NEVER quote on it. Still take their details and note it, and if they also mention work we CAN do, capture that as the job.
+Set next_action to start with "LICENSED WORK - " and name the trade needed, so the owner sees it at a glance.`;
+
   // Out-of-trade scope (only for single-trade businesses)
-  const scopeSection =
-    !isHandyman && !hasMultipleTrades && configs.length === 1
+  const scopeSection = isHandyman
+    ? handymanScopeSection
+    : !hasMultipleTrades && configs.length === 1
       ? `
 # Scope — Out-of-Trade Calls
 ${businessPlaceholder} only handles ${tradeLabel} work. If a caller needs a different trade (e.g. they're calling about electrical but this is a plumbing business):
@@ -645,6 +682,7 @@ If the situation involves immediate danger to life, direct the caller to emergen
 - Structural collapse or someone trapped: "Please call 000 immediately."
 - Flooding with electrical risk: "If there's water near electrical outlets or appliances, if it's safe to do so, switch off the power at the mains and call 000 if anyone is in danger."
 - Carbon monoxide (CO alarm sounding, or multiple people feeling dizzy/nauseous): "If your CO alarm is going off, please get everyone out of the house right now into fresh air and call 000. Don't go back inside until emergency services say it's safe."
+- Electric shock — ANY mains shock, including "I got a belt off it", "it zapped me", "I got a shock", even when they insist they're fine: "Please don't touch that appliance or switch again. Anyone who's had a shock from mains power should get seen by a doctor today, even if you feel alright — and if you're feeling faint, short of breath, or your heart's racing, hang up and call 000 now." A person who is still talking to you has NOT been electrocuted — "electrocuted" means killed — so this rule, not the one below, is the one that applies. Never send someone who has just taken a shock to the switchboard.
 - Someone seriously injured, not breathing, or electrocuted: "Please call 000 right away — they can talk you through what to do until help arrives."
 After giving emergency direction, if the caller is still on the line and safe, collect details quickly with urgency_level="emergency". Do not keep them on the line if they need to evacuate.
 
