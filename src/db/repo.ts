@@ -1557,6 +1557,25 @@ export function getTenantCallCount(db: Db, tenantId: string): number {
   )?.n ?? 0;
 }
 
+/**
+ * Most recent stored SMS SIDs across both logs, newest first.
+ *
+ * Used to work out which provider actually sent recent messages, which can
+ * differ from the configured one — see summariseActualProvider().
+ */
+export function listRecentSmsSids(db: Db, limit = 25): string[] {
+  return db.all<{ twilio_sid: string }>(
+    `SELECT twilio_sid, sent_at FROM (
+       SELECT twilio_sid, sent_at FROM tenant_sms_log WHERE twilio_sid IS NOT NULL AND twilio_sid <> ''
+       UNION ALL
+       SELECT twilio_sid, sent_at FROM outreach_log   WHERE twilio_sid IS NOT NULL AND twilio_sid <> ''
+     )
+     ORDER BY sent_at DESC
+     LIMIT ?`,
+    [limit]
+  ).map((r) => r.twilio_sid);
+}
+
 export function listOutreachForProspect(db: Db, prospectId: string): OutreachLogRow[] {
   return db.all<OutreachLogRow>(
     "SELECT * FROM outreach_log WHERE prospect_id = ? ORDER BY sent_at DESC",

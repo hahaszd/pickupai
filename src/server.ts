@@ -123,6 +123,7 @@ import {
   importProspects,
   createOutreachLog,
   listOutreachForProspect,
+  listRecentSmsSids,
   updateOutreachLogStatus,
   markOutreachLogClickedForProspect,
   getMostRecentSmsVariantForProspect,
@@ -190,7 +191,7 @@ import {
 } from "./dashboard/pages.js";
 import { gaHeadSnippet } from "./analytics/ga.js";
 import Stripe from "stripe";
-import { isMobileMessageConfigured, sendMarketingSms, sendMarketingSmsBatch, configureMobileMessageWebhooks, smsProviderConfig, type BatchMessage } from "./sms/mobile-message.js";
+import { isMobileMessageConfigured, sendMarketingSms, sendMarketingSmsBatch, configureMobileMessageWebhooks, smsProviderConfig, summariseActualProvider, type BatchMessage } from "./sms/mobile-message.js";
 
 /** Lazy Stripe client — only instantiated if STRIPE_SECRET_KEY is set */
 function getStripe(): Stripe | null {
@@ -2334,7 +2335,24 @@ async function main() {
   // pill at the top of /admin/prospects shows, but as JSON so it can be
   // polled from a terminal or wired into uptime monitoring.
   app.get("/admin/health/sms", adminHtmlAuth, (_req, res) => {
-    res.json(smsProviderConfig());
+    // Configured provider AND the one that actually sent recent messages.
+    // They diverge when Mobile Message is still configured but the account has
+    // no credit: every send fails and silently falls through to Twilio, while
+    // the config keeps reporting Mobile Message.
+    const configured = smsProviderConfig();
+    const actual = summariseActualProvider(listRecentSmsSids(db, 25));
+    const mismatch =
+      actual.provider !== null &&
+      actual.provider !== "mixed" &&
+      actual.provider !== configured.provider;
+    res.json({
+      configured,
+      actual,
+      mismatch,
+      note: mismatch
+        ? `Configured for ${configured.provider} but the last ${actual.sampled} messages went via ${actual.provider}. Check the ${configured.provider} account has credit, or unset its env vars.`
+        : undefined
+    });
   });
 
   // Users list

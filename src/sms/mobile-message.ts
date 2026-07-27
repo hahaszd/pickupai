@@ -54,6 +54,42 @@ export function detectProviderFromSid(twilioSid: string | null | undefined): "MM
   return "MM";
 }
 
+export type ActualProviderUsage = {
+  /** Provider that actually produced the sampled messages, or null if unclear. */
+  provider: "mobilemessage" | "twilio" | "mixed" | null;
+  mobilemessage: number;
+  twilio: number;
+  unknown: number;
+  sampled: number;
+};
+
+/**
+ * Work out who actually sent recent messages, from their stored SIDs.
+ *
+ * `smsProviderConfig()` reports *configuration*, and configuration can lie:
+ * `isMobileMessageConfigured()` only checks that the three env vars are
+ * present, not that the account still has credit. A Mobile Message account
+ * that has run out keeps the config valid, fails every send, and falls through
+ * to Twilio — so the health page says "mobilemessage" while every message
+ * leaves via Twilio. This is the ground truth to show beside it.
+ */
+export function summariseActualProvider(
+  sids: Array<string | null | undefined>
+): ActualProviderUsage {
+  let mm = 0;
+  let twilio = 0;
+  let unknown = 0;
+  for (const sid of sids) {
+    const detected = detectProviderFromSid(sid);
+    if (detected === "MM") mm++;
+    else if (detected === "Twilio") twilio++;
+    else unknown++;
+  }
+  const provider =
+    mm > 0 && twilio > 0 ? "mixed" : mm > 0 ? "mobilemessage" : twilio > 0 ? "twilio" : null;
+  return { provider, mobilemessage: mm, twilio, unknown, sampled: sids.length };
+}
+
 function authHeader(): string {
   const creds = Buffer.from(`${env.MOBILE_MSG_API_USER}:${env.MOBILE_MSG_API_PASSWORD}`).toString("base64");
   return `Basic ${creds}`;
