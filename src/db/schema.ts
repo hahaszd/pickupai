@@ -92,6 +92,10 @@ export const migrationStatements = [
   `ALTER TABLE tenants ADD COLUMN stripe_customer_id TEXT`,
   `ALTER TABLE tenants ADD COLUMN custom_instructions TEXT`,
   `ALTER TABLE leads ADD COLUMN job_value REAL`,
+  // job_value is the owner-entered dollar figure summed for their ROI stat.
+  // job_size is the assistant's scope estimate. They used to be one column,
+  // which wrote 'medium' into a REAL and zeroed the revenue total.
+  `ALTER TABLE leads ADD COLUMN job_size TEXT`,
   `ALTER TABLE tenants ADD COLUMN vacation_mode INTEGER DEFAULT 0`,
   `ALTER TABLE tenants ADD COLUMN vacation_message TEXT`,
   // Multi-user support: additional dashboard users per tenant (read-only or admin)

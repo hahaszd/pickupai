@@ -4451,7 +4451,7 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
                   next_action: s.lead.next_action ?? null,
                   property_type: s.lead.property_type ?? null,
                   caller_sentiment: s.lead.caller_sentiment ?? null,
-                  job_value: s.lead.job_value ?? null
+                  job_size: s.lead.job_size ?? null
                 });
 
                 if (env.STORE_FULL_TRANSCRIPT) {
@@ -4758,7 +4758,7 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
           next_action: "Call back — interrupted by restart",
           property_type: state.lead.property_type ?? null,
           caller_sentiment: state.lead.caller_sentiment ?? null,
-          job_value: state.lead.job_value ?? null,
+          job_size: state.lead.job_size ?? null,
           lead_status: "new"
         });
         salvaged++;

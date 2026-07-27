@@ -19,6 +19,7 @@ function makeLead(overrides: Partial<LeadRow> = {}): LeadRow {
     next_action: "Call back within 1 hour",
     lead_status: "new",
     job_value: null,
+    job_size: null,
     property_type: null,
     caller_sentiment: null,
     created_at: new Date().toISOString(),
@@ -514,9 +515,9 @@ describe("formatOwnerSms — enhanced fields", () => {
     expect(result).not.toContain("Property:");
   });
 
-  it("includes job value/scope when set", () => {
+  it("includes job scope when set", () => {
     const result = formatOwnerSms({
-      lead: makeLead({ job_value: "large" as any }),
+      lead: makeLead({ job_size: "large" }),
       callId: "call-jv",
       callerIntent: "new_job"
     });

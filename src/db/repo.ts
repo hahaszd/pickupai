@@ -64,7 +64,10 @@ export type LeadRow = {
   confidence: number | null;
   next_action: string | null;
   lead_status: string | null;
+  /** Owner-entered dollar figure. The assistant never writes this. */
   job_value: number | null;
+  /** Assistant's scope estimate: small | medium | large. */
+  job_size: string | null;
   property_type: string | null;
   caller_sentiment: string | null;
   created_at: string;
@@ -269,10 +272,11 @@ export function appendTranscript(db: Db, callId: string, text: string) {
 
 export function upsertLead(
   db: Db,
-  lead: Omit<LeadRow, "created_at" | "lead_status" | "job_value" | "property_type" | "caller_sentiment"> & {
+  lead: Omit<LeadRow, "created_at" | "lead_status" | "job_value" | "job_size" | "property_type" | "caller_sentiment"> & {
     created_at?: string;
     lead_status?: string | null;
-    job_value?: number | string | null;
+    job_value?: number | null;
+    job_size?: string | null;
     property_type?: string | null;
     caller_sentiment?: string | null;
   }
@@ -297,6 +301,7 @@ export function upsertLead(
       ["next_action", lead.next_action],
       ["lead_status", lead.lead_status],
       ["job_value", lead.job_value],
+      ["job_size", lead.job_size],
       ["property_type", lead.property_type],
       ["caller_sentiment", lead.caller_sentiment],
     ];
@@ -312,8 +317,8 @@ export function upsertLead(
     `INSERT INTO leads (
       lead_id, tenant_id, call_id, name, phone, address, issue_type, issue_summary,
       urgency_level, preferred_time, notes, confidence, next_action, lead_status,
-      job_value, property_type, caller_sentiment, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      job_value, job_size, property_type, caller_sentiment, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       lead.lead_id,
       lead.tenant_id ?? null,
@@ -330,6 +335,7 @@ export function upsertLead(
       lead.next_action ?? null,
       lead.lead_status ?? "new",
       lead.job_value ?? null,
+      lead.job_size ?? null,
       lead.property_type ?? null,
       lead.caller_sentiment ?? null,
       created_at

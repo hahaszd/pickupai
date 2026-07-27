@@ -51,6 +51,7 @@ function makeLeadHistory(overrides: Partial<LeadRow> = {}): LeadRow {
     next_action: null,
     lead_status: "new",
     job_value: null,
+    job_size: null,
     property_type: null,
     caller_sentiment: null,
     created_at: "2026-03-20T10:00:00Z",
@@ -492,7 +493,8 @@ describe("buildSystemPrompt — enhanced features", () => {
     const prompt = buildSystemPrompt(makeTenant(), [], null);
     expect(prompt).toContain("caller_sentiment");
     expect(prompt).toContain("property_type");
-    expect(prompt).toContain("job_value");
+    expect(prompt).toContain("job_size");
+    expect(prompt).toContain("confidence");
   });
 
   it("includes two-exchange spam fast-exit rule", () => {

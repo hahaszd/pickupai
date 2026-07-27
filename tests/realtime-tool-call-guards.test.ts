@@ -193,15 +193,22 @@ describe("sanitizeSaveLeadArgs", () => {
     expect(sanitizeSaveLeadArgs({ caller_sentiment: "" }).caller_sentiment).toBeUndefined();
   });
 
-  it("accepts valid job_value values", () => {
-    expect(sanitizeSaveLeadArgs({ job_value: "small" }).job_value).toBe("small");
-    expect(sanitizeSaveLeadArgs({ job_value: "medium" }).job_value).toBe("medium");
-    expect(sanitizeSaveLeadArgs({ job_value: "large" }).job_value).toBe("large");
+  it("accepts valid job_size values", () => {
+    expect(sanitizeSaveLeadArgs({ job_size: "small" }).job_size).toBe("small");
+    expect(sanitizeSaveLeadArgs({ job_size: "medium" }).job_size).toBe("medium");
+    expect(sanitizeSaveLeadArgs({ job_size: "large" }).job_size).toBe("large");
   });
 
-  it("drops invalid job_value values", () => {
-    expect(sanitizeSaveLeadArgs({ job_value: "huge" }).job_value).toBeUndefined();
-    expect(sanitizeSaveLeadArgs({ job_value: 500 }).job_value).toBeUndefined();
+  it("drops invalid job_size values", () => {
+    expect(sanitizeSaveLeadArgs({ job_size: "huge" }).job_size).toBeUndefined();
+    expect(sanitizeSaveLeadArgs({ job_size: 500 }).job_size).toBeUndefined();
+  });
+
+  // job_value is the owner's dollar figure and must never be settable by the
+  // model — writing an enum into it zeroed the tenant's revenue total.
+  it("never accepts job_value from the model", () => {
+    expect((sanitizeSaveLeadArgs({ job_value: "large" }) as Record<string, unknown>).job_value).toBeUndefined();
+    expect((sanitizeSaveLeadArgs({ job_value: 8500 }) as Record<string, unknown>).job_value).toBeUndefined();
   });
 });
 

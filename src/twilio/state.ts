@@ -13,7 +13,7 @@ export type LeadDraft = {
   confidence?: number;
   property_type?: "residential" | "commercial" | "strata" | "rental";
   caller_sentiment?: "positive" | "neutral" | "frustrated" | "distressed" | "rushed";
-  job_value?: "small" | "medium" | "large";
+  job_size?: "small" | "medium" | "large";
 };
 
 export type CallState = {

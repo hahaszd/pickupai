@@ -3,7 +3,7 @@ import type { LeadDraft } from "../twilio/state.js";
 const VALID_URGENCY = new Set(["emergency", "urgent", "routine"]);
 const VALID_PROPERTY_TYPES = new Set(["residential", "commercial", "strata", "rental"]);
 const VALID_SENTIMENTS = new Set(["positive", "neutral", "frustrated", "distressed", "rushed"]);
-const VALID_JOB_VALUES = new Set(["small", "medium", "large"]);
+const VALID_JOB_SIZES = new Set(["small", "medium", "large"]);
 const VALID_INTENTS = new Set([
   "new_job",
   "follow_up",
@@ -99,9 +99,9 @@ export function sanitizeSaveLeadArgs(args: Record<string, unknown>): SaveLeadPat
     patch.caller_sentiment = sentiment as LeadDraft["caller_sentiment"];
   }
 
-  const jobValue = asNonEmptyString(args.job_value);
-  if (jobValue && VALID_JOB_VALUES.has(jobValue)) {
-    patch.job_value = jobValue as LeadDraft["job_value"];
+  const jobSize = asNonEmptyString(args.job_size);
+  if (jobSize && VALID_JOB_SIZES.has(jobSize)) {
+    patch.job_size = jobSize as LeadDraft["job_size"];
   }
 
   return patch;

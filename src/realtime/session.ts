@@ -63,10 +63,19 @@ const TOOLS = [
           enum: ["positive", "neutral", "frustrated", "distressed", "rushed"],
           description: "Caller's emotional state during the call"
         },
-        job_value: {
+        // Deliberately job_size, NOT job_value. job_value is a dollar figure
+        // the owner enters themselves and is summed for their ROI stat; this
+        // is the assistant's rough scope estimate. They were previously the
+        // same field, which wrote "medium" into a numeric column and zeroed
+        // out the revenue total.
+        job_size: {
           type: "string",
           enum: ["small", "medium", "large"],
           description: "Rough job size estimate — small (minor repair/single item), medium (multi-room or moderate scope), large (full house/major project)"
+        },
+        confidence: {
+          type: "number",
+          description: "How complete this lead is, 0 to 1. 0.3 = phone number only, 0.5 = phone + issue but no name or suburb, 0.7 = name + phone + issue + suburb, 1.0 = everything including urgency and preferred time."
         }
       },
       required: []
@@ -563,7 +572,7 @@ If the caller says "hang on", "give me a sec", "one moment", "let me check", or 
 - The caller's number on file is ${fromNumber ?? "unknown"} — use this only if they confirm it as their best contact number.
 - Property type: if you can tell from context whether it's a house, unit, commercial premises, or rental — note it in save_lead (property_type). Don't ask explicitly unless it comes up naturally or matters for the job (e.g., tenant might need landlord approval).
 - Caller sentiment: always set caller_sentiment in your final save_lead based on the caller's mood (positive, neutral, frustrated, distressed, rushed).
-- Job scope: if you can estimate the job size from context (small repair vs. large project), set job_value (small/medium/large) in save_lead.
+- Job scope: if you can estimate the job size from context (small repair vs. large project), set job_size (small/medium/large) in save_lead. Never guess a dollar figure — job_size is a scope estimate, not a price.
 - If the caller requests a specific callback time ("Can someone call me at 3pm?" or "I'm free after 4"): capture the exact request in preferred_time and set next_action to include it (e.g., "Call back after 3pm today"). Confirm it back: "No worries, I'll note that the best time to reach you is after 3."
 - Confidence: always set confidence in your final save_lead call. Use this scale: 0.3 = minimal info (phone number only, no name or issue), 0.5 = partial (phone + issue but missing name or suburb), 0.7 = good (name + phone + issue + suburb), 1.0 = complete (all fields including urgency and preferred time).
 - next_action: for new_job leads, set next_action to a specific actionable sentence the tradie can read at a glance — e.g., "Quote for kitchen tap replacement in Parramatta" or "Inspect roof leak - bring tarp". For follow-ups: "Customer checking on booking from last week". For complaints: "COMPLAINT - urgent callback needed". Be specific, not vague.

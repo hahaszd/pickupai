@@ -107,7 +107,7 @@ export function formatOwnerSms(opts: {
       : ((INTENT_HEADERS[intent] ?? `CALL [${intent}]`) + sentimentTag);
 
   const propertyLabel = compact(l.property_type);
-  const jobValueLabel = compact(l.job_value as unknown as string);
+  const jobSizeLabel = compact(l.job_size);
 
   const lines = [
     `${header}:`,
@@ -116,7 +116,7 @@ export function formatOwnerSms(opts: {
     hasAddress ? `Address: ${truncSms(compact(l.address), 80)}` : null,
     propertyLabel ? `Property: ${propertyLabel}` : null,
     hasSummary ? `Details: ${truncSms(compact(l.issue_summary), 120)}` : null,
-    jobValueLabel ? `Scope: ${jobValueLabel}` : null,
+    jobSizeLabel ? `Scope: ${jobSizeLabel}` : null,
     compact(l.preferred_time) ? `Preferred time: ${compact(l.preferred_time)}` : null,
     compact(l.next_action) ? `Next: ${compact(l.next_action)}` : null,
     isDegraded ? `Note: Some details weren't captured - check the recording.` : null,
