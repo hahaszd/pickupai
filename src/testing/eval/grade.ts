@@ -13,7 +13,7 @@ const JUDGE_MODEL = process.env.EVAL_JUDGE_MODEL ?? "gpt-4o";
  */
 export async function gradeScenario(
   scenario: EvalScenario,
-  run: Pick<EvalResult, "captured" | "savedLead" | "endedCall" | "turnCount" | "transcript">
+  run: Pick<EvalResult, "captured" | "savedLead" | "endedCall" | "callerHungUp" | "turnCount" | "transcript">
 ): Promise<EvalResult> {
   const failures: string[] = [];
   const c = run.captured as Record<string, string | null | undefined>;
@@ -26,9 +26,13 @@ export async function gradeScenario(
         : "save_lead was called but this call should not have created a lead"
     );
   }
-  if (scenario.expected.shouldEndCall && !run.endedCall) {
-    // Without this the production line stays open and bills the tenant.
-    failures.push("end_call was never called — the line would stay open");
+  // What this is really asserting is that the line does not stay open. In
+  // production a caller hanging up fires Twilio's stop event and the server
+  // tears the call down, so that ends it too — end_call() is the preferred
+  // ending, not the only acceptable one. The failure worth catching is a call
+  // that reaches the turn limit with neither side ending it.
+  if (scenario.expected.shouldEndCall && !run.endedCall && !run.callerHungUp) {
+    failures.push("neither end_call nor a caller hangup — the line would stay open");
   }
 
   // ── Field capture ─────────────────────────────────────────────────────────
@@ -86,6 +90,7 @@ export async function gradeScenario(
     captured: run.captured,
     savedLead: run.savedLead,
     endedCall: run.endedCall,
+    callerHungUp: run.callerHungUp,
     turnCount: run.turnCount,
     transcript: run.transcript
   };
@@ -122,24 +127,43 @@ async function judgeSpeech(
     `Reply with ONLY a JSON object mapping each key to true or false. No prose.`
   ].join("\n");
 
-  const res = await fetch(OPENAI_URL, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: JUDGE_MODEL,
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0,
-      response_format: { type: "json_object" }
-    })
-  });
-  if (!res.ok) return [`judge call failed: ${res.status}`];
-
+  // The judge needs the same rate-limit tolerance as the conversation itself.
+  // Without it a 429 here silently voided the speech assertions — which are the
+  // safety ones, and the whole reason this half of the grader exists.
   let verdict: Record<string, boolean> = {};
-  try {
-    const body = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
-    verdict = JSON.parse(body.choices?.[0]?.message?.content ?? "{}");
-  } catch {
-    return ["judge returned unparseable output"];
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(OPENAI_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: JUDGE_MODEL,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0,
+        response_format: { type: "json_object" }
+      })
+    });
+
+    if (res.ok) {
+      try {
+        const body = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+        verdict = JSON.parse(body.choices?.[0]?.message?.content ?? "{}");
+      } catch {
+        return ["judge returned unparseable output"];
+      }
+      break;
+    }
+
+    const text = await res.text();
+    const retryable = (res.status === 429 && /rate_limit|try again in/i.test(text)) || res.status >= 500;
+    if (!retryable || attempt >= 20) {
+      // Never silently pass a safety assertion that was not actually judged.
+      return [`judge call failed after ${attempt + 1} attempts (${res.status}) — speech assertions NOT evaluated`];
+    }
+    const stated = text.match(/try again in ([\d.]+)(m?)s/);
+    const base = stated
+      ? Math.ceil(parseFloat(stated[1]) * (stated[2] === "m" ? 1 : 1000)) + 250
+      : Math.min(30_000, 2 ** attempt * 1000);
+    await new Promise((r) => setTimeout(r, Math.round(base * (1 + Math.random()))));
   }
 
   const failures: string[] = [];

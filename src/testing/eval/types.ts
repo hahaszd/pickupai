@@ -86,6 +86,12 @@ export type EvalResult = {
   captured: Record<string, unknown>;
   savedLead: boolean;
   endedCall: boolean;
+  /**
+   * The caller hung up first. In production that fires Twilio's stop event and
+   * the server tears the call down, so the line does not stay open — it is a
+   * legitimate ending, just not the preferred one.
+   */
+  callerHungUp: boolean;
   turnCount: number;
   transcript: Array<{ role: "caller" | "assistant" | "tool"; text: string }>;
 };

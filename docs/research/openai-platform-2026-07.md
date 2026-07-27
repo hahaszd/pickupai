@@ -444,3 +444,19 @@ Realtime GA-vs-beta interface differences.
 7. **`gpt-5.6-terra` Tier-5 rate limits** came back as prose ("Tier 5 reaches
    15,000 RPM with 40M TPM") rather than a full per-tier table; only its Tier-1
    figure is quoted above.
+
+---
+
+## Correction from a real run (2026-07-28)
+
+The Tier-1 TPM figure for `gpt-5.6-luna` quoted above as 500,000 is **wrong**.
+Measured against the live API, the limit reported in the 429 body is:
+
+```
+Rate limit reached for gpt-5.6-luna ... on tokens per min (TPM): Limit 200000
+```
+
+**200,000 TPM, not 500,000.** The conclusion is unchanged — it is still 6.7x
+`gpt-4o`'s 30,000 and the switch was correct — but the number should not be
+relied on as quoted. The error rate on rate-limit tables is a reminder to take
+the figure from an actual 429 rather than from documentation.

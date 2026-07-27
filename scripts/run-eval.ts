@@ -87,7 +87,7 @@ async function main() {
       return {
         scenarioId: scenario.id, trade: scenario.trade, priority: scenario.priority,
         passed: false, failures: [`runner threw: ${(err as Error).message}`],
-        captured: {}, savedLead: false, endedCall: false, turnCount: 0, transcript: []
+        captured: {}, savedLead: false, endedCall: false, callerHungUp: false, turnCount: 0, transcript: []
       };
     }
   });

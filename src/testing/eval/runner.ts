@@ -43,12 +43,20 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * ("Please try again in 6.702s"), falling back to exponential backoff.
  */
 function retryDelayMs(body: string, attempt: number): number {
-  const stated = body.match(/try again in ([\d.]+)s/);
-  if (stated) return Math.ceil(parseFloat(stated[1]) * 1000) + 500;
-  return Math.min(30_000, 2 ** attempt * 1000);
+  const stated = body.match(/try again in ([\d.]+)(m?)s/);
+  const base = stated
+    ? Math.ceil(parseFloat(stated[1]) * (stated[2] === "m" ? 1 : 1000)) + 250
+    : Math.min(30_000, 2 ** attempt * 1000);
+  // Jitter, because the stated delay is the same for every caller. Without it
+  // parallel workers wake together, collide again, and burn retries in lockstep
+  // — which is exactly how a run at 97% of the limit lost 14 of 21 scenarios.
+  return Math.round(base * (1 + Math.random()));
 }
 
-const MAX_RETRIES = Number(process.env.EVAL_MAX_RETRIES ?? 6);
+// The stated waits are typically well under a second, so retrying often costs
+// seconds, not minutes. Being stingy here loses whole scenarios and the tokens
+// already spent on them.
+const MAX_RETRIES = Number(process.env.EVAL_MAX_RETRIES ?? 25);
 
 /**
  * A rate limit is the expected case, not an error.
@@ -209,7 +217,7 @@ function evalTenant(scenario: EvalScenario): TenantRow {
  */
 export async function runScenario(
   scenario: EvalScenario
-): Promise<Pick<EvalResult, "captured" | "savedLead" | "endedCall" | "turnCount" | "transcript">> {
+): Promise<Pick<EvalResult, "captured" | "savedLead" | "endedCall" | "callerHungUp" | "turnCount" | "transcript">> {
   const systemPrompt = buildSystemPrompt(evalTenant(scenario), [], "+61411222333");
 
   const assistantMessages: ChatMessage[] = [
@@ -227,10 +235,14 @@ export async function runScenario(
   const captured: Record<string, unknown> = {};
   let savedLead = false;
   let endedCall = false;
+  let callerHungUp = false;
+  let graceTurnAt = Infinity;
   let turnCount = 0;
 
   while (turnCount < MAX_TURNS && !endedCall) {
     turnCount++;
+    // One grace turn after a hangup, then stop regardless.
+    if (callerHungUp && turnCount > graceTurnAt) break;
 
     const completion = await chat({
       model: ASSISTANT_MODEL,
@@ -288,12 +300,19 @@ export async function runScenario(
     const callerText = (callerTurn.choices?.[0]?.message?.content ?? "").trim();
     if (!callerText || callerText.includes("[HANGS UP]")) {
       transcript.push({ role: "caller", text: "[HANGS UP]" });
-      break;
+      callerHungUp = true;
+      graceTurnAt = turnCount + 1;
+      // Do NOT break here. The assistant's farewell and its end_call() are
+      // usually separate turns, so breaking on the hangup meant it never got
+      // the turn where it would have ended the call — and every such run failed
+      // for a reason the assistant was never given a chance to satisfy.
+      assistantMessages.push({ role: "user", content: "[the caller has hung up]" });
+      continue;
     }
     transcript.push({ role: "caller", text: callerText });
     callerMessages.push({ role: "assistant", content: callerText });
     assistantMessages.push({ role: "user", content: callerText });
   }
 
-  return { captured, savedLead, endedCall, turnCount, transcript };
+  return { captured, savedLead, endedCall, callerHungUp, turnCount, transcript };
 }
