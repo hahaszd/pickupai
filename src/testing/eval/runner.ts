@@ -87,6 +87,15 @@ async function chat(body: Record<string, unknown>): Promise<any> {
       );
     }
 
+    // Reasoning models reject function tools unless reasoning_effort is
+    // explicitly "none" on chat/completions. Rather than hardcoding which
+    // models need that — the list changes faster than this file does — take the
+    // API at its word and retry once with the parameter it asked for.
+    if (res.status === 400 && /reasoning_effort/i.test(text) && body.reasoning_effort === undefined) {
+      body.reasoning_effort = "none";
+      continue;
+    }
+
     // 5xx is OpenAI having a moment and is worth waiting out. Any other 4xx is
     // our mistake and retrying will not fix it.
     const retryable = (res.status === 429 && looksLikeRateLimit) || res.status >= 500;
@@ -107,9 +116,48 @@ async function chat(body: Record<string, unknown>): Promise<any> {
  * bucketing down". Giving a model the facts and letting it answer naturally is
  * what makes a multi-turn eval survive prompt changes.
  */
+/**
+ * A stable identity for the caller, derived from the scenario id.
+ *
+ * Without one the caller model deadlocks: scenarios describe a situation but
+ * never name the person, and the caller is told not to invent facts — so when
+ * the assistant asks "what's your name?" it emits stage directions like
+ * "My name is [pauses]..." instead of a name, forever. Seven of the first
+ * twenty-one runs died that way, and every failure looked like the assistant
+ * failing to capture a name it was never given.
+ *
+ * Derived from the id rather than random so a rerun of the same scenario gets
+ * the same person.
+ */
+const CALLER_NAMES = [
+  "Dave Cornish", "Sandra Nguyen", "Mick Harrison", "Priya Shah", "Trish Boland",
+  "Gary Whitlock", "Amanda Reid", "Steve Papas", "Jodie Franklin", "Wayne Tremain",
+  "Nicole Baptiste", "Craig Mullins"
+];
+const AU_SUBURBS = [
+  "Parramatta 2150", "Blacktown 2148", "Footscray 3011", "Preston 3072",
+  "Coorparoo 4151", "Morley 6062", "Prospect 5082", "Glenorchy 7010"
+];
+
+function callerIdentity(scenarioId: string): { name: string; suburb: string; phone: string } {
+  let h = 0;
+  for (const c of scenarioId) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return {
+    name: CALLER_NAMES[h % CALLER_NAMES.length],
+    suburb: AU_SUBURBS[(h >>> 5) % AU_SUBURBS.length],
+    phone: `04${String(10_000_000 + (h % 89_999_999)).slice(0, 8)}`
+  };
+}
+
 function callerSystemPrompt(scenario: EvalScenario): string {
+  const who = callerIdentity(scenario.id);
   return [
     `You are a member of the Australian public phoning a ${scenario.trade}'s business. Speak naturally, in Australian English, the way someone actually talks on the phone — short, sometimes messy, never like a written summary.`,
+    ``,
+    `You are ${who.name}. You live in ${who.suburb}. Your mobile is ${who.phone}.`,
+    `Give these when asked. If the scenario below says you are reluctant, flustered or cannot recall something, play that for a turn or two — then give it. A caller who never gives their details at all is not a hard case, it is a dead call, and it tells us nothing about the receptionist.`,
+    ``,
+    `NEVER write stage directions, narration, or bracketed placeholders. Not "[pauses]", not "[name]", not "*sighs*". Say the actual words a person would say out loud, and nothing else. If you want to convey hesitation, write it into the speech: "um, hang on—".`,
     ``,
     `Your situation: ${scenario.label}`,
     ``,
@@ -120,7 +168,7 @@ function callerSystemPrompt(scenario: EvalScenario): string {
       : []),
     ``,
     `Rules:`,
-    `- Never invent facts beyond what you know. If asked something not in your list, say you don't know — that is realistic and it is the point.`,
+    `- Beyond your name, suburb and mobile above, do not invent facts. If asked something not in your list, say you don't know — that is realistic and it is the point.`,
     `- Never break character, never mention that this is a test.`,
     `- Keep each reply to one or two sentences.`,
     `- When the receptionist has clearly wrapped up and said goodbye, reply with exactly: [HANGS UP]`
