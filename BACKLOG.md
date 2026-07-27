@@ -60,21 +60,38 @@ Owner action, Railway logs. Look for `shutdown: draining` and
 shutdown path in `src/server.ts` is dead code — deploys still lose writes.
 See [ADR-0001](docs/adr/0001-whole-blob-persistence-and-deferred-migration.md).
 
-### Run the eval P0 suite for the first time
-21 P0 scenarios, never executed. **`OPENAI_API_KEY` is the only variable
-needed** — the harness fills the rest itself
-(`src/testing/eval/env-bootstrap.ts`). Costs real money.
-
-Smoke one scenario first, for a few cents:
-`npx tsx scripts/run-eval.ts --id plumber_no_hot_water_elderly_negative_control --verbose`
-— that one is the negative control for the urgency rubric, so it also verifies
-the fix landed. Then `npm run eval:p0`.
-
-Expect failures: warm transfer and the SMS truncation items below are unfixed.
-A fully green first run should be treated as suspicious, not as success. See
-`docs/eval.md`.
-
 ## P2
+
+### Decide: should a referred-out call still leave a phone number?
+Surfaced by the eval, 2026-07-28. In `electrician_whole_street_blackout` and
+`electrician_overhead_service_line_down` the assistant reasons **correctly** —
+a whole street being dark is the distributor's problem, a downed service line
+is a 000 call — and then ends without taking a number.
+
+`session.ts:103` says the opposite: *"ALWAYS collect the caller's details
+regardless — never turn a caller away without taking their information."* So
+the prompt's own rule and the assistant's judgement disagree, and both
+positions are defensible: today's outage caller may have a real job next week,
+against a lead with no job attached being noise.
+
+This is a product decision, not a defect. Whichever way it goes, make the
+prompt and the eval agree afterwards.
+
+### Decide: how hard should the assistant push for a callback number?
+`handyman_price_shopping_no_booking`. The assistant asks once, the caller
+declines, and it closes politely. For a price shopper that means the owner
+never learns they lost on price and has no way to ring back and win it.
+Pushing harder risks badgering. `session.ts:557` already says to ALWAYS ask;
+it does not say what to do when refused.
+
+### Point Railway's OPENAI_API_KEY at the PickupAI project
+Owner action. A `pickupai-local-dev` key now exists in the new project and is
+in `.env`, but production almost certainly still runs on the Voice Spark key —
+so real customer calls are still billed to the other project and the usage
+split is only half done. Create a `pickupai-production` key with the same three
+permissions (chat completions, realtime, text-to-speech) and swap it in
+Railway.
+
 
 ### Shorten the dashboard link in the owner SMS
 `https://www.getpickupai.com.au/dashboard/leads/<uuid>` is **83 characters, 29%
@@ -134,19 +151,6 @@ pays a wasted API round-trip before falling back to Twilio.
 ### Known type errors: none; known lint warnings: ~248
 All `@typescript-eslint/no-explicit-any`, concentrated at the sql.js and Twilio
 webhook boundaries. Error count must stay at 0.
-
-### Move to Tier 2 on OpenAI ($50 cumulative spend)
-Owner action, billing page. The account is Tier 1: **30,000 TPM on `gpt-4o`**,
-which is what the eval keeps backing off against. Tier 2 is **450,000 TPM** and
-costs nothing extra — tiers change the rate ceiling only, never the per-token
-price. Confirmed against the rate-limits guide in
-`docs/research/openai-platform-2026-07.md`.
-
-Note Tier 1 also carries a **$100/month hard spend cap**, which since 22 Jul
-2026 returns a `429` indistinguishable from a rate limit. The eval now detects
-and reports that case rather than retrying into it, but the cap is still a wall.
-
-## P3
 
 ### Rotate the Neon database password
 The production `DATABASE_URL`, including the password for `neondb_owner`, was

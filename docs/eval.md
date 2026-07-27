@@ -83,3 +83,28 @@ classified by intent, with assertions but no dialogue, so nothing could ever
 run them. It still owns `evaluateCaptureQuality()` and `expectedSmsForIntent()`,
 which this harness reuses. The eval adds the two things that make a scenario
 runnable — a caller who can hold a conversation, and a trade.
+
+## First real runs — 2026-07-28
+
+| Run | Result | What it actually measured |
+|---|---|---|
+| 1 | 8/21 | The harness. The simulated caller had no name, so it emitted `[pauses]` placeholders and seven scenarios deadlocked to the turn limit. |
+| 2 | 3/21 | The harness. Parallel workers woke from the same stated backoff, collided, and 14 scenarios exhausted their retries. |
+| 3 | 17/21 | The product. Zero rate-limit failures. |
+| 3 + judge fix | **18/21** | The judge had read "don't touch the switchboard" as an instruction to touch it. |
+
+**The product code barely changed across those four numbers.** Every early
+failure was this harness, and the first run was the dangerous one: each failure
+read like the assistant failing to capture a name it was in fact never given.
+
+Two lessons worth keeping:
+
+- **Read the transcript before believing a failure.** A red result is a
+  hypothesis about the product, not a finding.
+- **A first run is a test of the eval.** Treat an early red as suspect in the
+  harness until the transcript says otherwise — and treat an early green as
+  suspect in the assertions.
+
+Verified working by this: the branching electrical safety advice, the
+electric-shock rule, the handyman licensing boundary, and all three negative
+controls against emergency over-tagging.
