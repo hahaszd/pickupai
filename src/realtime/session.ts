@@ -275,9 +275,16 @@ function buildTradeSection(tradeKeys: string[]): {
   const isHandyman = resolved.includes("handyman");
   const hasMultipleTrades = resolved.length > 1;
 
+  // A tenant whose trade has no config — a sealants business, a fencer, a
+  // locksmith — used to end up described to callers as "an Australian OTHER
+  // business" with zero intake questions, because the signup form submitted
+  // the literal string "other". The form now sends what they typed, so the
+  // label reads naturally ("an Australian sealants business"); "other" and
+  // empty are the only values that still need rescuing.
+  const isPlaceholderTrade = (t: string) => !t || t === "other" || t === "tradie";
   const tradeLabel =
     configs.length === 0
-      ? (resolved.join(" / ") || "trade")
+      ? (resolved.filter((t) => !isPlaceholderTrade(t)).join(" / ") || "trade")
       : configs.length === 1
       ? configs[0].label
       : configs.map((c) => c.label).join(" and ");
@@ -297,7 +304,20 @@ function buildTradeSection(tradeKeys: string[]): {
 Once you know it's a job enquiry, ask ONLY the relevant questions below (one at a time, only as needed).
 Transition naturally — don't just fire off a technical question. Use a bridge: "Just a quick question so the team knows what to bring —" or "One more thing that'll help them prepare —"
 ${intakeLines.join("\n")}`
-      : "";
+      // No config for this trade. Falling through with an empty section used to
+      // leave the assistant with nothing to ask beyond name and number, which
+      // is the whole thing this product is supposed to do better than voicemail.
+      // These work for any trade, and the business name plus the caller's own
+      // words carry the specifics.
+      : `
+# Intake Questions
+We don't have a question set tuned to this trade yet, so listen carefully and take your cue from what the caller says and from the business name. Ask one at a time, only as needed, with a natural bridge:
+  • What's the job — what needs doing?
+  • Is it a repair to something existing, a new installation, or are they after a quote?
+  • Is it causing a problem right now, or can it wait for a normal booking?
+  • Is it a home, a business, or a rental / strata property?
+  • Have they had us out before?
+NEVER pretend to technical knowledge of this trade you don't have. If the caller uses a term you don't know, don't guess and don't define it — ask them to describe what they can see, and record their words as-is. The owner knows the trade; your job is to capture it accurately, not to diagnose.`;
 
   // Merge emergency keywords and tips
   const emergencyKws = configs

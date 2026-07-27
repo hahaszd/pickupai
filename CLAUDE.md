@@ -13,7 +13,7 @@ serves an owner dashboard + admin panel. Deployed on Railway from `Dockerfile`.
 | `npm start` | Run compiled server |
 | `npm run typecheck` | Type-checks `src/` **and** `tests/`, `scripts/*.ts` — `build` does not |
 | `npm run lint` | ESLint 9 flat config |
-| `npm test` | Vitest, 224 unit tests, no network |
+| `npm test` | Vitest unit tests, no network |
 | `npm run test:e2e` | Lifecycle suite — **needs a running server + real Twilio/admin creds** |
 | `npm run check` | typecheck + lint + test. Run this before declaring work done. |
 
@@ -145,6 +145,19 @@ The issue-tracker-centric skills (`to-tickets`, `triage`, `to-spec`,
 **Prospect** (a tradie we might sell to), **Tenant** (a tradie who pays) and
 **Lead** (a job enquiry from someone who rang a Tenant) are three different
 things, and "lead" is only ever the third.
+
+**`docs/channel-evidence.md` holds what has actually been tried to get
+customers, with the raw numbers.** Read it before proposing anything about
+acquisition, and before repeating an experiment. It records, among other
+things, that the 560-SMS campaign produced zero genuine human clicks — the 60
+`link_clicked_at` stamps are carrier link scanners — and that the only real
+user in the product's history arrived organically.
+
+**When an investigation turns up something that changes a decision, write it
+into that file in the same turn.** A finding that lives only in a conversation
+is a finding that gets re-derived from the database months later, or
+misremembered. Record the numbers and the method, not just the verdict, and
+record disproved claims too.
 
 `docs/adr/` holds architecture decisions:
 

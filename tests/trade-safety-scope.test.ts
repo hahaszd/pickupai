@@ -86,6 +86,45 @@ describe("handyman licensing scope", () => {
   });
 });
 
+describe("unlisted trades", () => {
+  // A sealants business signed up, was stored as the literal string "other",
+  // and would have been introduced to callers as "an Australian other
+  // business" with no trade questions at all. It was the only real signup the
+  // product had ever had.
+  it("never describes a business as an 'other' business", () => {
+    for (const trade of ["other", "tradie", ""]) {
+      const prompt = buildSystemPrompt(makeTenant(trade), [], null);
+      expect(prompt, `trade_type=${JSON.stringify(trade)}`).not.toContain("an Australian other business");
+      expect(prompt, `trade_type=${JSON.stringify(trade)}`).not.toContain("an Australian tradie business");
+    }
+  });
+
+  it("uses a trade the signup form did not offer, verbatim", () => {
+    // buildTradeSection has no config for these, but the stored string is the
+    // label — which is why the signup form now asks people to type it.
+    // Note these must be trades with no TRADE_ALIASES entry: fencing,
+    // locksmith, concreting and landscaping are deliberately absorbed into
+    // handyman and are therefore introduced with the handyman label.
+    for (const trade of ["sealants", "waterproofing", "glazier", "plasterer"]) {
+      expect(buildSystemPrompt(makeTenant(trade), [], null)).toContain(`an Australian ${trade} business`);
+    }
+  });
+
+  it("still gives the assistant questions to ask", () => {
+    // Falling through with no intake section left it able to collect a name
+    // and a number and nothing else, which is the entire thing this product
+    // claims to do better than voicemail.
+    const prompt = buildSystemPrompt(makeTenant("sealants"), [], null);
+    expect(prompt).toContain("# Intake Questions");
+    expect(prompt).toContain("What's the job — what needs doing?");
+  });
+
+  it("tells the assistant not to fake knowledge of a trade it has no config for", () => {
+    const prompt = buildSystemPrompt(makeTenant("sealants"), [], null);
+    expect(prompt).toMatch(/NEVER pretend to technical knowledge/i);
+  });
+});
+
 describe("save_lead schema", () => {
   const prompt = () => buildSystemPrompt(makeTenant("plumber"), [], null);
 

@@ -290,6 +290,35 @@ export function signupPage(error?: string, prefill: Record<string, string> = {})
           ${tradeOptions}
         </select>
       </div>
+      <!--
+        Picking "Other" used to store the literal string "other", and the
+        assistant then introduced the business to callers as "an Australian
+        other business" with no trade questions at all. Trades outside the list
+        are common — sealants, fencing, locksmithing, concreting — so ask.
+      -->
+      <div class="form-group" id="trade_other_group" style="display:none">
+        <label for="trade_other">What's your trade?</label>
+        <input type="text" id="trade_other" name="trade_other" maxlength="40"
+               placeholder="e.g. sealants, fencing, locksmith"
+               value="${escape(prefill.trade_other ?? "")}" />
+        <p style="font-size:.8rem;color:var(--gray-500);margin-top:.25rem;">
+          Your AI receptionist uses this when it introduces your business to callers.
+        </p>
+      </div>
+      <script>
+        (function () {
+          var sel = document.getElementById("trade_type");
+          var grp = document.getElementById("trade_other_group");
+          var inp = document.getElementById("trade_other");
+          function sync() {
+            var other = sel.value === "other";
+            grp.style.display = other ? "" : "none";
+            inp.required = other;
+          }
+          sel.addEventListener("change", sync);
+          sync();
+        })();
+      </script>
       <div class="form-group">
         <label for="ai_name">AI receptionist name <span style="font-weight:400;color:var(--gray-600);">(optional)</span></label>
         <input type="text" id="ai_name" name="ai_name" placeholder="Olivia" value="${escape(prefill.ai_name ?? "")}" />

@@ -3223,6 +3223,20 @@ async function main() {
       trackEvent("signup_validation_failed", { payload: { reason: "invalid_trade_type" } });
       return res.send(signupPage("Please select a valid trade type.", prefill));
     }
+
+    // "other" is a UI affordance, never a stored value. buildTradeSection()
+    // has no config for an unlisted trade but does use the stored string as the
+    // label, so storing what they typed gives callers "an Australian sealants
+    // business" instead of "an Australian other business".
+    let resolvedTradeType = trade_type as string;
+    if (trade_type === "other") {
+      const typed = String(req.body?.trade_other ?? "").trim().toLowerCase();
+      if (!/^[a-z][a-z /&'-]{1,39}$/.test(typed)) {
+        trackEvent("signup_validation_failed", { payload: { reason: "missing_trade_other" } });
+        return res.send(signupPage("Please tell us what your trade is.", prefill));
+      }
+      resolvedTradeType = typed;
+    }
     if (!isValidAuPhone(owner_phone as string)) {
       trackEvent("signup_validation_failed", { payload: { reason: "invalid_phone" } });
       return res.send(signupPage("Please enter a valid Australian phone number (e.g. 0412 345 678 or +61412345678).", prefill));
@@ -3243,7 +3257,7 @@ async function main() {
     const serviceArea = (req.body.service_area as string)?.trim() || null;
     const tenant = createTenant(db, {
       name: name as string,
-      trade_type: trade_type as string,
+      trade_type: resolvedTradeType,
       ai_name: ai_name || "Olivia",
       twilio_number: twilioNumber,
       owner_phone: phoneE164,

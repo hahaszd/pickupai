@@ -69,6 +69,17 @@ and [ADR-0002](docs/adr/0002-critical-writes-flush-synchronously.md).
   who rang a Tenant) are three different things, and "lead" is only ever the
   third.
 
+## Evidence and measurement
+
+- **Never present an unexamined column as a measurement.** `link_clicked_at`
+  looks like engagement and is not — see `docs/channel-evidence.md`. Before
+  quoting a number, know what writes it and what else could.
+- **Measure human engagement on `funnel_events`**, which requires JavaScript to
+  have run, not on server-side hit counters that any scanner trips.
+- **Findings that change a decision go into the repo in the same change**, with
+  their raw numbers and how they were obtained. `docs/channel-evidence.md` for
+  market and channel evidence, `docs/adr/` for decisions.
+
 ## Tests
 
 - **A test must be able to fail.** Assert on the mechanism under test, not on a
