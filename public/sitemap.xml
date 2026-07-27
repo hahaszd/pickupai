@@ -14,6 +14,26 @@
     <priority>1.0</priority>
   </url>
   <url>
+    <loc>https://www.getpickupai.com.au/pricing</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://www.getpickupai.com.au/ai-receptionist-for-plumbers</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://www.getpickupai.com.au/ai-receptionist-for-electricians</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://www.getpickupai.com.au/ai-receptionist-for-roofers</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
     <loc>https://www.getpickupai.com.au/terms</loc>
     <changefreq>yearly</changefreq>
     <priority>0.2</priority>

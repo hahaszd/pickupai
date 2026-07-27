@@ -1243,6 +1243,18 @@ async function main() {
   app.get("/terms", (_req, res) => res.sendFile(path.join(PUBLIC_DIR, "terms.html")));
   app.get("/privacy", (_req, res) => res.sendFile(path.join(PUBLIC_DIR, "privacy.html")));
 
+  // Extensionless URLs for the marketing pages. express.static already serves
+  // /pricing.html; these make /pricing the canonical form, which is what the
+  // <link rel="canonical"> and sitemap.xml both point at.
+  for (const slug of [
+    "pricing",
+    "ai-receptionist-for-plumbers",
+    "ai-receptionist-for-electricians",
+    "ai-receptionist-for-roofers"
+  ]) {
+    app.get(`/${slug}`, (_req, res) => res.sendFile(path.join(PUBLIC_DIR, `${slug}.html`)));
+  }
+
   // Focused SMS-arrival landing page. /r/:pid redirects here so SMS clickers
   // see a single-screen demo + trial CTA instead of the full marketing
   // homepage. Per-recipient attribution is preserved by the redirect's UTM

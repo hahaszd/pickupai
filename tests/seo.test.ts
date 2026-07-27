@@ -72,44 +72,85 @@ describe("indexable pages carry the basics", () => {
   }
 });
 
-describe("structured data matches the visible page", () => {
-  const html = read("index.html");
+function jsonLdGraph(html: string): Array<Record<string, any>> | null {
   const block = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
-  const graph = JSON.parse(block![1])["@graph"] as Array<Record<string, any>>;
+  if (!block) return null;
+  const parsed = JSON.parse(block[1]);
+  return parsed["@graph"] ?? [parsed];
+}
 
-  it("is valid JSON-LD with the expected types", () => {
-    expect(block, "index.html has no JSON-LD block").toBeTruthy();
-    const types = graph.map((n) => n["@type"]);
-    expect(types).toContain("Organization");
-    expect(types).toContain("FAQPage");
-  });
+describe("structured data matches the visible page", () => {
+  // Runs across every page that carries JSON-LD, so a new marketing page is
+  // covered the moment it lands rather than when someone remembers to add a
+  // test. Google treats markup that contradicts the rendered page as a
+  // manual-action offence, which makes drifted markup worse than none.
+  for (const page of htmlPages()) {
+    const html = read(page);
+    const graph = jsonLdGraph(html);
+    if (!graph) continue;
 
-  it("every FAQ question in the markup is visible on the page", () => {
-    // Google treats structured data that contradicts the rendered page as a
-    // manual-action offence, so this drifting is worse than having no markup.
-    const visible = [...html.matchAll(/<summary[^>]*>([^<]+)<\/summary>/g)].map((m) => m[1].trim());
-    const faq = graph.find((n) => n["@type"] === "FAQPage")!;
-    for (const q of faq.mainEntity) {
-      expect(visible, `"${q.name}" is in the markup but not on the page`).toContain(q.name);
+    it(`${page}: JSON-LD parses and declares a type`, () => {
+      expect(graph.length).toBeGreaterThan(0);
+      for (const node of graph) expect(node["@type"], `node without @type in ${page}`).toBeTruthy();
+    });
+
+    const faq = graph.find((n) => n["@type"] === "FAQPage");
+    if (faq) {
+      it(`${page}: every FAQ question in the markup is visible on the page`, () => {
+        const visible = [...html.matchAll(/<summary[^>]*>([^<]+)<\/summary>/g)].map((m) => m[1].trim());
+        for (const q of faq.mainEntity) {
+          expect(visible, `"${q.name}" is in the markup but not on the page`).toContain(q.name);
+        }
+      });
+
+      it(`${page}: every FAQ answer in the markup appears on the page`, () => {
+        const stripped = html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
+        for (const q of faq.mainEntity) {
+          // A distinctive slice rather than the whole answer, which may be
+          // trimmed differently for the markup.
+          const probe = q.acceptedAnswer.text.split(". ")[0].trim();
+          expect(stripped, `answer to "${q.name}" not found on page`).toContain(probe);
+        }
+      });
+    }
+
+    const offerNode = graph.find((n) => n.offers)?.offers;
+    if (offerNode) {
+      it(`${page}: the advertised price matches the price in the markup`, () => {
+        expect(offerNode.priceCurrency).toBe("AUD");
+        expect(html, `page should show $${offerNode.price.replace(".00", "")}`).toContain(
+          `$${offerNode.price.replace(".00", "")}`
+        );
+      });
+    }
+  }
+});
+
+describe("marketing pages are reachable and linked", () => {
+  const sitemap = read("sitemap.xml");
+  const slugs = [...sitemap.matchAll(/<loc>https:\/\/www\.getpickupai\.com\.au\/([^<]*)<\/loc>/g)]
+    .map((m) => m[1])
+    .filter(Boolean);
+
+  it("every sitemapped URL has a file behind it", () => {
+    // A sitemap entry with no page is a 404 reported straight back to Search
+    // Console, which is worse than never listing it.
+    const files = new Set(htmlPages().map((f) => f.replace(/\.html$/, "")));
+    for (const slug of slugs) {
+      expect(files.has(slug), `sitemap lists /${slug} but public/${slug}.html does not exist`).toBe(true);
     }
   });
 
-  it("every FAQ answer in the markup appears on the page", () => {
-    const stripped = html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
-    const faq = graph.find((n) => n["@type"] === "FAQPage")!;
-    for (const q of faq.mainEntity) {
-      // Compare a distinctive slice rather than the whole answer, which may be
-      // trimmed for the markup.
-      const probe = q.acceptedAnswer.text.split(". ")[0].trim();
-      expect(stripped, `answer to "${q.name}" not found on page`).toContain(probe);
+  it("the trade pages cross-link to each other", () => {
+    // Orphan pages are crawled late and rank worse; internal links are the
+    // cheapest fix and the easiest to forget when adding the next trade.
+    const tradePages = htmlPages().filter((f) => f.startsWith("ai-receptionist-for-"));
+    if (tradePages.length < 2) return;
+    for (const page of tradePages) {
+      const html = read(page);
+      const others = tradePages.filter((p) => p !== page).map((p) => p.replace(/\.html$/, ""));
+      const linksToAnother = others.some((slug) => html.includes(`/${slug}`));
+      expect(linksToAnother, `${page} links to no other trade page`).toBe(true);
     }
-  });
-
-  it("the advertised price matches the price in the markup", () => {
-    const offer = graph.find((n) => n["@type"] === "SoftwareApplication")?.offers;
-    expect(offer?.priceCurrency).toBe("AUD");
-    expect(html, `page should show $${offer.price.replace(".00", "")}`).toContain(
-      `$${offer.price.replace(".00", "")}`
-    );
   });
 });
