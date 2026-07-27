@@ -60,6 +60,34 @@ In your service → **Variables**, add:
 | `STRIPE_PUBLISHABLE_KEY` | Stripe publishable key (`pk_live_...` or `pk_test_...`) |
 | `STRIPE_PRICE_ID` | Stripe subscription price ID |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret |
+| `DATABASE_URL` | PostgreSQL URL (e.g. free Neon). Strongly recommended — see "Persistence" below. Without it the `/app/data` volume from Step 3 is mandatory. |
+| `OPENAI_REALTIME_MODEL` | Optional. Defaults to `gpt-realtime-2`; set `gpt-realtime-1.5` to roll back without redeploying |
+| `OPENAI_REALTIME_REASONING_EFFORT` | Optional. `low` (default) is OpenAI's recommendation for live voice |
+| `MOBILE_MSG_API_USER` / `MOBILE_MSG_API_PASSWORD` / `MOBILE_MSG_SENDER` | Optional. Set all three to route outbound SMS via Mobile Message instead of Twilio |
+| `MOBILE_MSG_OPT_OUT_LINK` | Optional but expected in production — appends the hosted opt-out link to every SMS |
+| `GA_MEASUREMENT_ID` | Optional. GA4 measurement ID |
+| `DEMO_POOL_NUMBERS` / `DEMO_POOL_NUMBER_SID` | Optional. Numbers reserved for the call-it-yourself demo |
+
+### Required for safe shutdown — do not skip
+
+| Variable | Value | Why |
+|---|---|---|
+| `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` | `15` | **Railway allows 0 seconds by default.** Without this the app is SIGKILLed and its shutdown handler never runs, so recent writes and every in-progress call's details are lost on each deploy. |
+| `RAILWAY_DEPLOYMENT_OVERLAP_SECONDS` | `0` | Stops the new instance from loading the database while the old one is still writing. With overlap left on, the new instance's first flush silently overwrites everything the old one saved on the way out. |
+
+These two are what make the graceful-shutdown code in `src/server.ts` do
+anything at all. Setting `OVERLAP_SECONDS=0` costs roughly **30–60 seconds of
+downtime per deploy** — that is the deliberate trade in
+[ADR-0001](docs/adr/0001-whole-blob-persistence-and-deferred-migration.md):
+durability over availability, because a lost lead is invisible to the customer
+and a brief outage is not.
+
+Prefer off-peak deploys, but treat that as discipline rather than protection —
+after-hours emergency answering is a paid-for feature, and crash restarts happen
+at any hour regardless.
+
+**Keep the service at 1 replica.** Scaling up corrupts data silently instead of
+failing loudly.
 
 ---
 
@@ -126,8 +154,32 @@ For manual onboarding:
 
 ---
 
-## Upgrading from SQLite to PostgreSQL (when you have 20+ customers)
+## Persistence — how it actually works
 
-1. Add a Railway PostgreSQL service to your project
-2. Switch the DB layer from `sql.js` to `pg` or `drizzle-orm`
-3. Migration is straightforward since the schema is simple
+There is no separate "migrate to PostgreSQL" step; `DATABASE_URL` already
+switches the backing store. `src/db/db.ts` runs SQLite (sql.js) **in memory**
+and persists the whole database as a single exported blob:
+
+- **`DATABASE_URL` unset** — blob is written to `SQLITE_PATH` on disk. This is
+  the local-dev path, and on Railway it requires the `/app/data` volume from
+  Step 3 or every deploy wipes the database.
+- **`DATABASE_URL` set** — blob is written to one `sqlite_blob` row in
+  PostgreSQL (a free Neon database is enough). Survives container restarts
+  without a volume. This is the recommended production setup.
+
+### The multi-instance caveat
+
+Every flush overwrites the entire blob. If you scale Railway past **one
+instance**, concurrent writers silently clobber each other's rows.
+
+Two consequences:
+
+1. Keep the service at 1 replica unless you have deliberately moved the
+   affected tables off the blob.
+2. Append-only, high-write tables (funnel events, outreach logs) are written
+   **directly to PostgreSQL** through `db.pg`, bypassing the blob. See
+   `/api/funnel/event` in `src/server.ts` for the pattern to copy.
+
+A genuine move to per-table PostgreSQL (`pg` or `drizzle-orm`) is the fix when
+single-instance stops being enough — the schema is simple, but it is a real
+migration, not a config flag.

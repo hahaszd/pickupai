@@ -10,6 +10,11 @@ export type Db = {
   run: (sql: string, params?: any[]) => void;
   get: <T = any>(sql: string, params?: any[]) => T | null;
   all: <T = any>(sql: string, params?: any[]) => T[];
+  /**
+   * Write the database out now and resolve once *this* call's data is durable.
+   * Safe to await after a write to guarantee it survives a crash — see
+   * docs/adr/0002 for which writes warrant the latency.
+   */
   flush: () => Promise<void>;
   /**
    * Direct Postgres pool, when DATABASE_URL is configured. Use this for
@@ -88,7 +93,26 @@ async function pgEnsureAuxTables(pool: Pool): Promise<void> {
 
 // ── openDb ────────────────────────────────────────────────────────────────────
 
-export async function openDb(sqlitePath: string, pgUrl?: string): Promise<Db> {
+export type FlushInfo = {
+  /** Size of the whole-database blob that was just written. */
+  bytes: number;
+  durationMs: number;
+};
+
+export type OpenDbOptions = {
+  /**
+   * Called after every successful flush. Kept as a callback so this module
+   * stays free of any dependency on SMS, logging or env — the caller decides
+   * what a worrying number looks like and who to tell.
+   */
+  onFlush?: (info: FlushInfo) => void;
+};
+
+export async function openDb(
+  sqlitePath: string,
+  pgUrl?: string,
+  { onFlush }: OpenDbOptions = {}
+): Promise<Db> {
   // Resolve initial SQLite data — preferring PostgreSQL over local file when
   // DATABASE_URL is configured.
   let pgPool: Pool | null = null;
@@ -178,37 +202,61 @@ export async function openDb(sqlitePath: string, pgUrl?: string): Promise<Db> {
   // ── Flush (write to PostgreSQL or local file) ─────────────────────────────
 
   let pendingFlush: NodeJS.Timeout | null = null;
-  let flushing = false;
+  // Tail of the flush queue. Never null after the first flush; awaiting it
+  // means "every flush queued before mine has finished".
+  let inFlight: Promise<void> | null = null;
 
-  const flush = async () => {
-    if (flushing) return;
-    flushing = true;
-    try {
-      const data = db.export();
-      const buf = Buffer.from(data);
-      if (pgPool) {
-        await pgSave(pgPool, buf);
-      } else {
-        await writeFile(sqlitePath, buf);
-      }
-    } finally {
-      flushing = false;
+  const writeOut = async () => {
+    const startedAt = Date.now();
+    const data = db.export();
+    const buf = Buffer.from(data);
+    if (pgPool) {
+      await pgSave(pgPool, buf);
+    } else {
+      await writeFile(sqlitePath, buf);
     }
+    // Reported on every flush so the operator can see the blob growing and the
+    // write getting slower — the two signals that say "time to migrate off the
+    // whole-blob store". See docs/adr/0001.
+    onFlush?.({ bytes: buf.length, durationMs: Date.now() - startedAt });
+  };
+
+  /**
+   * Queue a flush behind any already-running one and resolve when *ours* has
+   * been written.
+   *
+   * The serialisation matters: the previous implementation returned early with
+   * `if (flushing) return`, which meant a caller awaiting a flush could be
+   * handed a resolved promise for a write that had exported the database
+   * *before* their row existed. That silently broke the durability guarantee
+   * critical writes depend on (docs/adr/0002), and on the debounced path it
+   * could strand a batch of writes in memory indefinitely — the timer had
+   * already been cleared, so nothing rescheduled them.
+   *
+   * `db.export()` runs inside the queued step, so each flush always serialises
+   * the newest state. Depth is bounded: at most one debounced flush is armed at
+   * a time, plus the handful of concurrent critical writes.
+   */
+  const flushNow = (): Promise<void> => {
+    // Same handler for both settle paths: an earlier failure must not stop
+    // later flushes from running.
+    const run = (inFlight ?? Promise.resolve()).then(writeOut, writeOut);
+    // Swallow on the chain only — `run` itself still rejects to our caller.
+    inFlight = run.catch(() => {});
+    return run;
   };
 
   const scheduleFlush = () => {
     if (pendingFlush) return;
-    pendingFlush = setTimeout(async () => {
+    pendingFlush = setTimeout(() => {
       pendingFlush = null;
-      try {
-        await flush();
-      } catch (err) {
-        // Don't crash on a transient flush failure (network blips happen) but
-        // surface the error loudly so persistent issues are visible. If the
-        // PG connection is permanently broken at runtime, every subsequent
-        // scheduleFlush will log here, giving operators a clear signal.
+      // Don't crash on a transient flush failure (network blips happen) but
+      // surface the error loudly so persistent issues are visible. If the
+      // PG connection is permanently broken at runtime, every subsequent
+      // scheduleFlush will log here, giving operators a clear signal.
+      flushNow().catch((err) => {
         console.error("[db] flush to PostgreSQL failed:", err);
-      }
+      });
     }, 300);
   };
 
@@ -255,7 +303,7 @@ export async function openDb(sqlitePath: string, pgUrl?: string): Promise<Db> {
         clearTimeout(pendingFlush);
         pendingFlush = null;
       }
-      await flush();
+      await flushNow();
     },
     pg: pgPool
   };

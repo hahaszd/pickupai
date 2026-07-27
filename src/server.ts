@@ -71,7 +71,7 @@ function safeTokenCompare(a: string, b: string): boolean {
 }
 
 import { env } from "./env.js";
-import { openDb } from "./db/db.js";
+import { openDb, type Db, type FlushInfo } from "./db/db.js";
 import {
   appendTranscript,
   claimDemoNumber,
@@ -167,7 +167,7 @@ import {
 import { twilioValidateMiddleware } from "./twilio/verify.js";
 import { buildAbsoluteUrl, getCallSid, shouldWarmTransferNow } from "./twilio/flow.js";
 import { newVoiceResponse, connectStreamTwiml, sayFriendly, voicemailFallbackTwiml } from "./twilio/twiml.js";
-import { getOrInitCallState, setCallState, clearCallState } from "./twilio/state.js";
+import { getOrInitCallState, setCallState, clearCallState, listCallStates } from "./twilio/state.js";
 import { startCallRecording } from "./twilio/recording.js";
 import { formatOwnerSms, NO_SMS_INTENTS, sendOwnerSms, generateForwardingCode, FIRST_CALL_CELEBRATION_PREFIX, buildCallerConfirmationSms } from "./twilio/sms.js";
 import { isEmailConfigured, sendEmail, formatLeadEmail } from "./utils/email.js";
@@ -621,6 +621,56 @@ function buildFallbackTenant(): TenantRow {
   };
 }
 
+// ─── Blob growth watchdog ─────────────────────────────────────────────────────
+//
+// docs/adr/0001 defers the Postgres migration, which is only defensible while
+// the exit signal is visible. Persistence degrades silently here: the whole
+// database is re-uploaded on every flush, so it gets slower as it grows and
+// nothing complains until Neon's limits or a flush timeout ends the argument.
+//
+// Log every flush, and send exactly one SMS per process when a threshold is
+// crossed — a line in the Railway logs nobody reads is not a signal.
+const BLOB_ALERT_BYTES = 10 * 1024 * 1024;
+const FLUSH_SLOW_MS = 1000;
+
+let lastFlush: (FlushInfo & { at: string }) | null = null;
+let blobAlertSent = false;
+let slowFlushAlertSent = false;
+// Assigned immediately after openDb resolves; flushes cannot fire before then.
+let dbForAlerts: Db | null = null;
+
+function alertFounder(reason: string) {
+  log.error({ reason }, "persistence threshold crossed");
+  if (!dbForAlerts || !env.OWNER_PHONE_NUMBER) return;
+  sendOwnerSms(dbForAlerts, `PickupAI DB: ${reason}. See docs/adr/0001 — time to move calls off the blob.`)
+    .catch((err) => log.warn({ err }, "persistence alert SMS failed"));
+}
+
+function onFlush(info: FlushInfo) {
+  lastFlush = { ...info, at: new Date().toISOString() };
+  log.info({ bytes: info.bytes, durationMs: info.durationMs }, "db flushed");
+
+  if (!blobAlertSent && info.bytes > BLOB_ALERT_BYTES) {
+    blobAlertSent = true;
+    alertFounder(`blob is ${(info.bytes / 1024 / 1024).toFixed(1)}MB (threshold 10MB)`);
+  }
+  if (!slowFlushAlertSent && info.durationMs > FLUSH_SLOW_MS) {
+    slowFlushAlertSent = true;
+    alertFounder(`flush took ${info.durationMs}ms (threshold ${FLUSH_SLOW_MS}ms)`);
+  }
+}
+
+/**
+ * Persist a critical write now rather than waiting out the 300 ms debounce
+ * (docs/adr/0002). Prefer `await db.flush()` directly where the call site is
+ * async; this exists for the realtime tool-call callbacks, which are
+ * synchronous and `void`-returning, so the best available there is to start the
+ * flush immediately and log failures.
+ */
+function flushCritical(db: Db, what: string) {
+  db.flush().catch((err) => log.error({ err, what }, "critical write flush failed"));
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -629,7 +679,8 @@ async function main() {
     log.warn("OPENAI_API_KEY is not set — AI voice calls will fail. Set it in your environment variables.");
   }
 
-  const db = await openDb(env.SQLITE_PATH, env.DATABASE_URL);
+  const db = await openDb(env.SQLITE_PATH, env.DATABASE_URL, { onFlush });
+  dbForAlerts = db;
   seedDefaultTenant(db);
   seedTestProspect(db);
 
@@ -1002,6 +1053,16 @@ async function main() {
       }
     } catch (err: any) {
       log.error({ err }, "Stripe webhook handler error");
+      return res.sendStatus(500);
+    }
+
+    // Critical write: acknowledging the event tells Stripe never to resend it,
+    // so the subscription state it carried must be durable first. Failing the
+    // flush deliberately returns 500 so Stripe retries. docs/adr/0002.
+    try {
+      await db.flush();
+    } catch (err) {
+      log.error({ err }, "Stripe webhook flush failed — returning 500 to force a retry");
       return res.sendStatus(500);
     }
     res.sendStatus(200);
@@ -1483,6 +1544,17 @@ async function main() {
       ok: aiFailures === 0 && smsFailed === 0,
       timestamp: new Date().toISOString(),
       today: { ai_failures: aiFailures, sms_failed: smsFailed, calls_in_progress: callsInProgress },
+      // Migration trigger metrics — see docs/adr/0001 for the thresholds.
+      persistence: lastFlush
+        ? {
+            blob_bytes: lastFlush.bytes,
+            blob_mb: +(lastFlush.bytes / 1024 / 1024).toFixed(2),
+            last_flush_ms: lastFlush.durationMs,
+            last_flush_at: lastFlush.at,
+            blob_threshold_mb: BLOB_ALERT_BYTES / 1024 / 1024,
+            over_threshold: lastFlush.bytes > BLOB_ALERT_BYTES
+          }
+        : null,
       recent_errors: recentErrors.slice(0, 20)
     });
   });
@@ -3132,6 +3204,15 @@ async function main() {
     // Start in "demo" state — user explores demos before committing to payment
     updateTenant(db, tenant.tenant_id, { payment_status: "demo" });
 
+    // Critical write: from here on we send a welcome SMS and hand out a login,
+    // so the account has to exist even if the process dies a moment later.
+    // docs/adr/0002.
+    try {
+      await db.flush();
+    } catch (err) {
+      log.error({ err, tenantId: tenant.tenant_id }, "signup flush failed — account may not survive a restart");
+    }
+
     try {
       const welcomeBody = `Welcome to PickupAI, ${name}! Try your personalised AI receptionist demo now: ${env.PUBLIC_BASE_URL}/dashboard/welcome\n\nYou'll hear how your AI answers calls and see the SMS alerts you'd get. No commitment yet!`;
       const sms = await sendTenantSms(db, tenant.tenant_id, welcomeBody, owner_phone as string);
@@ -4377,6 +4458,10 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
                   appendTranscript(db, callSid!, `[lead] ${JSON.stringify(patch)}`);
                 }
 
+                // Critical write: a lost lead is a lost job for the tradie, and
+                // they would never know it happened. docs/adr/0002.
+                flushCritical(db, "save_lead");
+
                 log.info({ callSid, patch }, "lead updated");
               },
 
@@ -4410,6 +4495,10 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
                   });
                   log.info({ callSid }, "created fallback lead — save_lead was never called");
                 }
+
+                // Critical write: this is the last chance to persist the call
+                // and its lead before the stream tears down. docs/adr/0002.
+                flushCritical(db, "end_call");
 
                 notifyOwnerSmsIfNeeded(callSid!, s.callerIntent, ownerPhone, ownerEmail).catch((err) =>
                   log.warn({ err }, "owner sms on end_call failed")
@@ -4618,6 +4707,79 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
   void runNumberReleaseSweep();
   setInterval(() => { void runTrialExpirySweep(); }, TRIAL_EXPIRY_INTERVAL_MS);
   setInterval(() => { void runNumberReleaseSweep(); }, NUMBER_RELEASE_INTERVAL_MS);
+
+  // ── Graceful shutdown ─────────────────────────────────────────────────────
+  //
+  // Until this existed the process was SIGKILLed with up to 300 ms of writes
+  // still only in memory, and every in-progress call's collected details went
+  // with it. docs/adr/0001.
+  //
+  // IMPORTANT: Railway allows 0 seconds of shutdown time by default, so none of
+  // this runs in production unless RAILWAY_DEPLOYMENT_DRAINING_SECONDS is set
+  // (15 is enough). RAILWAY_DEPLOYMENT_OVERLAP_SECONDS must also be 0, or a new
+  // instance loads the blob while this one is still writing and then overwrites
+  // everything we save here.
+  let shuttingDown = false;
+
+  async function shutdown(signal: string) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log.info({ signal }, "shutdown: draining");
+
+    // Stop taking new work first, so nothing arrives after the final flush.
+    server.close();
+    wss.close();
+
+    // The media stream dies with this process and Twilio cannot reattach it to
+    // the replacement, so a live call is already lost. What we can still save
+    // is what the caller told us: write it as a partial lead so the tradie gets
+    // a number to ring back instead of never learning the call happened.
+    let salvaged = 0;
+    for (const [callSid, state] of listCallStates()) {
+      const phone = state.lead.phone ?? state.fromNumber ?? null;
+      if (state.isDemo || !phone) continue;
+      try {
+        if (getLatestLeadForCall(db, callSid)) continue;
+        upsertLead(db, {
+          lead_id: callSid,
+          tenant_id: state.tenantId && state.tenantId !== "default" ? state.tenantId : null,
+          call_id: callSid,
+          name: state.lead.name ?? null,
+          phone,
+          address: state.lead.address ?? null,
+          issue_type: state.lead.issue_type ?? null,
+          issue_summary: state.lead.issue_summary
+            ? `${state.lead.issue_summary} [call cut short by a restart — details may be incomplete]`
+            : "Call was cut short by a server restart — please ring the caller back",
+          urgency_level: state.lead.urgency_level ?? null,
+          preferred_time: state.lead.preferred_time ?? null,
+          notes: state.lead.notes ?? null,
+          confidence: state.lead.confidence ?? null,
+          next_action: "Call back — interrupted by restart",
+          property_type: state.lead.property_type ?? null,
+          caller_sentiment: state.lead.caller_sentiment ?? null,
+          job_value: state.lead.job_value ?? null,
+          lead_status: "new"
+        });
+        salvaged++;
+      } catch (err) {
+        log.error({ err, callSid }, "shutdown: failed to salvage in-flight lead");
+      }
+    }
+    if (salvaged > 0) log.warn({ salvaged }, "shutdown: salvaged in-flight leads");
+
+    try {
+      await db.flush();
+      log.info("shutdown: final flush complete");
+    } catch (err) {
+      log.error({ err }, "shutdown: FINAL FLUSH FAILED — recent writes are lost");
+    }
+
+    process.exit(0);
+  }
+
+  process.on("SIGTERM", () => { void shutdown("SIGTERM"); });
+  process.on("SIGINT", () => { void shutdown("SIGINT"); });
 
   server.listen(env.PORT, () => {
     log.info({

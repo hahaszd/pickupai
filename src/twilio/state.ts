@@ -62,3 +62,19 @@ export function setCallState(callSid: string, state: CallState) {
 export function clearCallState(callSid: string) {
   mem.delete(callSid);
 }
+
+/**
+ * Every call currently in progress, as `[callSid, state]` pairs.
+ *
+ * Call state lives only in this process's memory, so a restart destroys the
+ * partially-collected lead for every live call — and the media stream dies with
+ * the process either way, so the call cannot be resumed. This exists so the
+ * shutdown handler can at least salvage those drafts as partial leads before
+ * exiting, giving the tradie a number to ring back. See docs/adr/0001.
+ */
+export function listCallStates(): Array<[string, CallState]> {
+  return [...mem.entries()].map(([callSid, entry]) => {
+    const { _createdAt: _ignored, ...state } = entry;
+    return [callSid, state] as [string, CallState];
+  });
+}
