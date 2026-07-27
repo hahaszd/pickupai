@@ -139,7 +139,11 @@ async function check(
   }
 }
 
-function assert(condition: boolean, message: string) {
+// `unknown`, not `boolean`: most call sites pass a possibly-empty string or a
+// nullable id and rely on truthiness (`assert(testTenantId, ...)`). That is the
+// intended behaviour — typing the parameter as `boolean` only made tsc reject
+// working assertions.
+function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
@@ -235,9 +239,14 @@ function makeTestLead(overrides: Partial<LeadRow> = {}): LeadRow {
     confidence: null,
     next_action: null,
     lead_status: "new",
+    // Added to LeadRow after this factory was written; without them the
+    // factory does not actually satisfy LeadRow.
+    job_value: null,
+    property_type: null,
+    caller_sentiment: null,
     created_at: new Date().toISOString(),
     ...overrides
-  };
+  } as LeadRow;
 }
 
 // ─── Twilio-style form body ───────────────────────────────────────────────────

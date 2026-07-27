@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { formatOwnerSms, NO_SMS_INTENTS, generateForwardingCode, FIRST_CALL_CELEBRATION_PREFIX, buildCallerConfirmationSms } from "../src/twilio/sms.js";
 import type { LeadRow } from "../src/db/repo.js";
 
@@ -186,14 +186,8 @@ describe("NO_SMS_INTENTS", () => {
 describe("buildCallerConfirmationSms", () => {
   it("says 'shortly' during business hours on a weekday", () => {
     const wed10am = new Date("2026-03-25T10:00:00+11:00");
-    const realDate = globalThis.Date;
-    globalThis.Date = class extends realDate {
-      constructor(...args: any[]) {
-        if (args.length === 0) return new realDate(wed10am) as any;
-        return new (realDate as any)(...args);
-      }
-      static now() { return wed10am.getTime(); }
-    } as any;
+    vi.useFakeTimers();
+    vi.setSystemTime(wed10am);
     try {
       const result = buildCallerConfirmationSms({
         businessName: "Dan's Plumbing",
@@ -205,20 +199,14 @@ describe("buildCallerConfirmationSms", () => {
       expect(result).not.toContain("Monday");
       expect(result).not.toContain("tomorrow");
     } finally {
-      globalThis.Date = realDate;
+      vi.useRealTimers();
     }
   });
 
   it("says 'first thing tomorrow morning' after hours on a weeknight", () => {
     const wed9pm = new Date("2026-03-25T21:00:00+11:00");
-    const realDate = globalThis.Date;
-    globalThis.Date = class extends realDate {
-      constructor(...args: any[]) {
-        if (args.length === 0) return new realDate(wed9pm) as any;
-        return new (realDate as any)(...args);
-      }
-      static now() { return wed9pm.getTime(); }
-    } as any;
+    vi.useFakeTimers();
+    vi.setSystemTime(wed9pm);
     try {
       const result = buildCallerConfirmationSms({
         businessName: "Dan's Plumbing",
@@ -228,20 +216,14 @@ describe("buildCallerConfirmationSms", () => {
       });
       expect(result).toContain("first thing tomorrow morning");
     } finally {
-      globalThis.Date = realDate;
+      vi.useRealTimers();
     }
   });
 
   it("says 'on Monday morning' on a weekend", () => {
     const sat10am = new Date("2026-03-28T10:00:00+11:00");
-    const realDate = globalThis.Date;
-    globalThis.Date = class extends realDate {
-      constructor(...args: any[]) {
-        if (args.length === 0) return new realDate(sat10am) as any;
-        return new (realDate as any)(...args);
-      }
-      static now() { return sat10am.getTime(); }
-    } as any;
+    vi.useFakeTimers();
+    vi.setSystemTime(sat10am);
     try {
       const result = buildCallerConfirmationSms({
         businessName: "Dan's Plumbing",
@@ -251,7 +233,7 @@ describe("buildCallerConfirmationSms", () => {
       });
       expect(result).toContain("on Monday morning");
     } finally {
-      globalThis.Date = realDate;
+      vi.useRealTimers();
     }
   });
 
@@ -291,14 +273,8 @@ describe("buildCallerConfirmationSms", () => {
 
   it("says 'on Monday morning' on Friday evening", () => {
     const fri8pm = new Date("2026-03-27T20:00:00+11:00");
-    const realDate = globalThis.Date;
-    globalThis.Date = class extends realDate {
-      constructor(...args: any[]) {
-        if (args.length === 0) return new realDate(fri8pm) as any;
-        return new (realDate as any)(...args);
-      }
-      static now() { return fri8pm.getTime(); }
-    } as any;
+    vi.useFakeTimers();
+    vi.setSystemTime(fri8pm);
     try {
       const result = buildCallerConfirmationSms({
         businessName: "Dan's Plumbing",
@@ -308,7 +284,7 @@ describe("buildCallerConfirmationSms", () => {
       });
       expect(result).toContain("on Monday morning");
     } finally {
-      globalThis.Date = realDate;
+      vi.useRealTimers();
     }
   });
 });
@@ -575,18 +551,23 @@ describe("buildCallerConfirmationSms — enhanced features", () => {
     expect(result).not.toContain("shortly");
   });
 
-  it("includes photo suggestion for plumber trade", () => {
+  // The "text photos of the issue to this number" line was deliberately
+  // removed (commit e39e3f3): outbound SMS goes out under an alphanumeric
+  // sender ID, which cannot receive replies, so the invitation was a dead end
+  // for the caller. These tests lock that removal in.
+  it("does not invite the caller to reply with photos (trade-specific)", () => {
     const result = buildCallerConfirmationSms({
       businessName: "Dan's Plumbing",
       tradeType: "plumber"
     });
-    expect(result).toContain("photos of the issue");
+    expect(result).not.toContain("photos of the issue");
+    expect(result).not.toMatch(/photo/i);
   });
 
-  it("includes photo suggestion when no trade type specified", () => {
+  it("does not invite the caller to reply with photos (no trade type)", () => {
     const result = buildCallerConfirmationSms({
       businessName: "Some Business"
     });
-    expect(result).toContain("photos of the issue");
+    expect(result).not.toMatch(/photo/i);
   });
 });

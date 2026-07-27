@@ -1,7 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { resolveTradeKey, TRADE_ALIASES, buildSystemPrompt, buildServiceAreaSection, buildTimeContext } from "../src/realtime/session.js";
 import type { TenantRow, LeadRow } from "../src/db/repo.js";
 
+// The `as TenantRow` on the return is needed because spreading a `Partial<T>`
+// widens every optional column to `... | undefined`, which TenantRow's
+// `... | null` columns reject. The defaults below cover every required field.
 function makeTenant(overrides: Partial<TenantRow> = {}): TenantRow {
   return {
     tenant_id: "test-tenant",
@@ -28,7 +31,7 @@ function makeTenant(overrides: Partial<TenantRow> = {}): TenantRow {
     trial_ends_at: null,
     stripe_customer_id: null,
     ...overrides
-  };
+  } as TenantRow;
 }
 
 function makeLeadHistory(overrides: Partial<LeadRow> = {}): LeadRow {
@@ -369,15 +372,9 @@ describe("buildSystemPrompt", () => {
 
 describe("buildTimeContext", () => {
   it("returns 'shortly' during weekday business hours", () => {
-    const realDate = globalThis.Date;
     const wed10am = new Date("2026-03-25T10:00:00+11:00");
-    globalThis.Date = class extends realDate {
-      constructor(...args: any[]) {
-        if (args.length === 0) return new realDate(wed10am) as any;
-        return new (realDate as any)(...args);
-      }
-      static now() { return wed10am.getTime(); }
-    } as any;
+    vi.useFakeTimers();
+    vi.setSystemTime(wed10am);
     try {
       const result = buildTimeContext(makeTenant());
       expect(result.callbackTiming).toBe("shortly");
@@ -385,20 +382,14 @@ describe("buildTimeContext", () => {
       expect(result.section).toContain("OPEN");
       expect(result.timeOfDay).toBe("morning");
     } finally {
-      globalThis.Date = realDate;
+      vi.useRealTimers();
     }
   });
 
   it("returns 'first thing tomorrow morning' after hours on weeknight", () => {
-    const realDate = globalThis.Date;
     const wed9pm = new Date("2026-03-25T21:00:00+11:00");
-    globalThis.Date = class extends realDate {
-      constructor(...args: any[]) {
-        if (args.length === 0) return new realDate(wed9pm) as any;
-        return new (realDate as any)(...args);
-      }
-      static now() { return wed9pm.getTime(); }
-    } as any;
+    vi.useFakeTimers();
+    vi.setSystemTime(wed9pm);
     try {
       const result = buildTimeContext(makeTenant());
       expect(result.callbackTiming).toBe("first thing tomorrow morning");
@@ -406,20 +397,14 @@ describe("buildTimeContext", () => {
       expect(result.section).toContain("AFTER HOURS");
       expect(result.timeOfDay).toBe("evening");
     } finally {
-      globalThis.Date = realDate;
+      vi.useRealTimers();
     }
   });
 
   it("returns 'on Monday morning' on weekend with WEEKEND status", () => {
-    const realDate = globalThis.Date;
     const sat10am = new Date("2026-03-28T10:00:00+11:00");
-    globalThis.Date = class extends realDate {
-      constructor(...args: any[]) {
-        if (args.length === 0) return new realDate(sat10am) as any;
-        return new (realDate as any)(...args);
-      }
-      static now() { return sat10am.getTime(); }
-    } as any;
+    vi.useFakeTimers();
+    vi.setSystemTime(sat10am);
     try {
       const result = buildTimeContext(makeTenant());
       expect(result.callbackTiming).toBe("on Monday morning");
@@ -427,26 +412,20 @@ describe("buildTimeContext", () => {
       expect(result.section).toContain("WEEKEND");
       expect(result.section).not.toContain("the business is closed");
     } finally {
-      globalThis.Date = realDate;
+      vi.useRealTimers();
     }
   });
 
   it("returns 'on Monday morning' on Friday after hours", () => {
-    const realDate = globalThis.Date;
     const fri9pm = new Date("2026-03-27T21:00:00+11:00");
-    globalThis.Date = class extends realDate {
-      constructor(...args: any[]) {
-        if (args.length === 0) return new realDate(fri9pm) as any;
-        return new (realDate as any)(...args);
-      }
-      static now() { return fri9pm.getTime(); }
-    } as any;
+    vi.useFakeTimers();
+    vi.setSystemTime(fri9pm);
     try {
       const result = buildTimeContext(makeTenant());
       expect(result.callbackTiming).toBe("on Monday morning");
       expect(result.isOpen).toBe(false);
     } finally {
-      globalThis.Date = realDate;
+      vi.useRealTimers();
     }
   });
 });
@@ -495,9 +474,13 @@ describe("buildSystemPrompt — enhanced features", () => {
     expect(prompt).toContain("cutting out");
   });
 
-  it("includes photo suggestion in closing flow", () => {
+  // The prompt names a photo step in the conversation flow, but no longer
+  // scripts the "texting a photo to this number" line — commit e39e3f3
+  // removed that from the caller SMS because an alphanumeric sender ID cannot
+  // receive replies. See tests/sms.test.ts for the SMS-side assertion.
+  it("includes a photo suggestion step in the closing flow", () => {
     const prompt = buildSystemPrompt(makeTenant(), [], null);
-    expect(prompt).toContain("texting a photo");
+    expect(prompt).toContain("Photo suggestion");
   });
 
   it("includes time-of-day in greeting templates", () => {
@@ -554,20 +537,14 @@ describe("buildSystemPrompt — enhanced features", () => {
   });
 
   it("includes after-hours greeting when business is closed", () => {
-    const realDate = globalThis.Date;
     const wed9pm = new Date("2026-03-25T21:00:00+11:00");
-    globalThis.Date = class extends realDate {
-      constructor(...args: any[]) {
-        if (args.length === 0) return new realDate(wed9pm) as any;
-        return new (realDate as any)(...args);
-      }
-      static now() { return wed9pm.getTime(); }
-    } as any;
+    vi.useFakeTimers();
+    vi.setSystemTime(wed9pm);
     try {
       const prompt = buildSystemPrompt(makeTenant(), [], null);
       expect(prompt).toContain("outside regular hours");
     } finally {
-      globalThis.Date = realDate;
+      vi.useRealTimers();
     }
   });
 

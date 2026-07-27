@@ -1,0 +1,12 @@
+{
+  // tsconfig.json builds only src/ (rootDir: src). Nothing type-checked
+  // tests/, vitest.config.ts, or the .ts scripts — type errors there could
+  // only ever surface at runtime. `npm run typecheck` closes that gap.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "types": ["node", "vitest/globals"]
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts", "vitest.config.ts"]
+}

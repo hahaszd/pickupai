@@ -39,3 +39,7 @@ Thumbs.db
 # Editor
 .vscode/
 .idea/
+
+# Claude Code — .claude/settings.json IS committed (shared project config);
+# settings.local.json is per-developer and must not be.
+.claude/settings.local.json

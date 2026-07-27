@@ -136,6 +136,20 @@ describe("multi-tenant lead isolation", () => {
 });
 
 describe("getTenantsNeedingNudge", () => {
+  // The query windows on trial *start*, which it derives as
+  // `trial_ends_at - 14 days`. Tests must therefore backdate trial_ends_at
+  // rather than created_at — createTenant leaves trial_ends_at NULL, and a
+  // NULL row is filtered out before the window is ever evaluated.
+  const TRIAL_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
+
+  function startTrialAgo(db: any, tenantId: string, agoMs: number) {
+    const trialEndsAt = new Date(Date.now() - agoMs + TRIAL_DAYS_MS).toISOString();
+    db.run(
+      "UPDATE tenants SET payment_status = 'trial', trial_ends_at = ? WHERE tenant_id = ?",
+      [trialEndsAt, tenantId]
+    );
+  }
+
   it("returns tenants with provisioned number but no real calls within time window", async () => {
     const { openDb } = await import("../src/db/db.js");
     const { createTenant, upsertCall, getTenantsNeedingNudge } =
@@ -149,14 +163,14 @@ describe("getTenantsNeedingNudge", () => {
       twilio_number: "+61400000501", owner_phone: "+61411111111",
       owner_email: "fresh@test.local", password: "pass1"
     });
-    db.run("UPDATE tenants SET payment_status = 'trial' WHERE tenant_id = ?", [fresh.tenant_id]);
+    startTrialAgo(db, fresh.tenant_id, 30 * 60 * 1000);
 
     const withCalls = createTenant(db, {
       name: "Active Sparky", trade_type: "electrician",
       twilio_number: "+61400000502", owner_phone: "+61422222222",
       owner_email: "active@test.local", password: "pass2"
     });
-    db.run("UPDATE tenants SET payment_status = 'trial' WHERE tenant_id = ?", [withCalls.tenant_id]);
+    startTrialAgo(db, withCalls.tenant_id, 30 * 60 * 1000);
     upsertCall(db, { call_id: "nudge-call-1", tenant_id: withCalls.tenant_id, status: "completed" });
 
     const pending = createTenant(db, {
@@ -164,7 +178,7 @@ describe("getTenantsNeedingNudge", () => {
       twilio_number: "+PENDING_999999", owner_phone: "+61433333333",
       owner_email: "pending@test.local", password: "pass3"
     });
-    db.run("UPDATE tenants SET payment_status = 'trial' WHERE tenant_id = ?", [pending.tenant_id]);
+    startTrialAgo(db, pending.tenant_id, 30 * 60 * 1000);
 
     const results = getTenantsNeedingNudge(db, 0, 60 * 60 * 1000);
     const ids = results.map(r => r.tenant_id);
@@ -189,7 +203,7 @@ describe("getTenantsNeedingNudge", () => {
       twilio_number: "+61400000503", owner_phone: "+61411111112",
       owner_email: "demoplumber@test.local", password: "pass1b"
     });
-    db.run("UPDATE tenants SET payment_status = 'trial' WHERE tenant_id = ?", [tenant.tenant_id]);
+    startTrialAgo(db, tenant.tenant_id, 30 * 60 * 1000);
     upsertCall(db, { call_id: "nudge-demo-1", tenant_id: tenant.tenant_id, status: "completed", is_demo: 1 });
 
     const results = getTenantsNeedingNudge(db, 0, 60 * 60 * 1000);
@@ -212,13 +226,16 @@ describe("getTenantsNeedingNudge", () => {
       twilio_number: "+61400000601", owner_phone: "+61444444444",
       owner_email: "old@test.local", password: "pass4"
     });
-    db.run("UPDATE tenants SET payment_status = 'trial' WHERE tenant_id = ?", [tenant.tenant_id]);
-
-    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-    db.run("UPDATE tenants SET created_at = ? WHERE tenant_id = ?", [twoHoursAgo, tenant.tenant_id]);
+    // Trial started 2h ago, so it falls outside the (0, 1h) window.
+    startTrialAgo(db, tenant.tenant_id, 2 * 60 * 60 * 1000);
 
     const results = getTenantsNeedingNudge(db, 0, 60 * 60 * 1000);
     expect(results.map(r => r.tenant_id)).not.toContain(tenant.tenant_id);
+
+    // ...but a (1h, 3h) window does include it — proving the exclusion above
+    // is the window doing its job, not a NULL trial_ends_at short-circuit.
+    const wider = getTenantsNeedingNudge(db, 60 * 60 * 1000, 3 * 60 * 60 * 1000);
+    expect(wider.map(r => r.tenant_id)).toContain(tenant.tenant_id);
 
     await db.flush();
     await rm(sqlitePath, { force: true });

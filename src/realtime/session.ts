@@ -334,9 +334,11 @@ Then IMMEDIATELY call save_lead() with all details followed by end_call(reason="
 export function buildTimeContext(tenant: TenantRow): { section: string; isOpen: boolean; callbackTiming: string; timeOfDay: string } {
   const tz = tenant.timezone || "Australia/Sydney";
   const now = new Date();
-  let localTime = "";
-  let dayName = "";
-  let hourNum = 9;
+  // No initialisers: the catch block below assigns all three on every failure
+  // path, so seeding them here would be dead code.
+  let localTime: string;
+  let dayName: string;
+  let hourNum: number;
   try {
     localTime = new Intl.DateTimeFormat("en-AU", {
       timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: true

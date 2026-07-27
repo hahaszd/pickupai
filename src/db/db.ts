@@ -126,7 +126,8 @@ export async function openDb(sqlitePath: string, pgUrl?: string): Promise<Db> {
         `[db] DATABASE_URL is set but PostgreSQL is unreachable. Refusing to ` +
         `fall back to ephemeral local-file SQLite (would silently lose writes ` +
         `on next reboot). Fix the connection or unset DATABASE_URL. ` +
-        `Original error: ${msg}`
+        `Original error: ${msg}`,
+        { cause: err }
       );
     }
   }

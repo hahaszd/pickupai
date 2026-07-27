@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Lets you re-run the gate by hand without pushing an empty commit.
+  workflow_dispatch:
+
+# A newer push to the same branch makes the in-flight run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: typecheck · lint · test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches package.json engines and the node:20-alpine base image.
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # Type-checks src/, tests/ and scripts/*.ts. `npm run build` only covers
+      # src/, so this is the wider net and runs first — it fails fastest.
+      - run: npm run typecheck
+
+      # eslint.config.js keeps warnings non-fatal but errors fatal.
+      # --max-warnings is deliberately not set: the ~240 existing `any`
+      # warnings are a known backlog, not a regression signal.
+      - run: npm run lint
+
+      # No env vars needed: tests/setup-env.ts supplies a synthetic env, and
+      # no test reaches the network.
+      - run: npm test
+
+      # The deploy artifact is compiled JS, so prove it compiles.
+      - run: npm run build
+
+  docker:
+    name: docker build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Railway deploys from this Dockerfile. Catching a broken image here beats
+    # catching it in a failed production deploy.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  audit:
+    name: dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Advisory only — a new CVE published upstream should not block an
+    # unrelated PR. Read the annotation, then fix deliberately.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # Known and accepted: 1 low esbuild advisory (Windows-only dev server,
+      # pinned by vitest's dependency range). Anything moderate or above is new.
+      - run: npm audit --audit-level=moderate
