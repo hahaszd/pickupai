@@ -16,6 +16,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "tsx scripts/test-lifecycle.ts",
+    "tenant:profile": "tsx scripts/tenant-profile.ts",
     "eval": "tsx scripts/run-eval.ts",
     "eval:p0": "tsx scripts/run-eval.ts --priority P0",
     "check": "npm run typecheck && npm run lint && npm test",
