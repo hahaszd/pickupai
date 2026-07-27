@@ -165,6 +165,16 @@ const envSchema = z.object({
   // injected into all public and dashboard pages. Leave unset to disable.
   GA_MEASUREMENT_ID: z.string().optional(),
 
+  // ── Google Search Console (optional) ──────────────────────────────────────
+  // The token from the "HTML tag" verification method — just the content
+  // value, not the whole <meta> tag. When set, it is injected into the public
+  // marketing pages so Search Console can verify ownership.
+  //
+  // Kept in env rather than committed into index.html because it is an
+  // ownership credential: anyone holding it can claim the property in their
+  // own Search Console account.
+  GOOGLE_SITE_VERIFICATION: z.string().optional(),
+
   // ── Operator test override (optional) ───────────────────────────────────
   // E.164 phone number that bypasses smsPreSendCheck's `unsubscribed_at`
   // suppression — STRICTLY for verifying the marketing pipeline end-to-end

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Only genuinely indexable pages belong here. /demo is deliberately noindex,
+  and every /dashboard, /admin and /r/ route is either authenticated or a
+  tracking redirect. Listing a noindex page in a sitemap is a contradiction
+  Search Console reports as an error.
+
+  Add a <url> entry whenever a new public page ships.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://www.getpickupai.com.au/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://www.getpickupai.com.au/terms</loc>
+    <changefreq>yearly</changefreq>
+    <priority>0.2</priority>
+  </url>
+  <url>
+    <loc>https://www.getpickupai.com.au/privacy</loc>
+    <changefreq>yearly</changefreq>
+    <priority>0.2</priority>
+  </url>
+</urlset>

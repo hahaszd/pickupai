@@ -1088,19 +1088,29 @@ async function main() {
     next();
   });
 
-  // Inject GA4 snippet into static marketing pages when GA_MEASUREMENT_ID is set.
-  if (env.GA_MEASUREMENT_ID) {
-    const gaSnippet = gaHeadSnippet(env.GA_MEASUREMENT_ID);
-    const gaInject = (_req: Request, res: Response, next: NextFunction) => {
+  // Head injection for the public marketing pages. Both of these are optional
+  // and env-driven: GA4 analytics, and the Google Search Console ownership
+  // token. The verification token is deliberately not committed into
+  // index.html — anyone holding it can claim the property in their own Search
+  // Console account, so it belongs with the other secrets.
+  const headInjections = [
+    env.GA_MEASUREMENT_ID ? gaHeadSnippet(env.GA_MEASUREMENT_ID) : "",
+    env.GOOGLE_SITE_VERIFICATION
+      ? `<meta name="google-site-verification" content="${env.GOOGLE_SITE_VERIFICATION.replace(/[<>"&]/g, "")}" />`
+      : ""
+  ].filter(Boolean).join("\n");
+
+  if (headInjections) {
+    const injectHead = (_req: Request, res: Response, next: NextFunction) => {
       const filePath = path.join(PUBLIC_DIR, _req.path === "/" ? "index.html" : _req.path + ".html");
       fs.readFile(filePath, "utf-8", (err, html) => {
         if (err) return next();
-        res.type("html").send(html.replace("</head>", gaSnippet + "\n</head>"));
+        res.type("html").send(html.replace("</head>", headInjections + "\n</head>"));
       });
     };
-    app.get("/", gaInject);
-    app.get("/terms", gaInject);
-    app.get("/privacy", gaInject);
+    app.get("/", injectHead);
+    app.get("/terms", injectHead);
+    app.get("/privacy", injectHead);
   }
 
   // ── Per-recipient SMS link tracker ────────────────────────────────────────

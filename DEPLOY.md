@@ -66,6 +66,7 @@ In your service → **Variables**, add:
 | `MOBILE_MSG_API_USER` / `MOBILE_MSG_API_PASSWORD` / `MOBILE_MSG_SENDER` | Optional. Set all three to route outbound SMS via Mobile Message instead of Twilio |
 | `MOBILE_MSG_OPT_OUT_LINK` | Optional but expected in production — appends the hosted opt-out link to every SMS |
 | `GA_MEASUREMENT_ID` | Optional. GA4 measurement ID |
+| `GOOGLE_SITE_VERIFICATION` | Optional but needed before Search Console will report anything. The token from the "HTML tag" method — the content value only, not the whole tag. Kept in env rather than committed: it is an ownership credential. |
 | `DEMO_POOL_NUMBERS` / `DEMO_POOL_NUMBER_SID` | Optional. Numbers reserved for the call-it-yourself demo |
 
 ### Required for safe shutdown — do not skip

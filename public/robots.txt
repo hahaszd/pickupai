@@ -1,0 +1,18 @@
+# PickupAI — https://www.getpickupai.com.au
+
+User-agent: *
+Allow: /
+
+# Authenticated surfaces. Crawling these wastes budget and, for the tracker,
+# fires real funnel events from bot traffic.
+Disallow: /dashboard/
+Disallow: /admin/
+Disallow: /api/
+Disallow: /twilio/
+Disallow: /mobilemsg/
+Disallow: /stripe/
+Disallow: /r/
+Disallow: /health
+Disallow: /version
+
+Sitemap: https://www.getpickupai.com.au/sitemap.xml
