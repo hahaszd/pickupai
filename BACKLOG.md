@@ -61,10 +61,18 @@ shutdown path in `src/server.ts` is dead code — deploys still lose writes.
 See [ADR-0001](docs/adr/0001-whole-blob-persistence-and-deferred-migration.md).
 
 ### Run the eval P0 suite for the first time
-21 P0 scenarios, never executed. Needs `OPENAI_API_KEY`; costs real money.
-`npm run eval:p0`. Expect failures — emergency over-tagging, warm transfer and
-the SMS truncation issues below are all unfixed. A fully green first run should
-be treated as suspicious, not as success. See `docs/eval.md`.
+21 P0 scenarios, never executed. **`OPENAI_API_KEY` is the only variable
+needed** — the harness fills the rest itself
+(`src/testing/eval/env-bootstrap.ts`). Costs real money.
+
+Smoke one scenario first, for a few cents:
+`npx tsx scripts/run-eval.ts --id plumber_no_hot_water_elderly_negative_control --verbose`
+— that one is the negative control for the urgency rubric, so it also verifies
+the fix landed. Then `npm run eval:p0`.
+
+Expect failures: warm transfer and the SMS truncation items below are unfixed.
+A fully green first run should be treated as suspicious, not as success. See
+`docs/eval.md`.
 
 ## P2
 
@@ -116,11 +124,6 @@ Sealants/waterproofing first, prompted by the actual signup. Cheap — one
 `TRADE_CONFIGS` entry plus a dropdown option. **Not** a move toward a general
 small-business product: trade specificity is the only differentiator against
 six better-resourced competitors. See `docs/channel-evidence.md`.
-
-### `/version` reports a hardcoded build string
-`build` and `commit` in `src/server.ts` are literals (`"pending"`), so there is
-no way to confirm which commit is live. Railway injects
-`RAILWAY_GIT_COMMIT_SHA`.
 
 ### Remove the dead `MOBILE_MSG_*` env vars from Railway
 The Mobile Message credit was cancelled. If the vars are still set,

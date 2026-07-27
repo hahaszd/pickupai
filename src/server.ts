@@ -1368,9 +1368,13 @@ async function main() {
   // production. If the deployed value lags behind your local commit, Railway
   // hasn't finished redeploying yet (or the deploy failed).
   app.get("/version", (_req, res) => res.json({
-    build: "fix-audio-pad-v3-prime-on-created",
-    commit: "pending",
-    deployedAt: BUILD_TIME
+    // Railway injects these. They were hardcoded literals, so there was no way
+    // to confirm which commit was live — and therefore no way to tell whether a
+    // deploy had actually happened.
+    commit: env.RAILWAY_GIT_COMMIT_SHA ?? "unknown",
+    commitShort: env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? "unknown",
+    deploymentId: env.RAILWAY_DEPLOYMENT_ID ?? "unknown",
+    startedAt: BUILD_TIME
   }));
 
   // Public stats for landing page social proof
@@ -4872,6 +4876,17 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
     }
     if (salvaged > 0) log.warn({ salvaged }, "shutdown: salvaged in-flight leads");
 
+    // Recorded in the database, not only in the log. Railway log retention is
+    // limited and the shutdown lines live in the *old* deployment's stream,
+    // which is easy to miss; pairing this with server_started makes "did that
+    // deploy shut down gracefully?" a query rather than an archaeology
+    // exercise. Written before the final flush so it is actually persisted.
+    try {
+      trackEvent("server_shutdown", {
+        payload: { signal, salvagedLeads: salvaged, commit: env.RAILWAY_GIT_COMMIT_SHA ?? null }
+      });
+    } catch { /* never let bookkeeping block the flush */ }
+
     try {
       await db.flush();
       log.info("shutdown: final flush complete");
@@ -4884,6 +4899,14 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
 
   process.on("SIGTERM", () => { void shutdown("SIGTERM"); });
   process.on("SIGINT", () => { void shutdown("SIGINT"); });
+
+  // Pairs with server_shutdown. A server_started with no server_shutdown
+  // before it means the previous instance was killed without draining.
+  try {
+    trackEvent("server_started", {
+      payload: { commit: env.RAILWAY_GIT_COMMIT_SHA ?? null, deploymentId: env.RAILWAY_DEPLOYMENT_ID ?? null }
+    });
+  } catch { /* never block boot on bookkeeping */ }
 
   server.listen(env.PORT, () => {
     log.info({

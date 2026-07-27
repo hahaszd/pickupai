@@ -175,6 +175,13 @@ const envSchema = z.object({
   // own Search Console account.
   GOOGLE_SITE_VERIFICATION: z.string().optional(),
 
+  // ── Build identity (injected by Railway) ──────────────────────────────────
+  // Reported by /version so it is possible to tell which commit is actually
+  // live. Previously both fields were hardcoded literals, which meant a deploy
+  // could silently not happen and nothing would show it.
+  RAILWAY_GIT_COMMIT_SHA: z.string().optional(),
+  RAILWAY_DEPLOYMENT_ID: z.string().optional(),
+
   // ── Operator test override (optional) ───────────────────────────────────
   // E.164 phone number that bypasses smsPreSendCheck's `unsubscribed_at`
   // suppression — STRICTLY for verifying the marketing pipeline end-to-end

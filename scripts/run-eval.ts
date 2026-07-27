@@ -11,6 +11,10 @@
  * conversation plus a judge call, so a full run is roughly 45 conversations.
  * Start with --priority P0.
  */
+// MUST be first: it fills the env that src/env.ts demands at import time,
+// before any import below reaches it. Only OPENAI_API_KEY is really needed to
+// run an eval, but env.ts throws on missing Twilio variables regardless.
+import "../src/testing/eval/env-bootstrap.js";
 import { ALL_EVAL_SCENARIOS } from "../src/testing/eval/scenarios/index.js";
 import { runScenario } from "../src/testing/eval/runner.js";
 import { gradeScenario } from "../src/testing/eval/grade.js";
