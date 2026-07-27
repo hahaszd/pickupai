@@ -35,12 +35,13 @@ describe("formatOwnerSms", () => {
       callerIntent: "new_job"
     });
     expect(result).toContain("NEW JOB (EMERGENCY):");
-    expect(result).toContain("Name: Sarah Jones");
-    expect(result).toContain("Phone: 0412 345 678");
-    expect(result).toContain("Address: 42 Smith St, Parramatta NSW 2150");
-    expect(result).toContain("Details: Kitchen pipe burst, water everywhere");
-    expect(result).toContain("Preferred time: ASAP");
-    expect(result).toContain("Next: Call back within 1 hour");
+    // Name and number share a line now, unlabelled: that pair is the callback
+    // and the whole reason the message exists.
+    expect(result).toContain("Sarah Jones  0412 345 678");
+    expect(result).toContain("42 Smith St, Parramatta NSW 2150");
+    expect(result).toContain("Kitchen pipe burst, water everywhere");
+    expect(result).toContain("Wants: ASAP");
+    expect(result).toContain("> Call back within 1 hour");
     expect(result).not.toContain("CallId:");
     expect(result).not.toContain("View:");
   });
@@ -52,7 +53,10 @@ describe("formatOwnerSms", () => {
       callerIntent: "new_job",
       dashboardUrl: "https://www.getpickupai.com.au"
     });
-    expect(result).toContain("View: https://www.getpickupai.com.au/dashboard/leads/lead-abc");
+    // The scheme is dropped: 8 characters of every message, and phones link
+    // a bare domain anyway.
+    expect(result).toContain("www.getpickupai.com.au/dashboard/leads/lead-abc");
+    expect(result).not.toContain("https://");
     expect(result).not.toContain("call-123");
   });
 
@@ -100,7 +104,7 @@ describe("formatOwnerSms", () => {
       callerIntent: "new_job"
     });
     expect(result).not.toContain("Address:");
-    expect(result).not.toContain("Preferred time:");
+    expect(result).not.toContain("Wants:");
     expect(result).not.toContain("Next:");
   });
 });
@@ -119,7 +123,7 @@ describe("notes reach the owner", () => {
       callerIntent: "voicemail"
     });
     expect(result).toContain("VOICEMAIL");
-    expect(result).toContain("Message: Voicemail: Hi it's Sandra from unit 4");
+    expect(result).toContain("Msg: Voicemail: Hi it's Sandra from unit 4");
     expect(result).toContain("the hot water's out again");
   });
 
@@ -128,7 +132,7 @@ describe("notes reach the owner", () => {
     const vm = formatOwnerSms({ lead: makeLead({ notes: long }), callId: "c", callerIntent: "voicemail" });
     const job = formatOwnerSms({ lead: makeLead({ notes: long }), callId: "c", callerIntent: "new_job" });
     expect(vm.length).toBeGreaterThan(job.length);
-    expect(vm).toContain("Message: ");
+    expect(vm).toContain("Msg: ");
     expect(job).toContain("Notes: ");
   });
 
@@ -151,13 +155,13 @@ describe("notes reach the owner", () => {
       callerIntent: "new_job"
     });
     expect(result).not.toContain("Notes:");
-    expect(result).toContain("Details: Storm damage to downpipe.");
+    expect(result).toContain("Storm damage to downpipe.");
   });
 
   it("adds nothing when there are no notes", () => {
     const result = formatOwnerSms({ lead: makeLead({ notes: null }), callId: "c", callerIntent: "new_job" });
     expect(result).not.toContain("Notes:");
-    expect(result).not.toContain("Message:");
+    expect(result).not.toContain("Msg:");
   });
 
   it("keeps the partial-capture warning distinguishable from a note", () => {
@@ -167,7 +171,7 @@ describe("notes reach the owner", () => {
       callerIntent: "new_job"
     });
     expect(result).toContain("Notes: Audio unclear");
-    expect(result).toContain("Note: Some details weren't captured");
+    expect(result).toContain("[partial - check the recording]");
   });
 });
 
@@ -205,7 +209,7 @@ describe("first-call celebration prefix", () => {
     expect(combined).toMatch(/^\[FIRST CALL\]/);
     expect(combined).toContain("Your first real call");
     expect(combined).toContain("NEW JOB");
-    expect(combined).toContain("Name: Sarah Jones");
+    expect(combined).toContain("Sarah Jones");
   });
 
   it("does not add prefix when isFirstCall is false", () => {
@@ -363,7 +367,7 @@ describe("formatOwnerSms degraded-capture note", () => {
       callId: "call-deg",
       callerIntent: "new_job"
     });
-    expect(result).toContain("Note: Some details weren't captured");
+    expect(result).toContain("[partial - check the recording]");
     expect(result).toContain("[PARTIAL]");
     expect(result.split("\n")[0]).toContain("[PARTIAL]");
   });
@@ -374,7 +378,7 @@ describe("formatOwnerSms degraded-capture note", () => {
       callId: "call-deg2",
       callerIntent: "follow_up"
     });
-    expect(result).not.toContain("Note: Some details weren't captured");
+    expect(result).not.toContain("[partial - check the recording]");
     expect(result).not.toContain("[PARTIAL]");
   });
 
@@ -384,33 +388,35 @@ describe("formatOwnerSms degraded-capture note", () => {
       callId: "call-full",
       callerIntent: "new_job"
     });
-    expect(result).not.toContain("Note: Some details weren't captured");
+    expect(result).not.toContain("[partial - check the recording]");
     expect(result).not.toContain("[PARTIAL]");
   });
 
-  it("truncates long issue_summary in SMS to 120 chars", () => {
+  it("truncates the issue summary to 80 chars", () => {
     const longSummary = "A".repeat(200);
     const result = formatOwnerSms({
       lead: makeLead({ issue_summary: longSummary }),
       callId: "call-trunc",
       callerIntent: "new_job"
     });
-    const detailsLine = result.split("\n").find((l: string) => l.startsWith("Details:"));
-    expect(detailsLine).toBeDefined();
-    expect(detailsLine!.length).toBeLessThanOrEqual("Details: ".length + 120);
-    expect(detailsLine).toContain("...");
+    // Unlabelled and trimmed to 80 now: enough to know what the job is,
+    // with the full text on the lead page.
+    const summaryLine = result.split("\n").find((l: string) => l.startsWith("AAA"));
+    expect(summaryLine).toBeDefined();
+    expect(summaryLine!.length).toBeLessThanOrEqual(80);
+    expect(summaryLine).toContain("...");
   });
 
-  it("truncates long address in SMS to 80 chars", () => {
+  it("truncates the address to 60 chars", () => {
     const longAddress = "B".repeat(150);
     const result = formatOwnerSms({
       lead: makeLead({ address: longAddress }),
       callId: "call-trunc-addr",
       callerIntent: "new_job"
     });
-    const addressLine = result.split("\n").find((l: string) => l.startsWith("Address:"));
+    const addressLine = result.split("\n").find((l: string) => l.startsWith("BBB"));
     expect(addressLine).toBeDefined();
-    expect(addressLine!.length).toBeLessThanOrEqual("Address: ".length + 80);
+    expect(addressLine!.length).toBeLessThanOrEqual(60);
     expect(addressLine).toContain("...");
   });
 
@@ -563,13 +569,16 @@ describe("formatOwnerSms — enhanced fields", () => {
     expect(neutral).not.toContain("[NEUTRAL]");
   });
 
-  it("includes property type when set", () => {
+  it("leaves property type out of the SMS", () => {
     const result = formatOwnerSms({
       lead: makeLead({ property_type: "commercial" }),
       callId: "call-prop",
       callerIntent: "new_job"
     });
-    expect(result).toContain("Property: commercial");
+    // Deliberately dropped from the SMS: judgement context, not an
+    // instruction. Every character costs money and it is on the lead page.
+    expect(result).not.toContain("Property:");
+    expect(result).not.toContain("commercial");
   });
 
   it("omits property type when null", () => {
@@ -581,13 +590,14 @@ describe("formatOwnerSms — enhanced fields", () => {
     expect(result).not.toContain("Property:");
   });
 
-  it("includes job scope when set", () => {
+  it("leaves job scope out of the SMS", () => {
     const result = formatOwnerSms({
       lead: makeLead({ job_size: "large" }),
       callId: "call-jv",
       callerIntent: "new_job"
     });
-    expect(result).toContain("Scope: large");
+    // Also dropped - the assistant's size estimate is not an action.
+    expect(result).not.toContain("Scope:");
   });
 });
 

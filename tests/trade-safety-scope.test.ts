@@ -86,6 +86,48 @@ describe("handyman licensing scope", () => {
   });
 });
 
+describe("urgency classification", () => {
+  // The keyword list flags calls worth attention; it must not decide urgency.
+  // "no power" is an electrician's most common call and "no hot water" a
+  // plumber's most common after-hours one, and both used to be tagged
+  // EMERGENCY unconditionally — which fires the priority header and a chase-up
+  // SMS two minutes later, and teaches the owner to ignore the label.
+  it("no longer sets emergency on a bare keyword match", () => {
+    for (const trade of ["plumber", "electrician", "roofer"]) {
+      const prompt = buildSystemPrompt(makeTenant(trade), [], null);
+      expect(prompt, trade).not.toContain('- Set urgency_level to "emergency" in save_lead.\n- Continue');
+    }
+  });
+
+  it("gives the assistant three levels and a test to choose between them", () => {
+    const prompt = buildSystemPrompt(makeTenant("plumber"), [], null);
+    expect(prompt).toContain("## Setting urgency_level");
+    expect(prompt).toMatch(/nothing is getting worse while you talk/i);
+  });
+
+  it("names the modal calls that were being mis-tagged", () => {
+    // These three are the eval's negative controls. If the rubric stops
+    // naming them the controls start failing for the wrong reason.
+    const prompt = buildSystemPrompt(makeTenant("electrician"), [], null);
+    expect(prompt, "no power").toMatch(/the power is off with no smell or heat or damage/);
+    expect(prompt, "no hot water").toMatch(/no hot water/);
+    expect(prompt, "chirping smoke alarm").toMatch(/smoke alarm chirping with no smoke is routine/);
+  });
+
+  it("tells the assistant that over-tagging is not the safe choice", () => {
+    // Without this the model defaults to the alarming option, which is exactly
+    // how the label became noise.
+    expect(buildSystemPrompt(makeTenant("plumber"), [], null))
+      .toMatch(/Over-tagging is not the safe option/);
+  });
+
+  it("still classifies genuine danger to life as an emergency", () => {
+    const prompt = buildSystemPrompt(makeTenant("plumber"), [], null);
+    expect(prompt).toContain('treat as emergency, set urgency_level="emergency"');
+    expect(prompt).toContain("# Life-Threatening Emergencies");
+  });
+});
+
 describe("unlisted trades", () => {
   // A sealants business signed up, was stored as the literal string "other",
   // and would have been introduced to callers as "an Australian other

@@ -7,6 +7,7 @@ import { twilioClient } from "./client.js";
 import { formatAuPhone, toE164Au } from "../utils/phone.js";
 import { isWithinHours } from "../utils/time.js";
 import { isMobileMessageConfigured, sendMarketingSms } from "../sms/mobile-message.js";
+import { toGsm7 } from "../sms/gsm7.js";
 
 const log = pino({ level: "info" });
 
@@ -128,25 +129,38 @@ export function formatOwnerSms(opts: {
     !notes || notesAreDuplicate
       ? null
       : isVoicemail
-      ? `Message: ${truncSms(notes, 300)}`
-      : `Notes: ${truncSms(notes, 120)}`;
+      // Enough to decide whether to ring back now; the full message is on the
+      // lead page. 300 characters here was two segments of its own.
+      ? `Msg: ${truncSms(notes, 140)}`
+      : `Notes: ${truncSms(notes, 80)}`;
 
+  // Built around what the owner has to DO. Every character costs money — one
+  // message runs to two or three segments — and the tradie is reading this in a
+  // van, so the test is whether they can decide "ring back now or later, and
+  // what do I bring" without opening anything.
+  //
+  // Deliberately NOT here: property type and job size, which are judgement
+  // context rather than instructions, and the full issue summary. Those live on
+  // the lead page. Labels are dropped where the content speaks for itself — a
+  // phone number does not need to be called "Phone".
   const lines = [
     `${header}:`,
-    hasName ? `Name: ${compact(l.name)}` : null,
-    hasPhone ? `Phone: ${formatAuPhone(compact(l.phone))}` : null,
-    hasAddress ? `Address: ${truncSms(compact(l.address), 80)}` : null,
-    propertyLabel ? `Property: ${propertyLabel}` : null,
-    hasSummary ? `Details: ${truncSms(compact(l.issue_summary), 120)}` : null,
+    // Name and number on one line: this is the callback, and it is the whole
+    // reason the message exists.
+    [compact(l.name), hasPhone ? formatAuPhone(compact(l.phone)) : ""].filter(Boolean).join("  ") || null,
+    hasAddress ? truncSms(compact(l.address), 60) : null,
+    hasSummary ? truncSms(compact(l.issue_summary), 80) : null,
     notesLine,
-    jobSizeLabel ? `Scope: ${jobSizeLabel}` : null,
-    compact(l.preferred_time) ? `Preferred time: ${compact(l.preferred_time)}` : null,
-    compact(l.next_action) ? `Next: ${compact(l.next_action)}` : null,
-    isDegraded ? `Note: Some details weren't captured - check the recording.` : null,
-    opts.dashboardUrl ? `View: ${opts.dashboardUrl}/dashboard/leads/${viewId}` : null
+    compact(l.preferred_time) ? `Wants: ${compact(l.preferred_time)}` : null,
+    // The instruction, promoted. It used to sit second from last.
+    compact(l.next_action) ? `> ${truncSms(compact(l.next_action), 60)}` : null,
+    isDegraded ? `[partial - check the recording]` : null,
+    opts.dashboardUrl ? `${opts.dashboardUrl.replace(/^https?:\/\//, "")}/dashboard/leads/${viewId}` : null
   ].filter(Boolean) as string[];
 
-  return lines.join("\n");
+  // Sanitise last so nothing downstream can reintroduce a non-GSM-7 character.
+  // A single em dash from the model turns a 2-segment message into 5.
+  return toGsm7(lines.join("\n"));
 }
 
 /**

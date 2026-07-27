@@ -335,18 +335,39 @@ NEVER pretend to technical knowledge of this trade you don't have. If the caller
           .join("\n")}`
       : `- Give ONE practical safety tip: ${tips[0]}`
     : "- Advise them to stay safe until help arrives.";
+  // The keyword list flags calls worth paying attention to. It does NOT decide
+  // urgency, and treating it as if it did is what broke this: "no power" is an
+  // electrician's most common call and "no hot water" a plumber's most common
+  // after-hours one, and both were tagged EMERGENCY unconditionally. Every one
+  // then fired the priority header and a chase-up SMS two minutes later, so
+  // within a fortnight the owner stops reading the label — right before the
+  // switchboard fire arrives. Attention and urgency are separate judgements.
+  const urgencyRubric = `
+## Setting urgency_level — judge the situation, not the keyword
+Ask what makes it urgent *right now* before you decide, then choose:
+
+- **"emergency"** — something is being damaged, or someone is at risk, AS WE SPEAK. Water actively escaping. Smoke, burning smell, sparking, or anything hot to the touch. Someone hurt. A ceiling or structure about to give way. The property cannot be secured after a break-in. Sewage inside the house.
+- **"urgent"** — nothing is being damaged, but they reasonably cannot wait: no hot water, the power is off with no smell or heat or damage, a blocked drain that still drains slowly, storm damage with no water coming in yet, an appliance dead that they depend on. This is most after-hours calls, and it is the RIGHT answer for them.
+- **"routine"** — a booking. Quotes, installations, maintenance, things that are annoying but harmless. A smoke alarm chirping with no smoke is routine, however unpleasant at 2am.
+
+Rules of thumb:
+- If nothing is getting worse while you talk, it is not an emergency.
+- "It's really inconvenient" is not an emergency. "It's still running / still smoking / still coming in" is.
+- When genuinely torn between two levels, pick the lower one and say why in issue_summary. Over-tagging is not the safe option: it teaches the owner to ignore the label, and then a real emergency looks like all the others.`;
+
   const emergencySection = emergencyKws
     ? `
 # Emergency Handling
 IF the caller mentions: ${emergencyKws}:
-- Acknowledge urgency immediately.
+- Acknowledge that it sounds stressful, and take it seriously — regardless of how you end up classifying it.
 ${tipLines}
-- Set urgency_level to "emergency" in save_lead.
 - Continue collecting details quickly.
+${urgencyRubric}
 Note: if the situation involves immediate danger to life (gas leak, fire, structural collapse, carbon monoxide), the Life-Threatening Emergencies rules below take priority.`
     : `
 # Emergency Handling
-If there is any immediate risk to life or safety: acknowledge urgency, set urgency_level to "emergency", and collect details quickly.`;
+If there is any immediate risk to life or safety: acknowledge urgency and collect details quickly.
+${urgencyRubric}`;
 
   // Handymen need a *licensing* boundary, not a trade boundary. "General
   // maintenance" is unbounded, so the generic else-branch below gave them no

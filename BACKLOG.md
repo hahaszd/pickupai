@@ -68,19 +68,17 @@ be treated as suspicious, not as success. See `docs/eval.md`.
 
 ## P2
 
+### Shorten the dashboard link in the owner SMS
+`https://www.getpickupai.com.au/dashboard/leads/<uuid>` is **83 characters, 29%
+of a typical message** — the UUID alone is 36. A `/l/:shortId` route would cut
+it to about 27 and often save a whole segment. Needs a new route and a short id
+on `leads`.
+
 ### `issue_summary` truncated to 120 characters in the owner SMS
 `truncSms(compact(l.issue_summary), 120)` (`sms.ts:118`). The handyman
 multi-job call — the most valuable call that trade takes — arrives as
 "door won't latch, flyscreen hole, hang three pictures in hallw…". The full
 text survives on the lead page, but the tradie is reading an SMS in a van.
-
-### Emergency over-tagging trains the owner to ignore the label
-`no power` and `power outage` are electrician emergency keywords
-(`session.ts:135`); `no hot water` is a plumber one (`:125`). These are the
-*modal* calls for those trades, and each fires the priority header plus a
-second chase-up SMS two minutes later (`server.ts:830-847`). Within a fortnight
-the EMERGENCY prefix means nothing. Three eval negative controls exist and will
-fail until this is addressed.
 
 ### Warm transfer is not gated on urgency, and uses global business hours
 `server.ts:1784` transfers before the media stream opens, so no urgency has
@@ -174,3 +172,5 @@ production path.
 | 2026-07-27 | Unlisted trades no longer "an Australian other business"; `docs/channel-evidence.md` | `a52b592` |
 | 2026-07-27 | Demo suburb follows the tenant's service area; `BACKLOG.md` created | `ca19ffa` |
 | 2026-07-27 | `notes` now reaches the owner SMS — voicemail bodies, claim numbers, audio warnings | `b7b3430` |
+| 2026-07-27 | Urgency judged on the situation rather than a keyword match | `2c6124c` |
+| 2026-07-27 | Owner SMS: GSM-7 sanitising + action-first layout — 5 segments to 2 on a realistic lead | `2c6124c` |
