@@ -15,6 +15,14 @@
  * being dead. A signup with no prospect match and no funnel events arrived
  * some other way, and that way is worth knowing.
  */
+// Load .env explicitly. This script deliberately does not import src/env.ts —
+// it needs no Twilio or OpenAI configuration — but src/env.ts is the only place
+// that calls dotenv.config(), so without this DATABASE_URL is undefined, openDb
+// silently falls back to a local SQLite file, and the script reports an empty
+// database instead of failing.
+import dotenv from "dotenv";
+dotenv.config();
+
 import { openDb } from "../src/db/db.js";
 import { toE164Au } from "../src/utils/phone.js";
 
@@ -33,6 +41,13 @@ const days = (from: string, to: string) =>
   Math.round((new Date(to).getTime() - new Date(from).getTime()) / 86_400_000);
 
 async function main() {
+  if (!process.env.DATABASE_URL && !process.env.SQLITE_PATH) {
+    console.error(
+      "Neither DATABASE_URL nor SQLITE_PATH is set — there is no database to read.\n" +
+      "Put DATABASE_URL in .env, or pass it inline. Reporting an empty database would be worse than stopping."
+    );
+    process.exit(2);
+  }
   const db = await openDb(process.env.SQLITE_PATH ?? "./data/app.sqlite", process.env.DATABASE_URL);
 
   // ── Pick the tenant ────────────────────────────────────────────────────────

@@ -137,6 +137,14 @@ webhook boundaries. Error count must stay at 0.
 
 ## P3
 
+### Rotate the Neon database password
+The production `DATABASE_URL`, including the password for `neondb_owner`, was
+pasted into a chat transcript on 2026-07-27 and is now in `.env` locally.
+`.env` is git-ignored, so the exposure is the transcript, not the repo. Rotate
+in the Neon dashboard, then update Railway and `.env`. Low urgency — the
+credential is not public — but `SECURITY.md` records that this project has
+already leaked production credentials into git history once.
+
 ### Split operational alerting from marketing SMS
 If the product ever moves back to Mobile Message, system alerts and marketing
 share one sender ID — a marketing complaint that restricts the sender would
