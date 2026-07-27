@@ -22,7 +22,9 @@ const OPENAI_REALTIME_URL = `wss://api.openai.com/v1/realtime?model=${OPENAI_REA
 
 // ─── Tool definitions sent to OpenAI ─────────────────────────────────────────
 
-const TOOLS = [
+// Exported so the eval harness drives the real tool definitions. A copy would
+// drift, and a drifted copy means the eval stops testing production.
+export const TOOLS = [
   {
     type: "function",
     name: "save_lead",
