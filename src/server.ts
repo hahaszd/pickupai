@@ -72,6 +72,7 @@ function safeTokenCompare(a: string, b: string): boolean {
 
 import { env } from "./env.js";
 import { openDb, type Db, type FlushInfo } from "./db/db.js";
+import { p95 } from "./utils/stats.js";
 import {
   appendTranscript,
   claimDemoNumber,
@@ -633,11 +634,25 @@ function buildFallbackTenant(): TenantRow {
 const BLOB_ALERT_BYTES = 10 * 1024 * 1024;
 const FLUSH_SLOW_MS = 1000;
 
+// The first flushes after boot are not representative: they carry Neon
+// connection setup and, on a suspended free-tier database, the wake-up. That
+// alone can exceed a second while the blob is still tiny, so measuring them
+// produces an alert on every single deploy.
+const FLUSH_WARMUP_SAMPLES = 3;
+// ADR-0001 defines the trigger as p95, not a single sample. A rolling window
+// of recent flushes is what makes that computable — one slow flush is noise,
+// a slow 95th percentile is the blob actually getting expensive.
+const FLUSH_WINDOW = 50;
+const FLUSH_MIN_SAMPLES = 20;
+
 let lastFlush: (FlushInfo & { at: string }) | null = null;
 let blobAlertSent = false;
 let slowFlushAlertSent = false;
+let flushCount = 0;
+const flushDurations: number[] = [];
 // Assigned immediately after openDb resolves; flushes cannot fire before then.
 let dbForAlerts: Db | null = null;
+
 
 function alertFounder(reason: string) {
   log.error({ reason }, "persistence threshold crossed");
@@ -647,16 +662,29 @@ function alertFounder(reason: string) {
 }
 
 function onFlush(info: FlushInfo) {
+  flushCount++;
   lastFlush = { ...info, at: new Date().toISOString() };
   log.info({ bytes: info.bytes, durationMs: info.durationMs }, "db flushed");
 
+  // Blob size stays a single-sample check: it only grows, so there is no noise
+  // to average away and one reading is already the truth.
   if (!blobAlertSent && info.bytes > BLOB_ALERT_BYTES) {
     blobAlertSent = true;
     alertFounder(`blob is ${(info.bytes / 1024 / 1024).toFixed(1)}MB (threshold 10MB)`);
   }
-  if (!slowFlushAlertSent && info.durationMs > FLUSH_SLOW_MS) {
+
+  // Duration is noisy, so it needs a distribution rather than a reading.
+  if (flushCount <= FLUSH_WARMUP_SAMPLES) return;
+  flushDurations.push(info.durationMs);
+  if (flushDurations.length > FLUSH_WINDOW) flushDurations.shift();
+
+  if (slowFlushAlertSent || flushDurations.length < FLUSH_MIN_SAMPLES) return;
+  const p = p95(flushDurations);
+  if (p > FLUSH_SLOW_MS) {
     slowFlushAlertSent = true;
-    alertFounder(`flush took ${info.durationMs}ms (threshold ${FLUSH_SLOW_MS}ms)`);
+    alertFounder(
+      `flush p95 is ${p}ms over the last ${flushDurations.length} writes (threshold ${FLUSH_SLOW_MS}ms)`
+    );
   }
 }
 
@@ -1573,7 +1601,13 @@ async function main() {
             blob_mb: +(lastFlush.bytes / 1024 / 1024).toFixed(2),
             last_flush_ms: lastFlush.durationMs,
             last_flush_at: lastFlush.at,
+            // p95 is the number ADR-0001 actually gates on. last_flush_ms is
+            // shown alongside it because a single slow write is normal and
+            // should not be mistaken for the trigger.
+            flush_p95_ms: flushDurations.length ? p95(flushDurations) : null,
+            flush_samples: flushDurations.length,
             blob_threshold_mb: BLOB_ALERT_BYTES / 1024 / 1024,
+            flush_threshold_ms: FLUSH_SLOW_MS,
             over_threshold: lastFlush.bytes > BLOB_ALERT_BYTES
           }
         : null,

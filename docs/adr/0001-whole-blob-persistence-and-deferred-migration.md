@@ -60,15 +60,24 @@ roughly with the square of cumulative call volume.
 
 Migrate when **any** of these is hit:
 
-| Signal | Threshold |
-|---|---|
-| Blob size | > 10 MB |
-| Flush duration | p95 > 1 s |
-| Neon usage | at plan limit |
+| Signal | Threshold | How it is measured |
+|---|---|---|
+| Blob size | > 10 MB | Single reading. The blob only grows, so one sample is already the truth. |
+| Flush duration | p95 > 1 s | Rolling window of 50 flushes, minimum 20 samples, **first 3 flushes after boot excluded**. |
+| Neon usage | at plan limit | Manual — check the Neon dashboard. |
 
-These are instrumented in `flush()` and alert once by SMS to
+These are instrumented in `flush()` and alert once per process by SMS to
 `OWNER_PHONE_NUMBER` on threshold crossing — a deferral whose exit signal is
-invisible is not a decision, it is forgetting.
+invisible is not a decision, it is forgetting. The live numbers are on
+`/health/detailed` under `persistence`.
+
+**Why duration needs a distribution and size does not.** The first flushes
+after a deploy carry Neon connection setup and, on a suspended free-tier
+database, the wake-up. That alone can exceed a second while the blob is still
+a megabyte. The first implementation alerted on any single flush over the
+threshold and duly fired on the very next deploy at 1282 ms, with a blob
+nowhere near the size that would justify migrating. One slow flush is noise;
+a slow 95th percentile is the blob genuinely getting expensive.
 
 **`calls` is the first table to move** when that day comes: transcripts are
 append-only, read per-call, never aggregated, and are the dominant growth term.
