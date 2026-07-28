@@ -46,6 +46,9 @@ const INTENT_HEADERS: Record<string, string> = {
   job_applicant: "JOB APPLICANT",
   supplier: "SUPPLIER CALL",
   trade_referral: "REFERRAL",
+  // In NO_SMS_INTENTS, so this header only shows up if the suppression is ever
+  // bypassed. Better a correct label than "CALL" if that day comes.
+  referred_out: "REFERRED ON",
   cancellation: "CANCELLATION",
   voicemail: "VOICEMAIL",
   unknown: "CALL"
@@ -62,6 +65,10 @@ export const FIRST_CALL_CELEBRATION_PREFIX =
 /** Intents that should NOT trigger an SMS to the owner. */
 export const NO_SMS_INTENTS = new Set([
   "wrong_number",
+  // The caller is real and their details are kept, but the work belongs to a
+  // water authority or a distributor and never becomes a job here. An SMS
+  // would be the owner's phone going off for something nobody can attend.
+  "referred_out",
   "spam",
   "telemarketer",
   "silent",

@@ -260,10 +260,16 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
       "Rescheduling a hot water job without surfacing the locked switchboard means the crew turns up unable to isolate power, and a family with a toddler goes an extra day without hot water for nothing."
   },
   {
-    id: "plumber_water_bubbling_nature_strip_wrong_number",
+    id: "plumber_water_bubbling_nature_strip_referred_out",
     trade: "plumber",
     priority: "P1",
-    intent: "wrong_number",
+    // Was "wrong_number", which failed 3/3 for a reason that was not the
+    // assistant's fault: this caller rang the RIGHT business, so the prompt's
+    // wrong-number path ("hope you find the right number!") never fits, and the
+    // model reasonably fell back to new_job — which alerts the owner about a
+    // job nobody can attend. The taxonomy had no value for "right business,
+    // permanently someone else's asset". It does now.
+    intent: "referred_out",
     label: "Water bubbling from the nature strip — the water authority's asset, not a plumbing job",
     callerOpening: "There's water bubbling up out of the nature strip past my fence, it's been going all night.",
     callerFacts: [

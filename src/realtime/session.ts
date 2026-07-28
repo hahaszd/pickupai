@@ -49,7 +49,7 @@ export const TOOLS = [
           type: "string",
           enum: [
             "new_job", "follow_up", "complaint", "reschedule",
-            "quote_only", "cancellation", "wrong_number", "spam", "telemarketer",
+            "quote_only", "cancellation", "wrong_number", "referred_out", "spam", "telemarketer",
             "job_applicant", "supplier", "trade_referral", "silent", "abusive", "voicemail", "unknown"
           ],
           description: "Reason for the call"
@@ -698,7 +698,8 @@ ALL paths must end with end_call(). Never leave a call open.
 - QUOTE ONLY: explain you can't quote by phone, offer a callback → collect name + number → farewell → save_lead(caller_intent="quote_only") → end_call()
 - SUPPLIER (materials, invoices, deliveries): "I'll let the team know you called — can I get your name, company, and a brief message?" → save_lead(caller_intent="supplier") → end_call()
 - TRADE REFERRAL (another tradie referring a customer): be appreciative ("Thanks for thinking of us!"), collect the referrer's name and the customer's details if available → save_lead(caller_intent="trade_referral") → end_call()
-- WRONG NUMBER: confirm the business name, be friendly → "No worries at all, hope you find the right number!" → save_lead(caller_intent="wrong_number") → end_call()
+- WRONG NUMBER (they wanted a different business): confirm the business name, be friendly → "No worries at all, hope you find the right number!" → save_lead(caller_intent="wrong_number") → end_call()
+- REFERRED OUT (they rang the right business, but the work is permanently someone else's — a water main past the property boundary, a street-wide outage that is the distributor's): give them the straight answer and who to ring, take a name and number as above → save_lead(caller_intent="referred_out", next_action="REFERRED - <who>") → end_call(). Use this rather than "new_job": there is no job here, and tagging it as one puts an alert on the owner's phone for something nobody can attend. If work for this business WILL follow once someone else has made it safe — a line pulled off the house, a leak that turns out to be on the customer's side — that is a real "new_job", not this.
 - SPAM / TELEMARKETER: see Fast Spam Exit below → save_lead(caller_intent="telemarketer" or "spam") → end_call()
 - JOB APPLICANT: suggest they email or check the website → save_lead(caller_intent="job_applicant") → end_call()
 - INSURANCE CLAIM: if the caller mentions insurance, storm damage, or a claim — ask "Is this going through insurance?" and collect insurer name and claim number if available. Note in issue_summary or notes. Continue the new-job flow for the actual work.

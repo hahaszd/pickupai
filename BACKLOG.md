@@ -168,7 +168,7 @@ referral, and it needs an address. Sources: Essential Energy private-poles FAQ,
 Energy Safe Victoria private aerial lines, SA Power Networks service rules.
 **Do not "fix" this by loosening the assertion to `degraded`.**
 
-### `plumber_water_bubbling_nature_strip_wrong_number` fails 3/3
+### `plumber_water_bubbling_nature_strip_referred_out` fails 3/3
 Confirmed at n=3: the assistant classifies a water-authority leak as `new_job`,
 so the owner would get an SMS about a job that does not exist. Pre-existing —
 it was on the previous session's failure list, before any of today's prompt
@@ -180,7 +180,7 @@ Three prompt edits were made in this sitting, each verified against three
 scenarios at `--repeat 3`. The second one — a general "some jobs are only
 partly someone else's" paragraph — fixed nothing and broke two neighbours:
 `electrician_whole_street_blackout` went 3/3 → 1/3 and
-`plumber_water_bubbling_nature_strip_wrong_number` started classifying a
+`plumber_water_bubbling_nature_strip_referred_out` started classifying a
 referral as a job. It was caught only because neighbouring scenarios happened to
 be in the same verification batch.
 

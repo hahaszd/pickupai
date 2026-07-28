@@ -12,6 +12,7 @@ const VALID_INTENTS = new Set([
   "quote_only",
   "cancellation",
   "wrong_number",
+  "referred_out",
   "spam",
   "telemarketer",
   "job_applicant",

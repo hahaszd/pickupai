@@ -8,6 +8,14 @@ export type InboundIntent =
   | "quote_only"
   | "cancellation"
   | "wrong_number"
+  /**
+   * Right business, but the work is permanently another organisation's — a
+   * water main past the property boundary, a distributor's asset. NOT a
+   * misdial: `wrong_number` means the caller wanted a different business.
+   * Suppresses the owner SMS, because there is no job to wake anyone for,
+   * while still keeping the caller's details.
+   */
+  | "referred_out"
   | "spam"
   | "telemarketer"
   | "job_applicant"

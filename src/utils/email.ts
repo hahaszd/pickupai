@@ -64,6 +64,7 @@ export function formatLeadEmail(opts: {
     intent === "quote_only" ? "Quote Request" :
     intent === "supplier" ? "Supplier Call" :
     intent === "trade_referral" ? "Referral" :
+    intent === "referred_out" ? "Referred On" :
     "Call";
 
   const subject = `${intentLabel}${urgencyTag} — ${lead.name ?? "Unknown caller"} | ${businessName}`;
