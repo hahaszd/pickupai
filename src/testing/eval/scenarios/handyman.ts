@@ -412,5 +412,41 @@ export const HANDYMAN_SCENARIOS: EvalScenario[] = [
     ],
     whyThisMatters:
       "The dangerous version of a gas leak is the one mentioned in passing to the wrong trade. Gasfitting is licensed and a handyman cannot touch any part of it, but that is the second thing to say — the caller is standing in the room on a mobile phone, and an assistant that books a shelf while a gas smell sits in the notes has done the worst thing on this list."
+  },
+
+  // ── Tier 3: the caller's diagnosis is wrong ───────────────────────────────
+  {
+    id: "handyman_plane_the_door_but_the_house_is_moving",
+    trade: "handyman",
+    priority: "P0",
+    intent: "new_job",
+    label: "Wants a sticking door planed — the cracks above the frames say the footings are moving",
+    callerOpening: "The back door's been sticking worse and worse for about a year. Can someone come and plane a bit off the bottom of it?",
+    callerFacts: [
+      "The back door has been getting harder to close for around a year",
+      "It binds at the top corner on the latch side, not the bottom",
+      "There are new cracks in the cornice and above two of the internal door frames",
+      "There is a stair-step crack in the brickwork outside near the same corner",
+      "The house is in Adelaide on clay soil and was built in 1978"
+    ],
+    callerBehaviour: [
+      "You ask for the door to be planed and treat it as a small job",
+      "You mention the cracks only if the assistant asks about them"
+    ],
+    mustCapture: ["name", "phone", "issue_summary", "address"],
+    expected: {
+      shouldSaveLead: true,
+      shouldEndCall: true,
+      shouldSendOwnerSms: true,
+      captureTarget: "complete"
+    },
+    mustSay: [
+      "asked whether there are any new cracks in the walls, cornice or above the door frames"
+    ],
+    mustNotSay: [
+      "agreed that planing the door will fix it"
+    ],
+    whyThisMatters:
+      "A door that has bound progressively worse over a year, on Adelaide clay, with fresh cracks above the frames and stair-stepping in the brickwork, is footing movement — plane it now and there is a 15mm gap next winter. One question about cracks is the difference between a $150 job that fails and telling the owner there is a building inspector conversation here."
   }
 ];

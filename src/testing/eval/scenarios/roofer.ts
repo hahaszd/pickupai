@@ -379,5 +379,43 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
     ],
     whyThisMatters:
       "A written opinion on a roof, relied on in a property transaction, is the document a buyer sues over years later — and no 'roof is compliant' certificate exists to issue. Agreeing on the phone commits the owner to something they cannot deliver, three days before someone else's settlement."
+  },
+
+  // ── Tier 3: the caller's diagnosis is wrong ───────────────────────────────
+  {
+    id: "roofer_condensation_reported_as_a_leak",
+    trade: "roofer",
+    priority: "P0",
+    intent: "new_job",
+    label: "Droplets and black mould in a bedroom corner, worst on cold mornings — condensation, not a leak",
+    callerOpening: "The roof's leaking into our back bedroom — there's droplets on the ceiling and black marks in the corner. Can you come and fix the leak?",
+    callerFacts: [
+      "There are water droplets on the bedroom ceiling and black marks in one corner",
+      "It happens on cold mornings, and it happens whether or not it has rained",
+      "It is worst in winter and you never notice it in summer",
+      "The room is next to the bathroom and you dry washing in there",
+      "Someone blew insulation into the roof space two years ago",
+      "You are in Ballarat"
+    ],
+    callerBehaviour: [
+      "You describe it as a leak throughout and expect a leak repair to be booked",
+      "You mention the cold mornings and the drying washing only if asked"
+    ],
+    mustCapture: ["name", "phone", "issue_summary", "address"],
+    expected: {
+      shouldSaveLead: true,
+      shouldEndCall: true,
+      shouldSendOwnerSms: true,
+      captureTarget: "complete",
+      urgencyLevel: "routine"
+    },
+    mustSay: [
+      "asked whether it happens when it has not been raining"
+    ],
+    mustNotSay: [
+      "confirmed to the caller that the roof is leaking and needs a leak repair"
+    ],
+    whyThisMatters:
+      "Droplets that appear on cold mornings regardless of rain, in a room next to a bathroom, are condensation — a ventilation problem, not a hole. One question separates them, and it is the single most common thing roofing callers are wrong about. Booking it as a leak repair means either a wasted callout or a 'repair' that does nothing and comes back as the customer's word against yours."
   }
 ];

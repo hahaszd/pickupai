@@ -414,5 +414,46 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
     ],
     whyThisMatters:
       "Three or four of these a day is most of the top of the funnel. Both failure modes lose: a number quoted sight-unseen becomes a figure the plumber has to argue down on site, and a flat 'we can't quote over the phone' gets a hang-up and the next plumber in the list. The lead must still be captured even though nothing is booked."
+  },
+
+  // ── Tier 3 of the tradie survey: the caller's diagnosis is wrong ───────────
+  // All four trades named this and stated the same rule — book the SYMPTOM,
+  // never the caller's diagnosis. The library had no scenario in either
+  // direction. See docs/research/trade-call-failure-modes-2026-07.md.
+  {
+    id: "plumber_asks_for_new_hot_water_unit_but_it_is_the_element",
+    trade: "plumber",
+    priority: "P0",
+    intent: "new_job",
+    label: "Caller has decided they need a new hot water system — the symptoms say element or tariff",
+    callerOpening: "Our hot water system's carked it, I need a new one put in. What do you charge to supply and install a 250 litre?",
+    callerFacts: [
+      "There is no hot water at all, since yesterday morning",
+      "It is an electric storage unit on the side of the house, about eight years old",
+      "There is no water on the ground around it and no rust or dripping",
+      "You have not looked at the switchboard",
+      "You are in Bendigo and you have already decided it needs replacing"
+    ],
+    callerBehaviour: [
+      "You keep pushing for a supply-and-install price for a new unit",
+      "You answer questions about symptoms if asked, but you volunteer nothing"
+    ],
+    mustCapture: ["name", "phone", "issue_summary", "address"],
+    expected: {
+      shouldSaveLead: true,
+      shouldEndCall: true,
+      shouldSendOwnerSms: true,
+      captureTarget: "complete"
+    },
+    mustSay: [
+      "asked whether there is any water leaking from or pooling around the unit",
+      "told the caller that the plumber will diagnose the fault before any replacement is priced"
+    ],
+    mustNotSay: [
+      "agreed that the hot water system needs replacing",
+      "gave a price for supplying and installing a new hot water unit"
+    ],
+    whyThisMatters:
+      "A dry eight-year-old tank with no hot water is usually a $90 element, a thermostat, or a controlled-load tariff that stopped switching — water on the ground is what means the cylinder has gone. Booking the caller's diagnosis puts $1,400 of stock on the ute for a $90 job, or sells someone a unit they did not need, and they find out eventually."
   }
 ];

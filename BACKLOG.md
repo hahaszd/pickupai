@@ -674,36 +674,102 @@ not chase the last run without deciding whether a gas evacuation that yields a
 number, an address and no name is actually a failure — the scenario currently
 says it is, at `captureTarget: "complete"`.
 
-### WATCH: `referred_out` is bleeding into handyman licensing referrals
-Found in the first 30-scenario gate, 2026-07-28.
-`handyman_dripping_tap_plus_mixer_swap` — 3/3 in every earlier run — came back
-**2/3**, and the failing run classified the call `referred_out`, which
-suppressed the owner SMS.
+### MEASURED at n=9, and deliberately not fixed: `referred_out` on a licensing referral
+The first 30-scenario gate had `handyman_dripping_tap_plus_mixer_swap` — 3/3 in
+every earlier run — come back 2/3, with the failing run classifying the call
+`referred_out` and suppressing the owner SMS. It looked like the fourth instance
+of a rule reaching a neighbouring situation.
 
-It is wrong, and the reason it is wrong is worth stating precisely: the call
-contains a dripping tap, which a handyman **can** do, alongside a mixer swap,
-which is licensed plumbing. Work for this business does follow, so the intent is
-`new_job` with a licensing note — not a referral. The `# When the Job Belongs to
-Someone Else` section says exactly that, and `LICENSED WORK - ` exists for this
-case, but "some of this needs a licensed trade" apparently reads as "this belongs
-to someone else" often enough to matter.
+**Re-measured at `--repeat 9`: 8/9.** One failing run in nine. Set against
+`electrician_overhead_service_line_down`, which was 5/9 and turned out to be a
+genuine behaviour, 8/9 is the tail rather than a defect.
 
-**This is the third time a rule written for one situation has reached a
-neighbouring one** — a general "partly someone else's" paragraph taught a plumber
-to file a referral as a job, a downed-line example contradicted the intent list,
-and now a referral intent is capturing licensing boundaries. n=1 failing run is
-not enough to act on. Re-measure at `--repeat 9` before touching the prompt, and
-if it is real, the fix is likely a line in the handyman scope saying that
-licensed work alongside work we CAN do is still `new_job`.
+When it does misfire it is unambiguously wrong — the call has a dripping tap,
+which a handyman **can** do, alongside a mixer swap, which is licensed plumbing,
+so work for this business follows and the intent is `new_job` with a licensing
+note. `LICENSED WORK - ` already exists for exactly this.
 
-### Deferred: the remaining Tier 3 and Tier 4 candidates
-From the survey. Tier 3 is the "caller is wrong about what is broken" family —
-all four trades named it and the rule they all stated is the same, **book the
-symptom, never the caller's diagnosis**, which the library has no scenario for
-in either direction. Tier 4 is storm-week triage against weather rather than
-queue order, the door-knocker second opinion, commercial downtime as its own
-urgency tier, no-water-at-all, solar warranty voiding, possums, and backflow
-testing. Detail and ranking in the research doc.
+**Left unfixed on purpose.** Every prompt edit made on thin evidence today broke
+a neighbour: a "partly someone else's" paragraph taught a plumber to file a
+referral as a job, and a downed-line example contradicted the intent list two
+sections away. A one-in-nine misclassification does not justify another global
+edit, and the expected cost of the edit is higher than the expected cost of the
+bug. Revisit only if it climbs above roughly 2/9 in a later gate, or if a real
+customer call shows it.
+
+### Tier 3 — the assistant wrote down the caller's diagnosis, 12 runs out of 12
+Built and measured 2026-07-28. Four scenarios, one per trade, each one a caller
+who has named a *fix* rather than described a *problem*: "I need a new hot water
+system", "the whole house needs rewiring", "the roof's leaking", "plane the
+bottom off the door". All four trades in the survey named this family and stated
+the same rule — **record the symptom, never the caller's diagnosis**.
+
+**All four failed 3/3 on arrival — 12 runs out of 12 — and the failure was the
+same every time: the assistant never asks the distinguishing question.** Stance
+`ABSENT`, thirteen times. Notably **no `mustNotSay` ever fired**: it does not
+*agree* with the wrong diagnosis, it simply never challenges it, and writes the
+caller's words down as the job.
+
+The transcript is the argument. The assistant behaves well by every existing
+measure — declines to quote, captures name, phone, address, preferred time — and
+files:
+
+> `next_action: "Quote for supply and installation of 250L hot water system"`
+
+for a dry eight-year-old unit with no hot water, which is a $90 element far more
+often than a $1,400 tank. It even asked whether anything was leaking, heard
+"no leaks", and did not revise the job.
+
+**Fixed in two layers, split the way the method note requires.** The rule went
+into a new global `# What They Say Is Broken vs What They Can Actually See` —
+record symptoms, keep the caller's requested fix in `notes`, make `next_action`
+describe the visit rather than their conclusion. The *distinguishing questions*
+went into each trade's `intakeQuestions`, where they cannot reach another trade:
+water on the ground around the unit (plumber), which parts of the house are
+affected (electrician), does it happen when it has not been raining (roofer),
+any new cracks above the door frames (handyman).
+
+**0/12 → 7/12.** plumber 3/3, roofer 2/3, handyman 2/3 — and the roofer's
+`urgency_level` mis-tag disappeared on its own, which is the fix working
+end-to-end: once the call is recognised as condensation rather than a leak,
+`routine` follows without a separate rule.
+
+### FIXED: the QUOTE ONLY path short-circuited symptom intake
+`electrician_wants_a_rewire_but_it_is_one_circuit` stayed **0/3** after the
+above while the other three improved, and the transcript separates the two
+problems cleanly. The new global rule *was* working — the assistant said *"the
+team will check what's actually happening before pricing it, as it may be a
+smaller fix than a full rewire"*, and wrote *"caller **believes** the whole house
+needs rewiring"*, attributing the diagnosis instead of adopting it.
+
+It still never asked what was broken. Name, phone, suburb, preferred time, done.
+The actual symptoms — two dead points in one bedroom, nothing else ever affected
+— never entered the lead, and `job_size` stayed `large`.
+
+The mechanism is one line in the conversation flow. The QUOTE ONLY path read:
+*"explain you can't quote by phone, offer a callback → collect name + number →
+farewell"*. **Symptom intake is not in it**, so a caller who opens with a price
+question instead of a symptom never gets asked. The plumber scenario passed only
+because its caller happened to open with a symptom.
+
+Amended so the quote path asks what is actually happening before wrapping up. A
+scope built on the caller's guess is the guess, not a scope.
+
+**0/3 → 3/3**, and `handyman_plane_the_door_but_the_house_is_moving` went 2/3 →
+3/3 with it. **Tier 3 overall: 0/12 → 11/12.**
+
+The two other scenarios that go through the QUOTE ONLY path —
+`plumber_price_shopper_drain_clear` and `roofer_certify_roof_before_settlement`
+— were measured in the same batch **on purpose**, because three of today's
+regressions were a rule reaching a neighbouring situation. Both 3/3, unchanged.
+Measuring the neighbours is cheap and it is the only thing that has ever caught
+this class.
+
+### Deferred: the remaining Tier 4 candidates
+Storm-week triage against weather rather than queue order, the door-knocker
+second opinion, commercial downtime as its own urgency tier, no-water-at-all,
+solar warranty voiding, possums, and backflow testing. Detail and ranking in the
+research doc.
 Out of the diff above; the ranking and the detail are in the research doc. Tier 1
 is five daily-frequency calls the library does not cover at all, Tier 2 is the
 four licence-protection refusals. **Do not weaken an assertion to fit what the

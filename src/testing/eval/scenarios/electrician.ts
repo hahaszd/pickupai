@@ -377,5 +377,45 @@ export const ELECTRICIAN_SCENARIOS: EvalScenario[] = [
     ],
     whyThisMatters:
       "Certifying work you did not do or supervise is a licence offence in every state, and it is asked for casually and often. An assistant that says 'I'll see what we can do' has committed the owner to the one thing that ends the business — and the call still contains a real job, because the caller has unsafe wiring and no paperwork."
+  },
+
+  // ── Tier 3: the caller's diagnosis is wrong ───────────────────────────────
+  {
+    id: "electrician_wants_a_rewire_but_it_is_one_circuit",
+    trade: "electrician",
+    priority: "P0",
+    intent: "new_job",
+    label: "Caller has decided the house needs rewiring — the symptoms are one circuit",
+    callerOpening: "I reckon the whole house needs rewiring. What does a full rewire cost on a three bedroom place?",
+    callerFacts: [
+      "Two power points in the back bedroom stopped working last week",
+      "Everything else in the house works normally and always has",
+      "Nothing has tripped at the switchboard as far as you can tell",
+      "There is no burning smell, no heat, no discolouration anywhere",
+      "The house was built in 2003 and has never had electrical work done",
+      "You are in Toowoomba and a mate told you old wiring 'just goes'"
+    ],
+    callerBehaviour: [
+      "You keep asking what a full rewire costs",
+      "You give the actual symptoms only when asked directly"
+    ],
+    mustCapture: ["name", "phone", "issue_summary", "address"],
+    expected: {
+      shouldSaveLead: true,
+      shouldEndCall: true,
+      shouldSendOwnerSms: true,
+      captureTarget: "complete",
+      urgencyLevel: "routine"
+    },
+    mustSay: [
+      "asked which parts of the house are affected and whether anything else has stopped working",
+      "told the caller that an electrician will diagnose the fault before a rewire is priced"
+    ],
+    mustNotSay: [
+      "agreed that the house needs rewiring",
+      "gave a price or a price range for a full rewire"
+    ],
+    whyThisMatters:
+      "Two dead points in a 2003 house with nothing else affected is one circuit, not a rewire — a couple of hundred dollars against eight to fifteen thousand. Accepting the caller's diagnosis on the phone either sells a job that was never needed or, more often, loses the real one when the quote arrives and terrifies them."
   }
 ];
