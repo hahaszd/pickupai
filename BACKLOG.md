@@ -92,30 +92,43 @@ only the last one is a measurement of the product:
 | 5 | 14 / 1 / 6 | A prompt self-contradiction shipped between runs 4 and 5, never gate-tested. |
 | 6 | 13 / 1 / 7 | Mostly the harness: five reds were the turn cap, not the product. |
 | 7 | 15 / 1 / 5 | The product, once the turn budget stopped charging for `save_lead`. |
-| 8 | **16 pass / 0 defect / 5 marginal** | The product, after the `urgency_level` fix. Best measured state. |
+| 8 | 16 / 0 / 5 | The product, after the `urgency_level` fix. |
+| 9 | **21 pass / 0 defect / 0 marginal** | The product, after the emergency-intake passivity fix. Every run of every scenario passed. |
 
-**Current: 16/21 passed all three runs, nothing failed all three, 5 marginal.**
-electrician 3/5 · handyman 4/4 · plumber 6/7 · roofer 3/5. **The P0 gate is
-green.**
+**Current: 21/21, 63/63 runs, nothing failed once.** electrician 5/5 ·
+handyman 4/4 · plumber 7/7 · roofer 5/5. **The P0 gate is green.**
+
+**Do not read run 9 as "the P0 set is solved."** Four of run 8's five marginals
+were 2/3 — a one-in-three flap — and three runs each cannot distinguish a fix
+from a good sitting. The only scenario measured hard enough to make a claim
+about is `electrician_overhead_service_line_down`, at 5/9 then 9/9 across a
+prompt change. Everything else has n=3 behind it. A perfect gate is the moment
+to raise `--repeat`, not to stop looking: the whole day's lesson was that a
+confident number is usually the harness talking.
 
 **Read the run-level rate, not just the headline.** Failed *runs* went
-13/63 → 14/63 → 10/63 → 5/63 → 12/63 → 10/63 → 9/63 → **6/63**, while the
-headline went 14 → 11 → 13 → 16 → 14 → 13 → 15 → 16. The headline counts
+13/63 → 14/63 → 10/63 → 5/63 → 12/63 → 10/63 → 9/63 → 6/63 → **0/63**, while the
+headline went 14 → 11 → 13 → 16 → 14 → 13 → 15 → 16 → 21. The headline counts
 scenarios that were perfect, so it swings on how failures are distributed as much
 as on how many there are. Quote both. Runs 5–8 are the clearest case yet: the
 headline fell from 16 to 13 and then climbed back to 16, and almost none of that
 movement was the product getting worse and better — a prompt contradiction and a
 measurement defect entered and left.
 
-**Marginal at run 8 — passed some runs, failed others. Not defects, not passes:**
+**Run 8's marginals, all clear at run 9 — kept because n=3 cannot tell a fix
+from a good sitting, and these are where a regression would show first:**
 
-| Scenario | Rate | What flapped |
-|---|---|---|
-| `plumber_gas_smell_hot_water_unit` | 2/3 | One run captured nothing |
-| `electrician_whole_street_blackout` | 2/3 | One run gave excellent service and never asked for a number |
-| `electrician_overhead_service_line_down` | 1/3 | Name and phone dropped on the emergency — see WATCH below |
-| `roofer_allianz_storm_claim_ridge_capping` | 2/3 | One run never took the name |
-| `roofer_hail_pockmarked_no_leak_negative_control` | 2/3 | One run answered `routine` where the rubric says `urgent` |
+| Scenario | Run 8 | What flapped | Run 9 |
+|---|---|---|---|
+| `plumber_gas_smell_hot_water_unit` | 2/3 | One run captured nothing | 3/3 |
+| `electrician_whole_street_blackout` | 2/3 | One run gave excellent service and never asked for a number | 3/3 |
+| `electrician_overhead_service_line_down` | 1/3 | Name and phone dropped on the emergency | 3/3, and 9/9 on its own |
+| `roofer_allianz_storm_claim_ridge_capping` | 2/3 | One run never took the name | 3/3 |
+| `roofer_hail_pockmarked_no_leak_negative_control` | 2/3 | One run answered `routine` where the rubric says `urgent` | 3/3 |
+
+Four of the five were emergency- or urgency-intake failures, which is what the
+passivity fix addressed, so the direction is right. Only the third row has
+enough runs behind it to be called fixed.
 
 Telling the tail of ordinary sampling from a behaviour that is usually wrong
 needs a higher `--repeat`, not more staring at n=3. The one that has earned it is
