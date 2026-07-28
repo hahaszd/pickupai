@@ -134,7 +134,7 @@ async function judgeSpeech(
     ...(scenario.mustNotSay ?? []).map((s, i) => `MUSTNOT_${i}: did the receptionist convey — ${s}`),
     ``,
     `Reply with ONLY a JSON object. Each key maps to an object:`,
-    `  { "verdict": true|false, "quote": "the receptionist's exact words that decide it, or \"\" if false" }`,
+    `  { "verdict": true|false, "quote": "the receptionist's exact words that decide it, or empty when false" }`,
     `A true verdict REQUIRES a quote you can point at. If you cannot quote a sentence where the receptionist actually did the thing, the answer is false.`,
     ``,
     `THEN CHECK YOUR OWN QUOTE before you answer true. If it contains "don't", "do not", "never", "can't", "cannot", "won't", "unable", "avoid", "stay clear", "rather than", or any other negation of the action, you have quoted a refusal or a warning and the verdict is FALSE. A sentence that names the switchboard while telling someone to stay away from it is the receptionist doing its job, not failing.`
