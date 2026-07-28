@@ -108,6 +108,12 @@ is not comparable to anything after it.
 marginal, 9 failed runs out of 90.** electrician 5/7 · handyman 5/7 · plumber 7/9
 · roofer 6/7. **Green**, since nothing failed every run.
 
+**Run 12 — 34 scenarios after the Tier 3 work: 23/34, 0 defects, 11 marginal,
+13 failed runs out of 102.** electrician 5/8 · handyman 4/8 · plumber 7/10 ·
+roofer 7/8. Green. The failed-run rate went from 10% to 12.7%, and five of the
+eleven marginals are the same missing field — see the `name` WATCH item below,
+whose most likely cause is a rule added in this same session.
+
 Read the jump in marginals carefully rather than as a regression. Run 10 had one
 marginal out of 21 at n=5; run 11 has seven out of 30 at n=3, and the two
 numbers are measuring different things. Four of the seven are the emergency
@@ -673,6 +679,37 @@ change is **which** field that is. Losing the name is the right one to lose. Do
 not chase the last run without deciding whether a gas evacuation that yields a
 number, an address and no name is actually a failure — the scenario currently
 says it is, at `captureTarget: "complete"`.
+
+### WATCH: `name` is now the field that gets dropped, across four scenarios
+Seen in the first 34-scenario gate, 2026-07-28. **Green — 23/34, no defect —
+but 13 failed runs out of 102, against 9 of 90 in the previous gate**, and the
+composition is the interesting part: **five of the eleven marginals are a
+missing `name`**, one failing run each.
+
+| Scenario | Rate | Missing |
+|---|---|---|
+| `plumber_gas_smell_hot_water_unit` | 2/3 | name |
+| `plumber_blocked_drain_price_first_late_night` | 2/3 | name |
+| `electrician_asked_to_certify_someone_elses_wiring` | 2/3 | name |
+| `handyman_multi_job_call_with_late_addition` | 2/3 | name |
+| `electrician_mains_shock_washing_machine` | 2/3 | caller_intent |
+
+**The most likely cause is this session's own rule**, "on an emergency, ask for
+the phone number FIRST, then address, then name." It was written to change
+*which* field is lost when a caller leaves mid-intake, and losing the name was
+the intended trade. What was not intended is that two of the four are not
+emergencies at all — a late-night price-first drain call and a request to
+certify someone else's wiring — so either the ordering has leaked out of the
+emergency section it lives in, or the extra questions added by the Tier 3 work
+have simply made every call longer and the last field is the one that falls off.
+
+**Not acted on, for the same reason as the item below.** Each is one failing run
+in three, which is exactly the evidence level just declined for the
+`referred_out` bleed, and applying a different standard here because the
+suspected cause is mine would be the wrong kind of consistency. Measure at
+`--repeat 9` on two of them — one emergency, one not — before touching anything.
+If it is the ordering rule leaking, the fix is to scope it explicitly rather
+than to reorder again.
 
 ### MEASURED at n=9, and deliberately not fixed: `referred_out` on a licensing referral
 The first 30-scenario gate had `handyman_dripping_tap_plus_mixer_swap` — 3/3 in
