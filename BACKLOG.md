@@ -60,7 +60,79 @@ Owner action, Railway logs. Look for `shutdown: draining` and
 shutdown path in `src/server.ts` is dead code — deploys still lose writes.
 See [ADR-0001](docs/adr/0001-whole-blob-persistence-and-deferred-migration.md).
 
+## P1
+
+### Make the eval report a pass RATE, not a single pass/fail
+**This is the next task.** Two consecutive full runs of the same 47 scenarios
+against unchanged product code gave 38/47 and 37/47, and the failing sets only
+partly overlapped. Five scenarios flipped between runs. A single run's number
+is therefore not a result, and treating it as one will send someone chasing a
+defect that was a coin toss.
+
+Conversations are non-deterministic by construction — the assistant runs at
+temperature 0.3 and the simulated caller at 0.8, deliberately, because pinning
+to 0 would evaluate a voice no caller ever hears.
+
+What to build:
+- Run each scenario N times (3 for P0, configurable) and report `k/N passed`.
+- Classify: **N/N red** is a defect. **N/N green** is a pass. **Anything
+  between** is marginal behaviour and gets listed separately — it is real
+  information, not noise to be rounded away.
+- Gate on the rate: a P0 must be 3/3. Failing 1-of-3 is not a release blocker
+  but is not a pass either.
+- Report the flake list explicitly. A scenario that flaps is telling you the
+  prompt is ambiguous at that point, which is worth knowing on its own.
+
+Only these six failed in **both** runs, so only these six are currently
+trustworthy findings:
+
+| Scenario | Failure |
+|---|---|
+| `electrician_whole_street_blackout` | Doesn't tell the caller it is a distributor outage; takes no number |
+| `electrician_overhead_service_line_down` | Captures no name, phone or address on a 000-referral call |
+| `plumber_water_bubbling_nature_strip_wrong_number` | Classifies a water-authority job as `new_job`; would send the owner an SMS |
+| `roofer_asbestos_cement_sheet_shed_roof` | Never raises asbestos on a pre-1990 cement-sheet roof |
+| `handyman_multi_job_call_with_late_addition` | Never asks "anything else on the list", and the line stays open |
+| `handyman_supplier_reece_door_closers_pickup` | Takes no callback number from a supplier |
+
+### Evaluate: should each eval run use a fresh, context-free agent?
+Proposed by the user 2026-07-28, to be assessed at the start of the next
+session — **do not implement before it is thought through.**
+
+The proposal, recorded faithfully:
+
+> Run each eval with a **fresh agent that has no prior context**, and use
+> **several different fresh agents**, on the grounds that a context-free agent
+> will produce more varied and more genuinely testing conversations. The main
+> agent defines the eval spec up front. Crucially, **the agent that drives the
+> test and the agent that judges it should be different agents.**
+
+Questions the assessment needs to answer, rather than assuming:
+- The caller and judge are already separate models (`gpt-4o-mini` and the judge
+  model) with no shared state — so what would agent-level separation add beyond
+  what model-level separation already gives?
+- Would fresh agents *generating* scenarios be a different and possibly more
+  valuable proposal than fresh agents *running* fixed ones? Generation is where
+  a context-free perspective plausibly earns its keep.
+- Does more variance help or hurt, given the harness already flaps between runs
+  on identical input? Deliberate variance and unwanted flakiness are easy to
+  confuse.
+- Cost: each agent is a separate context. What does this multiply?
+
 ## P2
+
+### Decide: should a life-safety call still capture a callback number?
+Surfaced by the eval, 2026-07-28. On `electrician_switchboard_crackling_hot_smell`
+the assistant tells the family to get out and ring 000 — correct — and lets
+them go without a number, following `session.ts:730`: *"Do not keep them on the
+line if they need to evacuate."*
+
+So a switchboard fire, one of the highest-value emergency jobs an electrician
+takes, can end with no way to ring the customer back. The prompt made that
+trade deliberately and the eval now tests it as designed
+(`captureTarget: "none"`), but it is worth deciding on purpose rather than by
+inheritance. A middle path exists: take the number in one breath *while*
+telling them to leave, rather than either holding them or letting them go.
 
 ### Decide: should a referred-out call still leave a phone number?
 Surfaced by the eval, 2026-07-28. In `electrician_whole_street_blackout` and
