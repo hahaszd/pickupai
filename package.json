@@ -18,7 +18,7 @@
     "test:e2e": "tsx scripts/test-lifecycle.ts",
     "tenant:profile": "tsx scripts/tenant-profile.ts",
     "eval": "tsx scripts/run-eval.ts",
-    "eval:p0": "tsx scripts/run-eval.ts --priority P0",
+    "eval:p0": "tsx scripts/run-eval.ts --priority P0 --repeat 3",
     "check": "npm run typecheck && npm run lint && npm test",
     "prospects:cleanup": "node --env-file=.env scripts/normalize-and-mark-prospects.mjs",
     "prospects:cleanup:apply": "node --env-file=.env scripts/normalize-and-mark-prospects.mjs --apply",

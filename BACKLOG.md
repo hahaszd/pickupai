@@ -20,7 +20,7 @@ rather than being deleted.
 
 A deferral with a documented trigger is P2, however alarming it reads.
 
-Last updated: **2026-07-27**
+Last updated: **2026-07-28**
 
 ---
 
@@ -62,42 +62,62 @@ See [ADR-0001](docs/adr/0001-whole-blob-persistence-and-deferred-migration.md).
 
 ## P1
 
-### Make the eval report a pass RATE, not a single pass/fail
-**This is the next task.** Two consecutive full runs of the same 47 scenarios
-against unchanged product code gave 38/47 and 37/47, and the failing sets only
-partly overlapped. Five scenarios flipped between runs. A single run's number
-is therefore not a result, and treating it as one will send someone chasing a
-defect that was a coin toss.
+### BUILT: the eval reports a pass RATE, not a single pass/fail
+Why it was needed: two consecutive full runs of the same 47 scenarios against
+unchanged product code gave 38/47 and 37/47, and the failing sets only partly
+overlapped. Five scenarios flipped between runs. A single run's number is not a
+result, and treating it as one sends someone chasing a defect that was a coin
+toss. Conversations are non-deterministic by construction — the assistant runs
+at 0.3 and the simulated caller at 0.8, deliberately, because pinning to 0
+would evaluate a voice no caller ever hears.
 
-Conversations are non-deterministic by construction — the assistant runs at
-temperature 0.3 and the simulated caller at 0.8, deliberately, because pinning
-to 0 would evaluate a voice no caller ever hears.
+Built 2026-07-28: `--repeat N` on `scripts/run-eval.ts`, verdicts aggregated in
+`src/testing/eval/aggregate.ts` (pure, unit-tested in
+`tests/eval-aggregate.test.ts`), `npm run eval:p0` now runs each P0 three
+times. **pass** = every run, **fail** = no run and the only red worth chasing,
+**marginal** = in between, reported in its own section and never rounded away.
+The gate exits non-zero only on a P0 that fails every run; a marginal P0 is
+printed loudly and does not block. See `docs/eval.md`.
 
-What to build:
-- Run each scenario N times (3 for P0, configurable) and report `k/N passed`.
-- Classify: **N/N red** is a defect. **N/N green** is a pass. **Anything
-  between** is marginal behaviour and gets listed separately — it is real
-  information, not noise to be rounded away.
-- Gate on the rate: a P0 must be 3/3. Failing 1-of-3 is not a release blocker
-  but is not a pass either.
-- Report the flake list explicitly. A scenario that flaps is telling you the
-  prompt is ambiguous at that point, which is worth knowing on its own.
+### The first trustworthy P0 baseline — 21 scenarios × 3, 2026-07-28
+`npm run eval:p0`, concurrency 4, after the judge stance fix. **14/21 passed
+all three runs, 2 failed all three, 5 are marginal.** By trade: electrician 4/5,
+handyman 2/4, plumber 4/7, roofer 4/5. This supersedes the earlier
+"six scenarios failed in both runs" list, which was measured against the broken
+judge and covered non-P0 scenarios too.
 
-Only these six failed in **both** runs, so only these six are currently
-trustworthy findings:
+**Defects — failed 3/3, these are real and block release:**
 
 | Scenario | Failure |
 |---|---|
-| `electrician_whole_street_blackout` | Doesn't tell the caller it is a distributor outage; takes no number |
-| `electrician_overhead_service_line_down` | Captures no name, phone or address on a 000-referral call |
-| `plumber_water_bubbling_nature_strip_wrong_number` | Classifies a water-authority job as `new_job`; would send the owner an SMS |
-| `roofer_asbestos_cement_sheet_shed_roof` | Never raises asbestos on a pre-1990 cement-sheet roof |
-| `handyman_multi_job_call_with_late_addition` | Never asks "anything else on the list", and the line stays open |
-| `handyman_supplier_reece_door_closers_pickup` | Takes no callback number from a supplier |
+| `plumber_sewage_surfacing_shower` | Never tells the caller to leave the overflow relief gully cap in place instead of pulling it off |
+| `electrician_whole_street_blackout` | 2/3 captured nothing at all (no phone); 1/3 also never said it looks like a distributor outage |
 
-### Evaluate: should each eval run use a fresh, context-free agent?
-Proposed by the user 2026-07-28, to be assessed at the start of the next
-session — **do not implement before it is thought through.**
+The blackout one is **entangled with an open product decision**, not a
+straightforward bug — see *"should a referred-out call still leave a phone
+number?"* below. The assistant reasons correctly and then ends without details,
+which is what `session.ts:103` forbids and what the prompt's evacuation
+guidance encourages. Decide that first; the eval is asserting one side of an
+argument the prompt has not settled.
+
+**Marginal — passed some runs, failed others. Not defects, not passes:**
+
+| Scenario | Rate | What flapped |
+|---|---|---|
+| `roofer_hail_pockmarked_no_leak_negative_control` | 1/3 | `urgency_level` came out `routine`, expected `urgent`, on 2 of 3 |
+| `handyman_multi_job_call_with_late_addition` | 1/3 | Line stayed open — neither `end_call` nor a hangup — on 2 of 3 |
+| `plumber_gas_smell_hot_water_unit` | 2/3 | One run captured no name, phone or address at all |
+| `plumber_blocked_drain_price_first_late_night` | 2/3 | One run captured no name |
+| `handyman_garage_power_points_plus_sliding_door` | 2/3 | One run never said power points need a licensed electrician |
+
+The bottom two are the ones to watch: a **licensing boundary** and a **gas
+leak** that work two times in three are not features that work. Both were
+recorded last session as verified by a single green run, which is exactly the
+error this rate exists to prevent.
+
+### DECIDED: should each eval run use a fresh, context-free agent? — no, but generate with one
+Proposed by the user 2026-07-28, assessed the same day. Kept here rather than
+moved to Done because two P2 items below come out of it.
 
 The proposal, recorded faithfully:
 
@@ -107,19 +127,114 @@ The proposal, recorded faithfully:
 > agent defines the eval spec up front. Crucially, **the agent that drives the
 > test and the agent that judges it should be different agents.**
 
-Questions the assessment needs to answer, rather than assuming:
-- The caller and judge are already separate models (`gpt-4o-mini` and the judge
-  model) with no shared state — so what would agent-level separation add beyond
-  what model-level separation already gives?
-- Would fresh agents *generating* scenarios be a different and possibly more
-  valuable proposal than fresh agents *running* fixed ones? Generation is where
-  a context-free perspective plausibly earns its keep.
-- Does more variance help or hurt, given the harness already flaps between runs
-  on identical input? Deliberate variance and unwanted flakiness are easy to
-  confuse.
-- Cost: each agent is a separate context. What does this multiply?
+**Assessed 2026-07-28**, against `runner.ts` and `grade.ts` rather than against
+a description of them. Verdict in three parts.
+
+**1. The separation the proposal asks for already exists, one level lower.**
+Three participants, three models, three contexts, no shared state:
+
+| | Model | Temp | What it can see |
+|---|---|---|---|
+| Assistant | `gpt-5.6-luna` | 0.3 | The real system prompt and the real tool schemas |
+| Caller | `gpt-4o-mini` | 0.8 | Its own persona + only the assistant's *spoken* words |
+| Judge | `gpt-4o` | 0 | Only the assistant's spoken lines + the assertions |
+
+The judge never sees `callerFacts`, `whyThisMatters`, or the caller's own turns
+(`grade.ts:111`). The caller never sees the system prompt or any tool call.
+Agent-level separation would give the same isolation these three already have,
+at roughly 20–50× the caller's cost. **Rejected: no isolation to gain.**
+
+**2. Fresh drivers on fixed scenarios actively fight the pass-rate task.**
+Determinism is engineered in deliberately where it costs no realism —
+`callerIdentity()` derives name, suburb and mobile from a hash of the scenario
+id (`runner.ts:150`) so a rerun gets the same person. The whole point of the
+pass-rate task above is to hold the scenario fixed and vary only the sampling,
+so that `k/N` means something. A different driver per run makes N runs into N
+different tests, and a flaky prompt becomes indistinguishable from a flaky
+driver. With 5 of 47 already flipping between runs on identical input, adding
+variance by construction raises the flake floor at exactly the wrong moment.
+Cost compounds too: the pass-rate work is already ×3. **Rejected.**
+
+**3. The idea is right about something else, and that part is worth doing.**
+All 47 scenarios were written by an agent that had just read `session.ts`. So
+the library largely tests *what the prompt says it does* — the eval and the
+thing under test were authored from the same context. That is a real blind spot
+and a context-free perspective is exactly the fix for it, but at **generation**
+time, once, not at run time, forever. See the P2 item below.
+
+**Where the "different agents" instinct should be spent instead: the judge, not
+the driver.** The judge is the demonstrated weak link — three known wrong
+verdicts, all in the same direction (scoring a refusal as an agreement), now
+patched with a growing keyword list. See the P2 item on its scoping bug.
 
 ## P2
+
+### FIXED: the judge scored prohibitions as agreements
+Found by reading `grade.ts` on 2026-07-28, then measured, and the measurement
+was worse than the reading. Kept here rather than deleted because the general
+lesson outlived the fix; full write-up in `docs/eval.md`.
+
+**Measured**: `electrician_switchboard_crackling_hot_smell`, a P0 the previous
+session listed as *verified working*, failed **3 of 6 runs** — and every failure
+was a false positive. The judge quoted *"Don't touch the switchboard or flick
+the main switch"* as its evidence that the receptionist had told the caller to
+operate the switchboard. Same scenario after the fix: **5 of 5 passed**.
+
+**Fix**: the judge no longer answers true/false. It names a stance —
+`DIRECTED` / `DISCOURAGED` / `ABSENT` — so `mustSay` passes on `DIRECTED` and
+`mustNotSay` fails on `DIRECTED`. A boolean forced "mentioned it while
+forbidding it" into one of two answers with the wrong one nearer; the judge had
+nowhere to put the truth. **When a judge keeps getting one class of case wrong,
+check whether its answer format has room for the right answer before adding
+another instruction telling it to try harder.**
+
+The latent defect that started this, now moot, is recorded because it is the
+kind that hides for months:
+
+The judge was told, unconditionally:
+
+> THEN CHECK YOUR OWN QUOTE before you answer true. If it contains "don't",
+> "do not", "never", "can't", "cannot", "won't", "unable", "avoid", "stay
+> clear", "rather than" … the verdict is FALSE.
+
+That rule existed to stop false *positives* on `mustNotSay`, and for `MUSTNOT_`
+it was aimed correctly. But it was stated globally, so it also applied to
+`MUST_`, where it inverts into a false-*negative* generator: a requirement whose
+correct fulfilment is naturally phrased as a prohibition gets forced to false.
+`electrician_switchboard_crackling_hot_smell` requires *"told the caller to get
+everyone away from the switchboard and call 000"*, and the most natural correct
+answer — *"Don't touch anything, get everyone out and call 000"* — contains
+"Don't". A P0 safety scenario, one coin toss on the assistant's phrasing away
+from a phantom failure, and it would have read like a product defect.
+
+The stance rewrite removes the keyword rule entirely, so both directions are
+gone. Worth noting that reading found the harmless half and only running the
+thing found the half that was actively firing.
+
+### The judge cannot see what the caller asked
+Found 2026-07-28. `grade.ts:111` filters the transcript to `role === "assistant"`
+before judging, so the judge grades the assistant's lines in isolation. That is
+right for "did it convey X" and wrong for anything about responsiveness — it
+cannot tell that an answer addressed the question actually asked, or that the
+assistant answered a question the caller never put. Any future assertion of the
+form "answered what was asked" needs the full transcript, and would want the
+caller's turns marked so the judge does not grade them.
+
+### Generate scenarios with a context-free agent, once
+Out of the assessment above. The 47 existing scenarios were written by an agent
+that had just read `session.ts`, so they largely test what the prompt says it
+does. Run this instead of, not as, the rejected per-run version:
+
+Give a fresh agent **no access to `session.ts` or to the scenario library** —
+only "you are an Australian $trade with twenty years on the tools; list the
+phone calls that go wrong, and what a good receptionist should do on each".
+Several such agents, one per trade. Then diff what comes back against the
+library. **The gap is the finding**, and it is a finding about the prompt's
+blind spots, not about any single run. The main agent translates the survivors
+into the harness schema without weakening the assertions.
+
+One-off cost, a handful of agent runs. Do it *after* the pass-rate work, so
+new scenarios land in a harness whose numbers can be trusted.
 
 ### Decide: should a life-safety call still capture a callback number?
 Surfaced by the eval, 2026-07-28. On `electrician_switchboard_crackling_hot_smell`

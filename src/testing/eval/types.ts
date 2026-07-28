@@ -104,3 +104,39 @@ export type EvalSummary = {
   p0Failed: number;
   results: EvalResult[];
 };
+
+/**
+ * What a scenario is, across N runs of it.
+ *
+ * A single run's pass/fail is not a result. Two consecutive full runs against
+ * unchanged product code gave 38/47 and 37/47 with only partly-overlapping
+ * failures — the conversation is non-deterministic by construction (the
+ * assistant runs at 0.3, the caller at 0.8, deliberately, because pinning to 0
+ * would evaluate a voice no caller ever hears). So a scenario is graded on a
+ * rate, and the middle of that rate is information rather than noise.
+ */
+export type ScenarioVerdict =
+  /** Passed every run. */
+  | "pass"
+  /** Failed every run — a defect, and the only kind of red worth chasing. */
+  | "fail"
+  /**
+   * Passed some runs and failed others. Not a defect and not a pass: the
+   * prompt is ambiguous at this point, which is worth knowing on its own.
+   */
+  | "marginal";
+
+export type ScenarioReport = {
+  scenarioId: string;
+  trade: string;
+  priority: ScenarioPriority;
+  runs: number;
+  passes: number;
+  verdict: ScenarioVerdict;
+  /**
+   * Each distinct failure and how many runs it appeared in. A failure that
+   * shows up in 1 of 3 runs is a different animal from one that shows up in 3.
+   */
+  failureCounts: Array<{ failure: string; runs: number }>;
+  results: EvalResult[];
+};
