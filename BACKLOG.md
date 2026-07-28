@@ -274,19 +274,41 @@ The behaviour it pins: details captured, lead on the dashboard, no 2am SMS for a
 grid fault nobody can attend. That matches the existing treatment of every other
 non-job intent.
 
-### WATCH: `electrician_overhead_service_line_down` is unstable across batches
-Measured 1/3, 1/3, **3/3**, then 1/3, then **3/3** after the contradiction above
-was removed — 9/15 overall. The batches were separated by prompt edits, and one
-of those edits is now known to explain the last swing: while the prompt named a
-downed line as the distributor's asset, the model filed the call as nobody's job
-and stopped collecting. That accounts for the most recent 1/3, **not** for the
-two before it, which were measured before that example existed. Do not record it
-as fixed on the strength of one good batch; it wants `--repeat 9`.
+### FIXED at n=9: `electrician_overhead_service_line_down` 5/9 → 9/9, and the mechanism was passivity
+Ran at `--repeat 9` on 2026-07-28, which is what the earlier WATCH note asked
+for. **5/9 passed.** Not a defect that fires reliably, not sampling noise — a
+coin toss, and the largest single-scenario weakness left in the P0 set.
 
-When it fails, the scenario demands a full capture and the assistant treats the
-call as something to hand off, so it drops a field — the address first, then the
-name after the address fix. It flaps on *which* field, which suggests an intake
-that never completes rather than a specific missing rule.
+n=9 also sharpens the failure signature that n=3 could not resolve. It does not
+flap randomly across fields: **the name is missing 4 times, the phone 2, the
+address 1.** Reading the failing transcripts explains why, and it is not the
+hypothesis this item carried before.
+
+**The intent classification is now correct** — `new_job` in every run, so the
+contradiction fix below holds — and the safety advice is correct every time.
+What fails is that **the intake never starts**. The assistant is reactive on
+this call: each turn it repeats "stay well clear, ring 000, contact the
+distributor" and asks a safety question back ("are you safely away now?"), and a
+caller who is frightened and full of questions always supplies another one. There
+is never a turn in which the assistant initiates.
+
+Two transcripts make it unarguable. In one, the caller *volunteered* the suburb
+and then *offered* their mobile — "Should I give you my mobile too?" — and the
+assistant took the number and still never asked the name. In another, the caller
+drove the whole call to "what's the distributor's number", got Ausgrid 13 13 88,
+thanked Olivia and hung up, with nothing captured at all.
+
+So the rule added on 2026-07-28 — *"ask for the address in the same breath as
+the number"* — was aimed at the right problem and lands one step too late. It
+governs an intake that has begun. Nothing tells the assistant to **begin** one
+while it is still giving safety instructions, and `session.ts:750` states the
+permission ("those callers can give you a name, number and address in three
+quick questions") as a fact rather than as something to do.
+
+This is the same open question recorded further down as *"Decide: should a
+life-safety call still capture a callback number?"*, and this measurement is the
+argument for the middle path: not holding the caller, but putting the first
+intake question in the same breath as the safety instruction.
 
 **The scenario is right to demand the address**, checked rather than assumed:
 everything from the point of attachment to the switchboard is the property
