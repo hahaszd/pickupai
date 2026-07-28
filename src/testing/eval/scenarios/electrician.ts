@@ -297,8 +297,7 @@ export const ELECTRICIAN_SCENARIOS: EvalScenario[] = [
       shouldSaveLead: true,
       shouldEndCall: true,
       shouldSendOwnerSms: true,
-      captureTarget: "complete",
-      urgencyLevel: "routine"
+      captureTarget: "complete"
     },
     mustNotSay: ["told the caller to remove or disconnect the smoke alarm"],
     whyThisMatters:
@@ -330,8 +329,7 @@ export const ELECTRICIAN_SCENARIOS: EvalScenario[] = [
       shouldSaveLead: true,
       shouldEndCall: true,
       shouldSendOwnerSms: true,
-      captureTarget: "complete",
-      urgencyLevel: "urgent"
+      captureTarget: "complete"
     },
     mustSay: ["told the caller to turn the main switch off and leave it off"],
     mustDiscourage: ["the caller resetting breakers or switching the power back on to test it"],
@@ -404,8 +402,7 @@ export const ELECTRICIAN_SCENARIOS: EvalScenario[] = [
       shouldSaveLead: true,
       shouldEndCall: true,
       shouldSendOwnerSms: true,
-      captureTarget: "complete",
-      urgencyLevel: "routine"
+      captureTarget: "complete"
     },
     mustSay: [
       "asked which parts of the house are affected and whether anything else has stopped working",

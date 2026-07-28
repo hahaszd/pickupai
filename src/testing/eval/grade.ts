@@ -84,12 +84,9 @@ export async function gradeScenario(
     failures.push(`capture quality failed entirely, wanted at least ${wanted}`);
   }
 
-  // ── Urgency and notification policy ───────────────────────────────────────
-  if (scenario.expected.urgencyLevel && c.urgency_level !== scenario.expected.urgencyLevel) {
-    // Over-tagging is what turns the EMERGENCY label into noise the tenant
-    // learns to ignore, so a wrong urgency is a real failure, not a nit.
-    failures.push(`urgency_level was ${c.urgency_level ?? "unset"}, expected ${scenario.expected.urgencyLevel}`);
-  }
+  // ── Notification policy ───────────────────────────────────────────────────
+  // The urgency assertion that used to sit here went with the product feature
+  // on 2026-07-28. The eval graded a label the owner no longer receives.
   const intent = (c.caller_intent as string | undefined) ?? scenario.intent;
   const smsWouldSend = run.savedLead && expectedSmsForIntent(intent as never);
   if (smsWouldSend !== scenario.expected.shouldSendOwnerSms) {

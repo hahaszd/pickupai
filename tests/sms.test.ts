@@ -28,13 +28,15 @@ function makeLead(overrides: Partial<LeadRow> = {}): LeadRow {
 }
 
 describe("formatOwnerSms", () => {
-  it("formats a new_job lead with urgency in header (no dashboardUrl)", () => {
+  it("formats a new_job lead (no dashboardUrl)", () => {
     const result = formatOwnerSms({
       lead: makeLead(),
       callId: "call-123",
       callerIntent: "new_job"
     });
-    expect(result).toContain("NEW JOB (EMERGENCY):");
+    // The header carries no urgency grade any more, whatever the lead says.
+    expect(result).toContain("NEW JOB:");
+    expect(result).not.toContain("EMERGENCY");
     // Name and number share a line now, unlabelled: that pair is the callback
     // and the whole reason the message exists.
     expect(result).toContain("Sarah Jones  0412 345 678");
@@ -489,24 +491,26 @@ describe("formatOwnerSms degraded-capture note", () => {
     expect(result).toMatch(/^VOICEMAIL:/);
   });
 
-  it("shows NEW JOB with [PARTIAL] tag when urgency is missing", () => {
+  // A missing urgency stopped meaning anything on 2026-07-28: the field is no
+  // longer collected, so it cannot make a capture partial. What still makes one
+  // partial is a missing name or address.
+  it("no longer counts a missing urgency as a partial capture", () => {
     const result = formatOwnerSms({
       lead: makeLead({ urgency_level: null }),
       callId: "call-no-urg",
       callerIntent: "new_job"
     });
-    expect(result).toMatch(/^NEW JOB \[PARTIAL\]:/);
-    expect(result).not.toContain("(UNKNOWN)");
+    expect(result).toMatch(/^NEW JOB:/);
+    expect(result).not.toContain("[PARTIAL]");
   });
 
-  it("shows plain NEW JOB header when all core fields present but no urgency label", () => {
+  it("still flags a partial capture when the name is missing", () => {
     const result = formatOwnerSms({
-      lead: makeLead({ urgency_level: "routine" }),
-      callId: "call-routine",
+      lead: makeLead({ name: null, urgency_level: null }),
+      callId: "call-no-name",
       callerIntent: "new_job"
     });
-    expect(result).toMatch(/^NEW JOB \(ROUTINE\):/);
-    expect(result).not.toContain("[PARTIAL]");
+    expect(result).toMatch(/^NEW JOB \[PARTIAL\]:/);
   });
 
   it("formats SMS for completely empty lead", () => {
@@ -625,13 +629,15 @@ describe("buildCallerConfirmationSms — enhanced features", () => {
     expect(result).not.toContain("Hi !");
   });
 
-  it("says 'as a priority' for emergency urgency", () => {
+  // The caller SMS used to promise "as a priority" on an emergency-tagged lead.
+  // Removed with the urgency machinery on 2026-07-28, and it was a promise
+  // nothing downstream could keep. This pins the removal.
+  it("never promises priority handling, whatever the job", () => {
     const result = buildCallerConfirmationSms({
       businessName: "Dan's Plumbing",
-      urgencyLevel: "emergency"
+      issueSummary: "Gas smell near the hot water unit, caller evacuating"
     });
-    expect(result).toContain("as a priority");
-    expect(result).not.toContain("shortly");
+    expect(result).not.toContain("as a priority");
   });
 
   // The "text photos of the issue to this number" line was deliberately

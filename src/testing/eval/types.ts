@@ -6,7 +6,6 @@ export type CaptureField =
   | "phone"
   | "address"
   | "issue_summary"
-  | "urgency_level"
   | "caller_intent";
 
 /**
@@ -55,8 +54,6 @@ export type EvalScenario = {
     shouldEndCall: boolean;
     shouldSendOwnerSms: boolean;
     captureTarget: CaptureTarget;
-    /** When set, the saved urgency must be exactly this. */
-    urgencyLevel?: "emergency" | "urgent" | "routine";
   };
 
   /**

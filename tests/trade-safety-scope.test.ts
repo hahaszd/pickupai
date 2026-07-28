@@ -86,45 +86,32 @@ describe("handyman licensing scope", () => {
   });
 });
 
-describe("urgency classification", () => {
-  // The keyword list flags calls worth attention; it must not decide urgency.
-  // "no power" is an electrician's most common call and "no hot water" a
-  // plumber's most common after-hours one, and both used to be tagged
-  // EMERGENCY unconditionally — which fires the priority header and a chase-up
-  // SMS two minutes later, and teaches the owner to ignore the label.
-  it("no longer sets emergency on a bare keyword match", () => {
-    for (const trade of ["plumber", "electrician", "roofer"]) {
+describe("urgency classification — removed 2026-07-28", () => {
+  // urgency_level and its rubric were deleted by decision: the owner reads the
+  // message and judges urgency himself faster than a label could tell him, and
+  // the label made every lead without it score as a degraded capture. These
+  // tests now pin the REMOVAL, because the failure mode is someone
+  // reintroducing a grade because the prompt "feels like it needs one".
+  it("does not ask the assistant to grade urgency at all", () => {
+    for (const trade of ["plumber", "electrician", "roofer", "handyman"]) {
       const prompt = buildSystemPrompt(makeTenant(trade), [], null);
-      expect(prompt, trade).not.toContain('- Set urgency_level to "emergency" in save_lead.\n- Continue');
+      expect(prompt, trade).not.toContain("urgency_level");
+      expect(prompt, trade).not.toContain("## Setting urgency_level");
     }
   });
 
-  it("gives the assistant three levels and a test to choose between them", () => {
+  // The safety half is a different thing entirely and must survive: a caller
+  // who can be hurt during the call needs the instruction now, not from an
+  // owner reading an SMS twenty minutes later.
+  it("keeps the life-safety instructions that are not a classification", () => {
     const prompt = buildSystemPrompt(makeTenant("plumber"), [], null);
-    expect(prompt).toContain("## Setting urgency_level");
-    expect(prompt).toMatch(/nothing is getting worse while you talk/i);
-  });
-
-  it("names the modal calls that were being mis-tagged", () => {
-    // These three are the eval's negative controls. If the rubric stops
-    // naming them the controls start failing for the wrong reason.
-    const prompt = buildSystemPrompt(makeTenant("electrician"), [], null);
-    expect(prompt, "no power").toMatch(/the power is off with no smell or heat or damage/);
-    expect(prompt, "no hot water").toMatch(/no hot water/);
-    expect(prompt, "chirping smoke alarm").toMatch(/smoke alarm chirping with no smoke is routine/);
-  });
-
-  it("tells the assistant that over-tagging is not the safe choice", () => {
-    // Without this the model defaults to the alarming option, which is exactly
-    // how the label became noise.
-    expect(buildSystemPrompt(makeTenant("plumber"), [], null))
-      .toMatch(/Over-tagging is not the safe option/);
-  });
-
-  it("still classifies genuine danger to life as an emergency", () => {
-    const prompt = buildSystemPrompt(makeTenant("plumber"), [], null);
-    expect(prompt).toContain('treat as emergency, set urgency_level="emergency"');
     expect(prompt).toContain("# Life-Threatening Emergencies");
+    expect(prompt).toMatch(/leave the building right away and call 000/i);
+  });
+
+  it("asks the assistant to describe the situation instead of grading it", () => {
+    const prompt = buildSystemPrompt(makeTenant("electrician"), [], null);
+    expect(prompt).toMatch(/issue_summary/);
   });
 });
 

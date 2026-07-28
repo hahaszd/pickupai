@@ -1,6 +1,5 @@
 import type { LeadDraft } from "../twilio/state.js";
 
-const VALID_URGENCY = new Set(["emergency", "urgent", "routine"]);
 const VALID_PROPERTY_TYPES = new Set(["residential", "commercial", "strata", "rental"]);
 const VALID_SENTIMENTS = new Set(["positive", "neutral", "frustrated", "distressed", "rushed"]);
 const VALID_JOB_SIZES = new Set(["small", "medium", "large"]);
@@ -74,11 +73,6 @@ export function sanitizeSaveLeadArgs(args: Record<string, unknown>): SaveLeadPat
       if (value.length > maxLen) value = value.slice(0, maxLen);
       patch[key] = value;
     }
-  }
-
-  const urgency = asNonEmptyString(args.urgency_level);
-  if (urgency && VALID_URGENCY.has(urgency)) {
-    patch.urgency_level = urgency as LeadDraft["urgency_level"];
   }
 
   const intent = asNonEmptyString(args.caller_intent);

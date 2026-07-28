@@ -854,26 +854,16 @@ async function main() {
         });
     }
 
-    // For emergency calls: send a second urgent follow-up SMS 2 minutes later
-    // to ensure the owner doesn't miss it
-    if (lead.urgency_level === "emergency") {
-      const ownerSmsNumber = ownerPhone ?? notifyTenant?.owner_phone;
-      if (ownerSmsNumber) {
-        const emergencyTimer = setTimeout(async () => {
-          try {
-            await sendOwnerSms(
-              db,
-              `EMERGENCY FOLLOW-UP\n${lead.name ?? "A caller"} reported an emergency${lead.address ? ` at ${lead.address}` : ""}.\nHave you called them back?\n${lead.phone ? `Their number: ${formatAuPhone(lead.phone)}\n` : ""}View job: ${env.PUBLIC_BASE_URL}/dashboard/leads/${lead.lead_id}`,
-              ownerSmsNumber
-            );
-            trackEvent("emergency_followup_sms_sent", { call_id: callId, tenant_id: lead.tenant_id });
-          } catch (err) {
-            log.warn({ err, callId }, "emergency follow-up SMS failed");
-          }
-        }, 2 * 60 * 1000); // 2 minutes
-        if (typeof emergencyTimer.unref === "function") emergencyTimer.unref();
-      }
-    }
+    // The emergency follow-up SMS used to live here: a second message two
+    // minutes after any lead tagged urgency_level="emergency", asking whether
+    // the owner had rung back. Removed 2026-07-28 with the rest of the urgency
+    // machinery — every call now sends one message and the owner judges it.
+    //
+    // It was also three bugs in twelve lines, all recorded in BACKLOG.md before
+    // the decision: no per-tenant cap, so twenty hail calls meant forty
+    // messages; `lead` captured in the closure and never re-read, so marking the
+    // job handled did not suppress it; and an unref'd in-process timer, so a
+    // deploy inside the window cancelled it silently anyway.
   }
 
   function trackEvent(
@@ -4624,7 +4614,6 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
                     callerName: s.lead.name,
                     issueType: s.lead.issue_type,
                     issueSummary: s.lead.issue_summary,
-                    urgencyLevel: s.lead.urgency_level,
                     businessHoursStart: tenant.business_hours_start,
                     businessHoursEnd: tenant.business_hours_end,
                     timezone: tenant.timezone,

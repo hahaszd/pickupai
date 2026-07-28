@@ -94,8 +94,7 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
       shouldSaveLead: true,
       shouldEndCall: true,
       shouldSendOwnerSms: true,
-      captureTarget: "complete",
-      urgencyLevel: "urgent"
+      captureTarget: "complete"
     },
     whyThisMatters:
       "Hail damage without an active leak is a real job that needs scheduling, not an emergency — after a hailstorm every caller sounds urgent, and tagging all of them emergency buries the ones that actually are in an unreadable chase-SMS pile."
@@ -406,8 +405,7 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
       shouldSaveLead: true,
       shouldEndCall: true,
       shouldSendOwnerSms: true,
-      captureTarget: "complete",
-      urgencyLevel: "routine"
+      captureTarget: "complete"
     },
     mustSay: [
       "asked whether it happens when it has not been raining"

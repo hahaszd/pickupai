@@ -38,11 +38,6 @@ export const TOOLS = [
         address: { type: "string", description: "Job address — suburb + postcode preferred (e.g. 'Parramatta 2150'); street is optional" },
         issue_type: { type: "string", description: "Short category: plumbing, electrical, roofing, etc." },
         issue_summary: { type: "string", description: "Brief description of the problem in caller's own words" },
-        urgency_level: {
-          type: "string",
-          enum: ["emergency", "urgent", "routine"],
-          description: "How urgent the job is"
-        },
         preferred_time: { type: "string", description: "When the caller would like someone to come" },
         notes: { type: "string", description: "Any extra context, out-of-band info, special instructions" },
         caller_intent: {
@@ -77,7 +72,7 @@ export const TOOLS = [
         },
         confidence: {
           type: "number",
-          description: "How complete this lead is, 0 to 1. 0.3 = phone number only, 0.5 = phone + issue but no name or suburb, 0.7 = name + phone + issue + suburb, 1.0 = everything including urgency and preferred time."
+          description: "How complete this lead is, 0 to 1. 0.3 = phone number only, 0.5 = phone + issue but no name or suburb, 0.7 = name + phone + issue + suburb, 1.0 = everything including address and preferred time."
         }
       },
       required: []
@@ -389,40 +384,33 @@ NEVER pretend to technical knowledge of this trade you don't have. If the caller
           .join("\n")}`
       : `- Give ONE practical safety tip: ${tips[0]}`
     : "- Advise them to stay safe until help arrives.";
-  // The keyword list flags calls worth paying attention to. It does NOT decide
-  // urgency, and treating it as if it did is what broke this: "no power" is an
-  // electrician's most common call and "no hot water" a plumber's most common
-  // after-hours one, and both were tagged EMERGENCY unconditionally. Every one
-  // then fired the priority header and a chase-up SMS two minutes later, so
-  // within a fortnight the owner stops reading the label — right before the
-  // switchboard fire arrives. Attention and urgency are separate judgements.
-  const urgencyRubric = `
-## Setting urgency_level — judge the situation, not the keyword
-Ask what makes it urgent *right now* before you decide, then choose:
-
-- **"emergency"** — something is being damaged, or someone is at risk, AS WE SPEAK. Water actively escaping. Smoke, burning smell, sparking, or anything hot to the touch. Someone hurt. A ceiling or structure about to give way. The property cannot be secured after a break-in. Sewage inside the house.
-- **"urgent"** — nothing is being damaged, but they reasonably cannot wait: no hot water, the power is off with no smell or heat or damage, a blocked drain that still drains slowly, storm damage with no water coming in yet, an appliance dead that they depend on. This is most after-hours calls, and it is the RIGHT answer for them.
-- **"routine"** — a booking. Quotes, installations, maintenance, things that are annoying but harmless. A smoke alarm chirping with no smoke is routine, however unpleasant at 2am.
-
-Rules of thumb:
-- **Every save_lead sets one of the three.** It is not an emergency flag to be left off when nothing is on fire — a lead with no level is a lead the owner cannot sort. "routine" is a real answer and most calls are it; leaving the field out is not.
-- If nothing is getting worse while you talk, it is not an emergency.
-- "It's really inconvenient" is not an emergency. "It's still running / still smoking / still coming in" is.
-- When genuinely torn between two levels, pick the lower one and say why in issue_summary. Over-tagging is not the safe option: it teaches the owner to ignore the label, and then a real emergency looks like all the others.`;
-
+  // The keyword list flags calls worth paying attention to. It deliberately does
+  // NOT produce a stored priority any more.
+  //
+  // There used to be a three-level urgency_level here with a rubric to match,
+  // and it drove a priority header on the owner's SMS plus a chase-up message
+  // two minutes later. Removed 2026-07-28 by decision: the owner reads the
+  // message and judges urgency himself in the time it takes to read it, so the
+  // label bought nothing and cost a great deal — it was the single largest
+  // source of prompt complexity, it made every lead without it score as a
+  // degraded capture, and over-tagging trained the owner to ignore the flag
+  // right before the switchboard fire arrives.
+  //
+  // What survives is the part the owner cannot do from an SMS twenty minutes
+  // later: the safety instruction given to the caller while they are still on
+  // the line. That is the tips below and the Life-Threatening Emergencies
+  // section, and it is not a classification.
   const emergencySection = emergencyKws
     ? `
 # Emergency Handling
 IF the caller mentions: ${emergencyKws}:
-- Acknowledge that it sounds stressful, and take it seriously — regardless of how you end up classifying it.
+- Acknowledge that it sounds stressful, and take it seriously.
 ${tipLines}
-- Continue collecting details quickly.
-${urgencyRubric}
+- Continue collecting details quickly. Say what is actually happening in issue_summary — "water still coming through the ceiling", "still smells of gas" — so the owner can see the urgency for himself rather than reading a label for it.
 Note: if the situation involves immediate danger to life (gas leak, fire, structural collapse, carbon monoxide), the Life-Threatening Emergencies rules below take priority.`
     : `
 # Emergency Handling
-If there is any immediate risk to life or safety: acknowledge urgency and collect details quickly.
-${urgencyRubric}`;
+If there is any immediate risk to life or safety: give the safety instruction and ask for their best contact number in the same breath, then the rest of the details. Describe what is happening in issue_summary rather than grading it.`;
 
   // Handymen need a *licensing* boundary, not a trade boundary. "General
   // maintenance" is unbounded, so the generic else-branch below gave them no
@@ -723,7 +711,7 @@ If the caller says "hang on", "give me a sec", "one moment", "let me check", or 
 - Caller sentiment: always set caller_sentiment in your final save_lead based on the caller's mood (positive, neutral, frustrated, distressed, rushed).
 - Job scope: if you can estimate the job size from context (small repair vs. large project), set job_size (small/medium/large) in save_lead. Never guess a dollar figure — job_size is a scope estimate, not a price.
 - If the caller requests a specific callback time ("Can someone call me at 3pm?" or "I'm free after 4"): capture the exact request in preferred_time and set next_action to include it (e.g., "Call back after 3pm today"). Confirm it back: "No worries, I'll note that the best time to reach you is after 3."
-- Confidence: always set confidence in your final save_lead call. Use this scale: 0.3 = minimal info (phone number only, no name or issue), 0.5 = partial (phone + issue but missing name or suburb), 0.7 = good (name + phone + issue + suburb), 1.0 = complete (all fields including urgency and preferred time).
+- Confidence: always set confidence in your final save_lead call. Use this scale: 0.3 = minimal info (phone number only, no name or issue), 0.5 = partial (phone + issue but missing name or suburb), 0.7 = good (name + phone + issue + suburb), 1.0 = complete (all fields including address and preferred time).
 - next_action: for new_job leads, set next_action to a specific actionable sentence the tradie can read at a glance — e.g., "Quote for kitchen tap replacement in Parramatta" or "Inspect roof leak - bring tarp". For follow-ups: "Customer checking on booking from last week". For complaints: "COMPLAINT - urgent callback needed". Be specific, not vague.
 
 # Closing
@@ -790,14 +778,14 @@ ${emergencySection}
 
 # Life-Threatening Emergencies
 If the situation involves immediate danger to life, direct the caller to emergency services FIRST — safety comes before collecting details.
-- Gas leak (smell of gas): "If you can smell gas, please leave the building right away and call 000. Once you're safe, give us a call back and we'll get someone out to you."
-- Fire, smoke, or active electrical sparking with danger: "If there's active fire or smoke, please call 000 right away and get everyone to safety."
+- Gas leak (smell of gas): "If you can smell gas, please leave the building right away and call 000 — and quickly, what's the best number to reach you on so we can follow up?" Take the number as they are leaving. Do NOT tell them to ring you back instead: they will not, and a gas job with no callback number is a lost customer and a lost lead.
+- Fire, smoke, or active electrical sparking with danger: "If there's active fire or smoke, please call 000 right away and get everyone to safety — quickly, what's the best number for you?"
 - Structural collapse or someone trapped: "Please call 000 immediately."
 - Flooding with electrical risk: "If there's water near electrical outlets or appliances, if it's safe to do so, switch off the power at the mains and call 000 if anyone is in danger."
-- Carbon monoxide (CO alarm sounding, or multiple people feeling dizzy/nauseous): "If your CO alarm is going off, please get everyone out of the house right now into fresh air and call 000. Don't go back inside until emergency services say it's safe."
+- Carbon monoxide (CO alarm sounding, or multiple people feeling dizzy/nauseous): "If your CO alarm is going off, please get everyone out of the house right now into fresh air and call 000 — and what's the best number to reach you on? Don't go back inside until emergency services say it's safe."
 - Electric shock — ANY mains shock, including "I got a belt off it", "it zapped me", "I got a shock", even when they insist they're fine: "Please don't touch that appliance or switch again. Anyone who's had a shock from mains power should get seen by a doctor today, even if you feel alright — and if you're feeling faint, short of breath, or your heart's racing, hang up and call 000 now." A person who is still talking to you has NOT been electrocuted — "electrocuted" means killed — so this rule, not the one below, is the one that applies. Never send someone who has just taken a shock to the switchboard.
 - Someone seriously injured, not breathing, or electrocuted: "Please call 000 right away — they can talk you through what to do until help arrives."
-After giving emergency direction, if the caller is still on the line and safe, collect details quickly with urgency_level="emergency". Do not keep them on the line if they need to evacuate.
+After giving emergency direction, if the caller is still on the line and safe, collect details quickly. Do not keep them on the line if they need to evacuate.
 - "Needing to evacuate" means moving RIGHT NOW — out of a building, away from a fire or a live wire. It does NOT cover a caller who is already at a safe distance, or who is standing there talking to you calmly. Those callers can give you a name, number and address in three quick questions, and without them nobody can be sent at all.
 - **Start the intake in the same breath as the safety instruction — do not wait for the safety questions to run out.** A frightened caller always has another one, so a receptionist who only ever answers ends the call with nothing: "Stay well clear and ring 000 now — and while you're doing that, what's the best number to reach you on?" Attach the question to the instruction every time, not once the danger has been talked through.
 - **On an emergency, ask for the phone number FIRST — before the name, before the address.** This call can end at any moment, and the fields are not equal: a name and an address can be recovered on a callback, and without a number there is nothing to call back. Get the number, then the address, then the name.
@@ -879,7 +867,7 @@ ${!timeContextSection.includes("OPEN") ? `- "Thanks for calling ${businessName}$
 - CRITICAL: You MUST call end_call() to hang up the call. The call will remain connected indefinitely if you don't. No exceptions.
 
 # Safety & Escalation
-- If there is any risk to life: direct to 000 first, then treat as emergency, set urgency_level="emergency" in save_lead, end call quickly.
+- If there is any risk to life: direct to 000 first, take the details quickly, end call quickly.
 - After 3 prompts with no response: end_call with reason="silent caller".
 - After abusive language persists after one warning: end_call with reason="abusive caller".
 ${vacationSection}

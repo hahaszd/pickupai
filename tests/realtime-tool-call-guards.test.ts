@@ -50,10 +50,12 @@ describe("sanitizeSaveLeadArgs", () => {
       unknown_key: "ignore"
     });
 
+    // urgency_level is deliberately absent: the field was removed from the tool
+    // schema on 2026-07-28, so the guard drops it like any other unknown key
+    // even if an older model still emits one.
     expect(patch).toEqual({
       name: "Chris",
       issue_summary: "Burst pipe",
-      urgency_level: "emergency",
       caller_intent: "new_job",
       next_action: "Call ASAP"
     });

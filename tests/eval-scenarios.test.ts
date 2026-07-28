@@ -88,12 +88,9 @@ describe("eval scenario library", () => {
     expect(handymanLicensing.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("includes negative controls against emergency over-tagging", () => {
-    // Alarm fatigue is the failure mode: if everything is an emergency, the
-    // tenant stops reading the label before the real one arrives.
-    const nonEmergency = ALL_EVAL_SCENARIOS.filter(
-      (s) => s.expected.urgencyLevel && s.expected.urgencyLevel !== "emergency"
-    );
-    expect(nonEmergency.length).toBeGreaterThanOrEqual(2);
-  });
+  // There used to be a check here that the library contained negative controls
+  // against emergency over-tagging. It went with urgency_level itself on
+  // 2026-07-28: there is no label left to over-apply. The calls those controls
+  // covered are still in the library and still assert a full capture, which is
+  // now the whole of what they test.
 });

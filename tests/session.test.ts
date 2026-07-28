@@ -337,11 +337,6 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("not breathing");
   });
 
-  it("uses correct urgency_level field name in safety section", () => {
-    const prompt = buildSystemPrompt(makeTenant(), [], null);
-    expect(prompt).toContain('urgency_level="emergency"');
-    expect(prompt).not.toMatch(/set urgency=emergency/);
-  });
 
   it("Tools section mentions final save_lead before end_call", () => {
     const prompt = buildSystemPrompt(makeTenant(), [], null);

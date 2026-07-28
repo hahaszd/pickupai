@@ -59,7 +59,10 @@ export type CaptureQuality = {
   reason: string;
 };
 
-const CORE_FIELDS = ["name", "phone", "issue_summary", "urgency_level", "caller_intent"] as const;
+// urgency_level was a core field until 2026-07-28. Dropping it is most of
+// why "pass_degraded" was so common: a capture could be perfect and still be
+// downgraded for a missing grade the owner never needed.
+const CORE_FIELDS = ["name", "phone", "issue_summary", "caller_intent"] as const;
 
 function isNonEmpty(value: unknown): boolean {
   return typeof value === "string" && value.trim().length > 0;

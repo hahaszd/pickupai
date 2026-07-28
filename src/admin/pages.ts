@@ -534,7 +534,7 @@ export function adminFunnelPage(rows: DailyFunnelStats[], days: number, flash?: 
 <div class="card">
   <div class="section-title">Daily Breakdown</div>
   <div class="form-hint" style="margin-bottom:.75rem">
-    Complete capture = lead with name + phone + issue summary + urgency. Demo conversion = recording-ready / demo-started.
+    Complete capture = lead with name + phone + issue summary + caller intent. Demo conversion = recording-ready / demo-started.
   </div>
   <div class="table-wrap">
     <table>

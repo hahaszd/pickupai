@@ -213,11 +213,15 @@ function capitalize(s: string) {
   return s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, " ");
 }
 
+// Leads stopped carrying an urgency from 2026-07-28. Historical rows still have
+// one and it is still worth showing; a new lead shows nothing rather than being
+// labelled "Routine", which it was never graded as.
 function urgencyBadge(level: string | null) {
+  if (!level) return "";
   const cls = level === "emergency" ? "badge-emergency"
     : level === "urgent" ? "badge-urgent"
     : "badge-routine";
-  return `<span class="badge ${cls}">${escape(capitalize(level ?? "routine"))}</span>`;
+  return `<span class="badge ${cls}">${escape(capitalize(level))}</span>`;
 }
 
 function statusBadge(status: string | null) {
@@ -860,12 +864,6 @@ export function leadsPage(
   filters: { urgency?: string; status?: string; search?: string },
   stats?: { total: number; this_week: number; emergency: number; urgent: number; routine: number; new_status: number; handled: number; booked: number; called_back: number }
 ) {
-  const urgencyOpts = [
-    { v: "", label: "All urgencies" },
-    { v: "emergency", label: "Emergency" },
-    { v: "urgent", label: "Urgent" },
-    { v: "routine", label: "Routine" }
-  ];
   const statusOpts = [
     { v: "", label: "All statuses" },
     { v: "new", label: "New" },
@@ -883,11 +881,6 @@ export function leadsPage(
     return str ? `?${str}` : "";
   };
 
-  const urgencyFilters = urgencyOpts.map(o => {
-    const active = (filters.urgency ?? "") === o.v ? " active" : "";
-    return `<a href="/dashboard/leads${qs(o.v, filters.status, filters.search)}" class="filter-chip${active}">${o.label}</a>`;
-  }).join("");
-
   const statusFilters = statusOpts.map(o => {
     const active = (filters.status ?? "") === o.v ? " active" : "";
     return `<a href="/dashboard/leads${qs(filters.urgency, o.v, filters.search)}" class="filter-chip${active}">${o.label}</a>`;
@@ -902,14 +895,6 @@ export function leadsPage(
   <div class="card" style="padding:.85rem;text-align:center;">
     <div style="font-size:1.6rem;font-weight:700;color:var(--brand)">${stats.this_week}</div>
     <div style="font-size:.8rem;color:var(--gray-600);text-transform:uppercase;letter-spacing:.4px">This week</div>
-  </div>
-  <div class="card" style="padding:.85rem;text-align:center;border-left:3px solid var(--red)">
-    <div style="font-size:1.6rem;font-weight:700;color:var(--red)">${stats.emergency}</div>
-    <div style="font-size:.8rem;color:var(--gray-600);text-transform:uppercase;letter-spacing:.4px">Emergency</div>
-  </div>
-  <div class="card" style="padding:.85rem;text-align:center;border-left:3px solid var(--orange)">
-    <div style="font-size:1.6rem;font-weight:700;color:var(--orange)">${stats.urgent}</div>
-    <div style="font-size:.8rem;color:var(--gray-600);text-transform:uppercase;letter-spacing:.4px">Urgent</div>
   </div>
   <div class="card" style="padding:.85rem;text-align:center;border-left:3px solid var(--green)">
     <div style="font-size:1.6rem;font-weight:700;color:var(--green)">${stats.booked + stats.handled + stats.called_back}</div>
@@ -994,7 +979,6 @@ ${statsBar}
   </form>
   <div class="filters" style="margin-bottom:.5rem;">
     <span style="font-size:.8rem;color:var(--gray-600);line-height:2;">Urgency:</span>
-    ${urgencyFilters}
   </div>
   <div class="filters">
     <span style="font-size:.8rem;color:var(--gray-600);line-height:2;">Status:</span>

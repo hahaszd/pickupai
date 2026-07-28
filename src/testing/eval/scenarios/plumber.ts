@@ -83,8 +83,7 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
       shouldSaveLead: true,
       shouldEndCall: true,
       shouldSendOwnerSms: true,
-      captureTarget: "complete",
-      urgencyLevel: "urgent"
+      captureTarget: "complete"
     },
     whyThisMatters:
       "No hot water is unpleasant, not dangerous — tagging every no-hot-water call as an emergency trains the tradie to ignore the EMERGENCY label entirely, which is the alarm-fatigue failure this negative control exists to catch."

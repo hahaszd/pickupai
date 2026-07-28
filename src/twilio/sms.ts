@@ -87,7 +87,6 @@ export function formatOwnerSms(opts: {
 }) {
   const l = opts.lead;
   const intent = opts.callerIntent ?? "unknown";
-  const urgency = compact(l.urgency_level) || "unknown";
 
   const sentimentTags: Record<string, string> = {
     frustrated: "FRUSTRATED",
@@ -102,16 +101,19 @@ export function formatOwnerSms(opts: {
 
   const hasName = !!compact(l.name);
   const hasAddress = !!compact(l.address);
-  const hasUrgency = !!compact(l.urgency_level);
   const hasPhone = !!compact(l.phone);
   const hasSummary = !!compact(l.issue_summary);
-  const isDegraded = intent === "new_job" && hasPhone && hasSummary && (!hasName || !hasAddress || !hasUrgency);
+  const isDegraded = intent === "new_job" && hasPhone && hasSummary && (!hasName || !hasAddress);
 
   const partialTag = isDegraded ? " [PARTIAL]" : "";
 
+  // Every job reads "NEW JOB". The urgency tag that used to sit here was
+  // removed with the rest of the grading machinery on 2026-07-28: the owner
+  // reads the summary and judges it faster than the label could tell him, and
+  // an over-applied label is worse than none.
   const header =
     intent === "new_job"
-      ? (compact(l.urgency_level) ? `NEW JOB (${urgency.toUpperCase()})${sentimentTag}${partialTag}` : `NEW JOB${sentimentTag}${partialTag}`)
+      ? `NEW JOB${sentimentTag}${partialTag}`
       : ((INTENT_HEADERS[intent] ?? `CALL [${intent}]`) + sentimentTag);
 
   const propertyLabel = compact(l.property_type);
@@ -172,15 +174,15 @@ export function formatOwnerSms(opts: {
 
 /**
  * Build the confirmation SMS sent to the *caller* after a successful call.
- * Includes caller name, business name, job reference, urgency-aware callback
- * expectation, and optional photo suggestion for visual-issue trades.
+ * Includes caller name, business name, job reference, a callback expectation
+ * based on business hours, and optional photo suggestion for visual-issue
+ * trades.
  */
 export function buildCallerConfirmationSms(opts: {
   businessName: string;
   callerName?: string | null;
   issueType?: string | null;
   issueSummary?: string | null;
-  urgencyLevel?: string | null;
   businessHoursStart?: string;
   businessHoursEnd?: string;
   timezone?: string;
@@ -190,10 +192,12 @@ export function buildCallerConfirmationSms(opts: {
   const biz = opts.businessName;
 
   let timing: string;
+  // "as a priority" used to be promised here when the lead was tagged
+  // emergency. It went with the rest of the urgency machinery on 2026-07-28,
+  // and it was a promise the AI could not keep in any case — nothing downstream
+  // of this message made the callback actually happen sooner.
   if (opts.vacationMode) {
     timing = "when they're back";
-  } else if (opts.urgencyLevel === "emergency") {
-    timing = "as a priority";
   } else {
     const isOpen = isWithinHours({
       startHHMM: opts.businessHoursStart || "08:00",

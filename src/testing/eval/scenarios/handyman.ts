@@ -398,8 +398,7 @@ export const HANDYMAN_SCENARIOS: EvalScenario[] = [
       shouldSaveLead: true,
       shouldEndCall: true,
       shouldSendOwnerSms: true,
-      captureTarget: "degraded",
-      urgencyLevel: "emergency"
+      captureTarget: "degraded"
     },
     mustSay: [
       "told the caller to leave the building right away",

@@ -28,6 +28,128 @@ Last updated: **2026-07-28**
 
 *Nothing open.*
 
+## Decided: the receptionist records, it does not grade
+
+**Decision taken 2026-07-28 by the owner, after an audit of what the eval was
+actually asserting.** It changes the product, not just the tests, so it is
+recorded here before anything below it.
+
+**The principle.** Every call sends the tenant one message, the same shape every
+time, and the tenant judges urgency himself when he reads it. The receptionist's
+job is to capture the caller's **name, contact and what they actually want**,
+faithfully, and pass it on. It is not to classify.
+
+**What triggered it.** An audit of the 34 P0 scenarios against the failures they
+were producing:
+
+- **19 of the 22 failure lines in the last full gate were capture failures** —
+  name ×6, phone ×4, capture quality ×9. Three were anything else.
+- Only **6 of 34** scenarios asserted an exact urgency, and only **1** asserted
+  the owner SMS should be suppressed.
+
+So the eval's *assertions* were already close to the principle. The **effort**
+was not: most of the day's prompt work went into `urgency_level`, the
+`referred_out` intent and SMS suppression, while every red was a missing name or
+phone. That is the finding, and it is about where attention went rather than
+about the harness.
+
+**What was deleted** (all of it, product and eval together — a label nobody reads
+is not worth testing *or* computing):
+
+| | |
+|---|---|
+| `urgency_level` in the `save_lead` tool schema | gone |
+| The `## Setting urgency_level` rubric, ~15 lines of prompt | gone |
+| `NEW JOB (EMERGENCY)` in the owner SMS header | now always `NEW JOB` |
+| `[EMERGENCY]`/`[URGENT]` in the email subject and body | gone |
+| "as a priority" in the caller's confirmation SMS | gone — nothing downstream made it true |
+| The emergency follow-up SMS two minutes later | gone, **and with it three recorded bugs**: no per-tenant cap, a stale closure that ignored the job being handled, and an unref'd timer a deploy cancelled silently |
+| `urgency_level` in `CORE_FIELDS` | gone — **this is why so many perfect captures scored `pass_degraded`** |
+| 6 scenario assertions + the `expected.urgencyLevel` mechanism | gone |
+| Dashboard urgency filter chips, Emergency/Urgent stat tiles | gone; the badge now renders nothing rather than defaulting to "Routine" |
+
+**What deliberately survives, and why the distinction matters.** Two things were
+argued for and kept, because neither is a grade:
+
+1. **Safety instructions given during the call.** A caller who smells gas has to
+   be told to leave the building *now* — the tenant reading an SMS twenty minutes
+   later cannot do that. This is about the caller, not about lead quality, and it
+   is the highest-liability thing the product does.
+2. **Refusals that commit the business.** "Yes, we can wire that up" said on a
+   recorded call is a commitment; passing it on does not undo it. The licensing,
+   certification and quoting boundaries stay.
+
+`tests/trade-safety-scope.test.ts` now pins the *removal*, because the plausible
+failure mode from here is someone reintroducing a grade because the prompt feels
+like it needs one.
+
+The `urgency_level` **database column stays**. Historical leads carry real values,
+the dashboard still shows them, and dropping a column from the whole-blob schema
+is risk with no benefit.
+
+**The line this draws, for the next decision of the same kind: asking is
+valuable, classifying is not.** An intake question produces information the
+tenant cannot get from a voicemail — whether there is water on the ground under
+the unit, whether the neighbours have power. That is the product, and it is what
+`docs/channel-evidence.md` says the trade specificity is for. A label produces a
+judgement the tenant redoes in the two seconds it takes him to read the message.
+Keep and extend the questions; do not add labels.
+
+**Measured after the removal — gate run 13, 34 scenarios at `--repeat 3`:
+27/34, 9 failed runs of 102**, against 23/34 and 13/102 immediately before.
+electrician 8/8 · handyman 6/8 · plumber 8/10 · roofer 5/8. Most of the gain is
+mechanical rather than behavioural: dropping `urgency_level` from `CORE_FIELDS`
+stopped downgrading captures that were already complete.
+
+### FIXED: a quoted script beats a rule three lines below it
+The same gate turned up one **defect**, and it is worth recording as a defect of
+prompt *structure* rather than of content.
+`handyman_gas_smell_while_asking_about_a_shelf` went from 4/5 to **0/3**, all
+three on the phone number. The transcript is not a safety failure — the advice is
+correct and immediate:
+
+> **assistant:** …please leave the building immediately and call 000. Once
+> you're safely outside, give us a call back.
+> **caller:** …I'll ring you back once I'm safe outside. Thanks for the help!
+> *[caller hangs up. Nothing captured.]*
+
+That sentence is the prompt's own gas template, verbatim — *"Once you're safe,
+give us a call back and we'll get someone out to you"* — and the template does
+not ask for a number. The two rules that would have fixed it, *start the intake
+in the same breath* and *ask for the phone number first*, sit **ten lines below
+it** in the same section and never got a turn.
+
+**This is the second time today the same structural thing has bitten**: a
+concrete, quoted example beats an abstract rule stated nearby, and the model
+follows whichever is closer to the words it is about to say. Earlier it was a
+downed-line example contradicting the intent list two sections away.
+
+Fixed by putting the number request **inside the scripts** — gas, fire and CO now
+ask for the number as part of the safety sentence, and the gas line explicitly
+forbids "ring us back instead", which is the thing callers never do. **A rule
+that contradicts a nearby template does not win; edit the template.**
+
+Measured at `--repeat 5` across the four hardest emergency scenarios:
+
+| Scenario | Before | After |
+|---|---|---|
+| `handyman_gas_smell_while_asking_about_a_shelf` | 0/3 | **4/5** |
+| `plumber_gas_smell_hot_water_unit` | 4/5 | 4/5 — the one miss is now the *name*, not the phone |
+| `electrician_switchboard_crackling_hot_smell` | 5/5 | 5/5 |
+| `electrician_mains_shock_washing_machine` | — | 5/5 |
+
+The residual is the same one recorded above and it is the intended trade: a
+caller who leaves mid-sentence loses whichever field was next, and losing the
+name is the right one to lose.
+
+**Still open, and not decided by this.** `NO_SMS_INTENTS` still suppresses the
+owner SMS for `wrong_number`, `spam`, `telemarketer`, `silent`, `abusive` and —
+added earlier the same day — `referred_out`. Suppressing spam is obviously right
+and is not what this decision was about. **`referred_out` is the one to look at
+again**: it means a real person rang the right business, got useful help, and the
+owner never hears about it, which sits awkwardly against "every call sends one
+message".
+
 ## P1
 
 ### Ring Western Sealants

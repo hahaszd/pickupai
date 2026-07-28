@@ -53,9 +53,6 @@ export function formatLeadEmail(opts: {
 }): { subject: string; text: string } {
   const { lead, callerIntent, businessName, dashboardUrl } = opts;
   const intent = callerIntent ?? "unknown";
-  const urgency = lead.urgency_level ?? "routine";
-
-  const urgencyTag = urgency === "emergency" ? " [EMERGENCY]" : urgency === "urgent" ? " [URGENT]" : "";
   const intentLabel =
     intent === "new_job" ? "New Job" :
     intent === "follow_up" ? "Follow-up" :
@@ -67,7 +64,7 @@ export function formatLeadEmail(opts: {
     intent === "referred_out" ? "Referred On" :
     "Call";
 
-  const subject = `${intentLabel}${urgencyTag} — ${lead.name ?? "Unknown caller"} | ${businessName}`;
+  const subject = `${intentLabel} — ${lead.name ?? "Unknown caller"} | ${businessName}`;
 
   const lines = [
     `New ${intentLabel.toLowerCase()} via PickupAI for ${businessName}`,
@@ -76,7 +73,6 @@ export function formatLeadEmail(opts: {
     lead.phone         ? `Phone:          ${lead.phone}` : null,
     lead.address       ? `Address:        ${lead.address}` : null,
     lead.issue_summary ? `Details:        ${lead.issue_summary}` : null,
-    lead.urgency_level ? `Urgency:        ${lead.urgency_level.toUpperCase()}` : null,
     lead.preferred_time ? `Preferred time: ${lead.preferred_time}` : null,
     lead.next_action   ? `Next action:    ${lead.next_action}` : null,
     "",
