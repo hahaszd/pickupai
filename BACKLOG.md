@@ -88,32 +88,38 @@ only the last one is a measurement of the product:
 | 1 | 14 pass / 2 defect / 5 marginal | Mostly the judge. One "defect" was a backwards assertion, one was a compound assertion the judge could not answer. |
 | 2 | 11 / 1 / 9 | The three-stance judge's own blind spot — informational assertions had no valid answer. |
 | 3 | 13 pass / 0 defect / 8 marginal | The product. |
-| 4 | **16 pass / 0 defect / 5 marginal** | The product, after the emergency-intake fixes below. |
+| 4 | 16 pass / 0 defect / 5 marginal | The product, after the emergency-intake fixes below. |
+| 5 | 14 / 1 / 6 | A prompt self-contradiction shipped between runs 4 and 5, never gate-tested. |
+| 6 | 13 / 1 / 7 | Mostly the harness: five reds were the turn cap, not the product. |
+| 7 | 15 / 1 / 5 | The product, once the turn budget stopped charging for `save_lead`. |
+| 8 | **16 pass / 0 defect / 5 marginal** | The product, after the `urgency_level` fix. Best measured state. |
 
-**Current: 16/21 passed all three runs, no scenario failed all three, 5
-marginal.** electrician 4/5 · handyman 2/4 · plumber 5/7 · roofer 5/5.
-**The P0 gate is green.** This supersedes the earlier "six scenarios failed in
-both runs" list, which was measured against the broken judge.
+**Current: 16/21 passed all three runs, nothing failed all three, 5 marginal.**
+electrician 3/5 · handyman 4/4 · plumber 6/7 · roofer 3/5. **The P0 gate is
+green.**
 
-**Read the run-level rate, not just the headline.** Failed *runs* went 13/63 →
-14/63 → 10/63 → 5/63 across the four, while the headline went 14 → 11 → 13 → 16.
-The headline counts scenarios that were perfect, so it swings on how failures
-are distributed as much as on how many there are. Quote both.
+**Read the run-level rate, not just the headline.** Failed *runs* went
+13/63 → 14/63 → 10/63 → 5/63 → 12/63 → 10/63 → 9/63 → **6/63**, while the
+headline went 14 → 11 → 13 → 16 → 14 → 13 → 15 → 16. The headline counts
+scenarios that were perfect, so it swings on how failures are distributed as much
+as on how many there are. Quote both. Runs 5–8 are the clearest case yet: the
+headline fell from 16 to 13 and then climbed back to 16, and almost none of that
+movement was the product getting worse and better — a prompt contradiction and a
+measurement defect entered and left.
 
-**Marginal — passed some runs, failed others. Not defects, not passes:**
+**Marginal at run 8 — passed some runs, failed others. Not defects, not passes:**
 
 | Scenario | Rate | What flapped |
 |---|---|---|
 | `plumber_gas_smell_hot_water_unit` | 2/3 | One run captured nothing |
-| `plumber_sewage_surfacing_shower` | 2/3 | One run never mentioned the overflow relief gully |
-| `electrician_whole_street_blackout` | 2/3 | One run captured nothing |
-| `handyman_multi_job_call_with_late_addition` | 2/3 | One run left the line open |
-| `handyman_price_shopping_no_booking` | 2/3 | One run captured nothing |
+| `electrician_whole_street_blackout` | 2/3 | One run gave excellent service and never asked for a number |
+| `electrician_overhead_service_line_down` | 1/3 | Name and phone dropped on the emergency — see WATCH below |
+| `roofer_allianz_storm_claim_ridge_capping` | 2/3 | One run never took the name |
+| `roofer_hail_pockmarked_no_leak_negative_control` | 2/3 | One run answered `routine` where the rubric says `urgent` |
 
-Every one is now a **single** failing run out of three, which is a different
-situation from the 1/3 scenarios in run 3 — the remaining failures look like the
-tail of ordinary sampling rather than a behaviour that is usually wrong. Telling
-those apart needs a higher `--repeat`, not more staring at n=3.
+Telling the tail of ordinary sampling from a behaviour that is usually wrong
+needs a higher `--repeat`, not more staring at n=3. The one that has earned it is
+`electrician_overhead_service_line_down`.
 
 ### Urgent calls end without details — transcripts read 2026-07-28
 Six of the eight marginals were the same failure: **name, phone or address
@@ -148,11 +154,134 @@ did not regress.
 marginal in the baseline was noise at n=3. Recorded because a marginal that
 vanishes is as much a result as one that persists.
 
+### FIXED: `urgency_level` was used as an emergency flag, not as a classification
+Found 2026-07-28, once the turn-cap noise below stopped hiding it. It was the
+only defect left in the gate: `roofer_reroof_quote_followup_terrigal` failed
+3/3, and the transcripts are otherwise exemplary — name, phone, address, issue
+summary, a corrected job location, a clean `end_call()`. The single miss is that
+`urgency_level` is never set at all.
+
+**Across every failing transcript in that run, `urgency_level` appears 10 times
+and is `"emergency"` all 10.** Not once `"urgent"`, not once `"routine"`. The
+rubric in `session.ts` spends most of its words distinguishing those two, and
+the model appears to use neither: it treats the field as a flag to raise when
+something is on fire and omits it otherwise.
+
+*Sampling caveat, because the number invites over-reading:* `--verbose` prints
+only failing runs, so this is a failure-biased sample. Passing `complete`-target
+scenarios must contain non-emergency values. The safe claim is the narrow one —
+**in the runs that failed, the field was absent or `"emergency"`, never the two
+levels in between** — and that is enough, because `urgency_level` is one of the
+five `CORE_FIELDS` in `evaluateCaptureQuality()`, so omitting it downgrades an
+otherwise perfect capture to `pass_degraded` and reaches the owner as a lead
+with nothing to sort on.
+
+Fixed by adding one rule to the rubric: every `save_lead` sets one of the three,
+`"routine"` is a real answer rather than the value you leave off.
+
+**Confirmed in the data, not just the score.** Same failure-biased sample, run 8:
+`urgency_level` now appears as `routine` ×10, `urgent` ×1, `emergency` ×3, where
+run 7 was `emergency` ×10 and nothing else. `roofer_reroof_quote_followup_terrigal`
+3/3 defect → 3/3 pass. It cost one new marginal —
+`roofer_hail_pockmarked_no_leak_negative_control` answered `routine` on one run
+of three where the scenario wants `urgent` — which is the model now exercising a
+judgement it previously declined to make, and the rubric agrees with the
+scenario: *"storm damage with no water coming in yet"* is listed under `urgent`.
+
+### FIXED: the eval billed the assistant a turn for every silent save_lead
+Found 2026-07-28 by reading the transcripts behind five reds rather than the
+summary line above them, and it is the largest measurement error found so far.
+
+Every failure reading *"neither end_call nor a caller hangup — the line would
+stay open"* had stopped at **exactly 14 chat iterations**, which is
+`MAX_TURNS` in `runner.ts`. The assistant had not left the line open; it was
+never given the turn in which it would have closed the call.
+
+**The mechanism is worse than a cap being too low.** `turnCount` incremented
+once per `chat()` call, and a `save_lead` with no accompanying speech is its own
+`chat()` call (`runner.ts:286` — a tool-only turn `continue`s). The prompt's
+Conversation Flow tells the assistant to save *progressively*. So the budget was
+being spent on tool calls the caller never hears, and **the calls that followed
+the instruction most diligently ran out of turns first.** Long scenarios paid
+twice: `roofer_allianz_storm_claim_ridge_capping` reached the cap after 8 caller
+turns, having spent 7 iterations on saves.
+
+What it cost, measured: five reds across three trades in one gate run — and one
+of them, `handyman_multi_job_call_with_late_addition` at 3/3, was reported as the
+**only defect in the run**. Roofer read 2/5 in a report where nothing about
+roofing had changed.
+
+Fixed by counting only turns the caller can hear, with `MAX_ITERATIONS` (3×) as
+a separate runaway guard, and by giving the grader a distinct verdict —
+`hitTurnCap` now reads *"hit the harness turn cap (N turns) … inconclusive, not
+a line left open"*. Pinned in `tests/eval-grade.test.ts`, the first unit test the
+grader has had.
+
+**The general lesson, and it is the third instance today.** Every eval defect so
+far has been a *measurement* defect first: the judge with no room for a
+prohibition, the judge with no room for a fact, and now a turn budget spent on
+the model's own bookkeeping. All three read as confident product reds. The
+harness is younger and less exercised than the prompt it grades, so on any
+disagreement between them, **the harness is the more likely suspect** — read the
+transcript before believing the summary.
+
+### FIXED: the prompt said a downed power line was, and was not, someone else's job
+Found 2026-07-28 by the first full `eval:p0` run after the three prompt edits of
+that sitting — exactly the run the method note below says to do, and it earned
+its cost immediately. `electrician_whole_street_blackout` had gone 3/3 → **0/3**
+and `electrician_overhead_service_line_down` 3/3 → **1/3**, both regressed by the
+commit that fixed the plumber referral.
+
+**Two commits hours apart wrote opposite rules into two different sections.**
+`425de80` listed *"a downed overhead line is a 000 call and the distributor's
+asset"* among the examples in `# When the Job Belongs to Someone Else`.
+`e5e12dd` then wrote, in the intent list, *"a line pulled off the house … that
+is a real new_job, not this"*. Both shipped. The model resolved the conflict by
+following the nearer, more concrete example, tagged `referred_out`, and closed
+the call — in one transcript it said *"once it's made safe, a licensed
+electrician can repair the property-side damage"* and then filed the call as
+nobody's job in the same breath.
+
+The researched position (below) says the second rule is the correct one. Fixed
+by deleting the downed-line example and stating the carve-out where the wrong
+example used to be: someone else making a hazard safe first does not make the
+damage they leave behind someone else's job. `overhead_service_line_down` 1/3 →
+**3/3**, `switchboard_crackling_hot_smell` and `mains_shock_washing_machine`
+stayed 3/3.
+
+**The general lesson is not "check for contradictions".** Neither edit was wrong
+in isolation and each was verified against three scenarios. A prompt has no
+compiler and no import graph, so two sections can disagree indefinitely without
+anything failing to build — the only thing that finds it is running the whole
+library after every edit, and the only thing that makes it *readable* once found
+is the model's own transcript, where it stated the correct rule and then applied
+the wrong one.
+
+### DECIDED: a street-wide outage is `referred_out`, and the owner's phone stays quiet
+Decided 2026-07-28 while resolving the regression above.
+`electrician_whole_street_blackout` asserted `intent: "new_job"` and
+`shouldSendOwnerSms: true`, which was the only thing it *could* assert when it
+was written — `referred_out` did not exist, so demanding an SMS was the only way
+to demand that the lead be kept at all. Once the intent existed the scenario and
+the prompt were asserting opposite things, and the eval was reporting the
+prompt's correct behaviour as a release-blocking defect.
+
+The scenario now asserts `referred_out` and no owner SMS. **`mustCapture` is
+unchanged**, so it still demands the phone number and the issue summary: this
+asserts strictly more than before — the same capture, plus the right intent —
+which is what distinguishes it from loosening an assertion to make a test pass.
+The behaviour it pins: details captured, lead on the dashboard, no 2am SMS for a
+grid fault nobody can attend. That matches the existing treatment of every other
+non-job intent.
+
 ### WATCH: `electrician_overhead_service_line_down` is unstable across batches
-Measured 1/3, then 1/3, then **3/3** in the full gate run — 5/9 overall, with
-the good and bad batches separated by prompt edits that did not obviously
-explain the difference. Do not record it as fixed and do not record it as a
-defect; it needs `--repeat 9` or so before anything can be said about it.
+Measured 1/3, 1/3, **3/3**, then 1/3, then **3/3** after the contradiction above
+was removed — 9/15 overall. The batches were separated by prompt edits, and one
+of those edits is now known to explain the last swing: while the prompt named a
+downed line as the distributor's asset, the model filed the call as nobody's job
+and stopped collecting. That accounts for the most recent 1/3, **not** for the
+two before it, which were measured before that example existed. Do not record it
+as fixed on the strength of one good batch; it wants `--repeat 9`.
 
 When it fails, the scenario demands a full capture and the assistant treats the
 call as something to hand off, so it drops a field — the address first, then the
@@ -168,12 +297,16 @@ referral, and it needs an address. Sources: Essential Energy private-poles FAQ,
 Energy Safe Victoria private aerial lines, SA Power Networks service rules.
 **Do not "fix" this by loosening the assertion to `degraded`.**
 
-### `plumber_water_bubbling_nature_strip_referred_out` fails 3/3
-Confirmed at n=3: the assistant classifies a water-authority leak as `new_job`,
-so the owner would get an SMS about a job that does not exist. Pre-existing —
-it was on the previous session's failure list, before any of today's prompt
-work. P1 because it is wrong data reaching a paying customer's phone, not just
-an eval red.
+### FIXED: `plumber_water_bubbling_nature_strip_referred_out` — 0/3 → 3/3
+The assistant classified a water-authority leak as `new_job`, so the owner got
+an SMS about a job that does not exist. Pre-existing — it was on the previous
+session's failure list, before any of today's prompt work.
+
+Fixed in `e5e12dd` by adding a `referred_out` intent, because the taxonomy had
+no value the model could have picked: `wrong_number` means the caller wanted a
+different business, and this caller rang the right plumber. Measured 3/3 in a
+targeted run at `--repeat 3`. It is a P1 scenario, so it is **not** in the
+`eval:p0` gate and the fix has never been measured alongside the full library.
 
 ### Method note: a prompt edit is global, so measure it globally
 Three prompt edits were made in this sitting, each verified against three
