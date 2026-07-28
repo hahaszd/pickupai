@@ -71,6 +71,22 @@ export type EvalScenario = {
   mustSay?: string[];
   mustNotSay?: string[];
 
+  /**
+   * Things the assistant must actively tell the caller NOT to do.
+   *
+   * Distinct from both neighbours, and neither can express it. `mustNotSay`
+   * only forbids the assistant from *encouraging* it, so saying nothing passes
+   * — and saying nothing is the failure. `mustSay` is graded on DIRECTED or
+   * STATED, so a correct prohibition ("please don't go up the ladder") comes
+   * back DISCOURAGED and a perfect answer scores as a miss.
+   *
+   * That was the fourth time a judge verdict was wrong because the answer had
+   * nowhere to land — see docs/eval.md. The judge is unchanged; it was the
+   * schema that had no slot for a requirement whose correct fulfilment is a
+   * prohibition.
+   */
+  mustDiscourage?: string[];
+
   /** One sentence: the real-world failure this scenario exists to catch. */
   whyThisMatters: string;
 };

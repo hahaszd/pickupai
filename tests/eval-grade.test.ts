@@ -40,6 +40,41 @@ function conversation(over: Partial<EvalResult> = {}) {
   >;
 }
 
+describe("gradeScenario — assertion shapes", () => {
+  // The fourth judge-verdict defect of the same family, and the first found by
+  // a new scenario rather than by reading. A requirement whose correct
+  // fulfilment IS a prohibition had nowhere to land: mustSay passes on DIRECTED
+  // or STATED, so "please don't go up the ladder" came back DISCOURAGED and a
+  // perfect answer failed 3/3.
+  it("routes mustDiscourage items to the judge and mustSay/mustNotSay do not cover them", async () => {
+    const withDiscourage: EvalScenario = {
+      ...scenario,
+      mustDiscourage: ["the caller climbing onto the roof"]
+    };
+    // No API key in the unit environment, so the judge is skipped rather than
+    // called — what this pins is that the item reaches the judge at all.
+    const prev = process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    try {
+      const result = await gradeScenario(withDiscourage, conversation({ endedCall: true }));
+      expect(result.failures).toContain("judge skipped: OPENAI_API_KEY not set");
+    } finally {
+      if (prev !== undefined) process.env.OPENAI_API_KEY = prev;
+    }
+  });
+
+  it("does not call the judge when a scenario has no speech assertions", async () => {
+    const prev = process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    try {
+      const result = await gradeScenario(scenario, conversation({ endedCall: true }));
+      expect(result.failures).toEqual([]);
+    } finally {
+      if (prev !== undefined) process.env.OPENAI_API_KEY = prev;
+    }
+  });
+});
+
 describe("gradeScenario — how a call ended", () => {
   it("passes when the assistant called end_call", async () => {
     const result = await gradeScenario(scenario, conversation({ endedCall: true }));

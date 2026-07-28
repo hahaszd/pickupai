@@ -93,18 +93,40 @@ only the last one is a measurement of the product:
 | 6 | 13 / 1 / 7 | Mostly the harness: five reds were the turn cap, not the product. |
 | 7 | 15 / 1 / 5 | The product, once the turn budget stopped charging for `save_lead`. |
 | 8 | 16 / 0 / 5 | The product, after the `urgency_level` fix. |
-| 9 | **21 pass / 0 defect / 0 marginal** | The product, after the emergency-intake passivity fix. Every run of every scenario passed. |
+| 9 | 21 pass / 0 defect / 0 marginal | The product, after the emergency-intake passivity fix. Every run of every scenario passed. |
+| 10 | **20 / 0 / 1** at `--repeat 5` | The product, measured harder. 2 failed runs out of 105. |
 
-**Current: 21/21, 63/63 runs, nothing failed once.** electrician 5/5 ·
-handyman 4/4 · plumber 7/7 · roofer 5/5. **The P0 gate is green.**
+**Current: 20/21 at n=5, 2/105 runs failed.** The one marginal is
+`plumber_gas_smell_hot_water_unit` at 3/5, which is the emergency
+field-ordering item below. **The P0 gate is green.**
 
-**Do not read run 9 as "the P0 set is solved."** Four of run 8's five marginals
-were 2/3 — a one-in-three flap — and three runs each cannot distinguish a fix
-from a good sitting. The only scenario measured hard enough to make a claim
-about is `electrician_overhead_service_line_down`, at 5/9 then 9/9 across a
-prompt change. Everything else has n=3 behind it. A perfect gate is the moment
-to raise `--repeat`, not to stop looking: the whole day's lesson was that a
-confident number is usually the harness talking.
+The set grew to **30 scenarios** the same day — see the Tier 1/Tier 2
+translation below — so run 10 is the last number measured against the old 21 and
+is not comparable to anything after it.
+
+**Run 11 — the first gate over all 30, at `--repeat 3`: 23/30, 0 defects, 7
+marginal, 9 failed runs out of 90.** electrician 5/7 · handyman 5/7 · plumber 7/9
+· roofer 6/7. **Green**, since nothing failed every run.
+
+Read the jump in marginals carefully rather than as a regression. Run 10 had one
+marginal out of 21 at n=5; run 11 has seven out of 30 at n=3, and the two
+numbers are measuring different things. Four of the seven are the emergency
+field-ordering tail below, two are new scenarios landing on their first gate,
+and **one is a genuine new signal** — `handyman_dripping_tap_plus_mixer_swap`,
+3/3 in every previous run, classifying a licensing referral as `referred_out`.
+That one has its own item.
+
+**Run 10 — the same 21 scenarios at `--repeat 5`: 20/21, and 2 failed runs out
+of 105.** Run 9's perfect score was mostly real, and raising the repeat did what
+it was supposed to: exactly one scenario that n=3 called clean turned out not to
+be. `plumber_gas_smell_hot_water_unit` came back **3/5**, both failures on the
+phone number, which led straight to the emergency field-ordering item below —
+and which a fourth consecutive `--repeat 3` gate would not have found.
+
+**That is the argument for keeping the repeat at 5 on anything whose number gets
+quoted.** A perfect gate is the moment to raise `--repeat`, not to stop looking:
+the day's lesson was that a confident number is usually the harness talking, and
+the corollary is that a clean number at n=3 is mostly a statement about n.
 
 **Read the run-level rate, not just the headline.** Failed *runs* went
 13/63 → 14/63 → 10/63 → 5/63 → 12/63 → 10/63 → 9/63 → 6/63 → **0/63**, while the
@@ -565,7 +587,123 @@ from the agents **not knowing what the product does**, which is a property you
 buy once with four cheap runs, not something re-randomising a driver on every
 repeat would reproduce. The run-time version stays rejected.
 
-### NEXT: translate the Tier 1 and Tier 2 candidates into scenarios
+### DONE: Tier 1 and Tier 2 translated — 9 new P0 scenarios, and what they caught
+Built 2026-07-28 from the survey above. Nine scenarios, all P0, taking the gate
+from 21 to 30. Measured at `--repeat 3` on arrival.
+
+**Six passed 3/3 immediately**, because the same sitting added the four
+boundaries the research doc said were missing from `session.ts` — none of which
+existed in any form before:
+
+| Boundary | Where it went |
+|---|---|
+| Electrician: cannot certify work it did not do or supervise | `TRADE_CONFIGS.electrician.extraScope` |
+| Roofer: cannot certify a roof as fine before a settlement | `TRADE_CONFIGS.roofer.extraScope` |
+| Handyman: builder's licence value threshold, and never split a job to get under it | `handymanScopeSection` |
+| Handyman: air-conditioning needs an ARC refrigerant licence | `handymanScopeSection` |
+
+`extraScope` is a new `TradeConfig` field, appended to whichever scope section
+the tenant gets. Trade-specific knowledge stays in `TRADE_CONFIGS` per the
+method note above — verified by building the prompt for each trade and checking
+that none of the four rules reaches a trade it was not written for.
+
+**Three failed, and the three failures were three different kinds of thing.**
+That mix is the argument for the exercise: the scenarios found a measurement
+defect, a product gap and a design gap in one sitting.
+
+1. **A measurement defect — the fourth of the same family, and the first found
+   by a new scenario rather than by reading.** `roofer_caller_offers_to_climb_up_and_photograph`
+   failed 3/3 while the assistant was answering perfectly: *"please don't go up
+   there, mate — wet roofs and ladders are risky."* The judge returned
+   `DISCOURAGED`, and `mustSay` passes only on `DIRECTED` or `STATED`. **The
+   judge was right and the schema was wrong** — a requirement whose correct
+   fulfilment *is* a prohibition had nowhere to land. `mustNotSay` cannot express
+   it either: that only forbids the assistant from *encouraging* the thing, so
+   saying nothing passes, and saying nothing is the failure. Fixed by adding
+   `mustDiscourage`, graded on `DISCOURAGED` or `DIRECTED`. 0/3 → 3/3.
+2. **A product gap.** `plumber_agency_job_no_work_order_no_limit` failed 3/3 on
+   exactly one item: the assistant **never asks for a work order number**, three
+   times out of three, stance `ABSENT`. It did ask about the spend limit. Nothing
+   in `session.ts` mentioned work orders, and all four trades had named this as
+   where the money goes missing. Added a `# When the Caller Is Not the Customer`
+   section covering the work order, the spend limit and who provides access.
+   0/3 → 3/3.
+3. **A design gap, confirmed twice independently** — see the item below.
+
+### On an emergency, the phone number goes first
+Found 2026-07-28 by the `--repeat 5` gate and confirmed the same hour by a new
+scenario from a different trade.
+
+`plumber_gas_smell_hot_water_unit` had passed every `--repeat 3` gate. At
+**n=5 it is 3/5**, and both failures are the same field: **the phone number**.
+`handyman_gas_smell_while_asking_about_a_shelf`, written that afternoon and never
+run before, failed 2/3 on the same field. Two trades, two scenarios, one field —
+not sampling.
+
+The transcript shows behaviour that is otherwise correct throughout. The
+assistant gives the evacuation instruction, then asks for the **name**, then the
+**address**, and the caller is gone before it reaches the number:
+
+> **assistant:** …leave the building immediately and call 000 from outside…
+> Once you're safely away, can I grab your name?
+> **caller:** Yeah, it's Dave Cornish.
+> **assistant:** Thanks, Dave — please stay well clear and call 000 now. Once
+> you're safely outside, what's the property address?
+
+So the earlier fixes were both right and both incomplete. *Start the intake in
+the same breath* got the intake started; *ask for the address in the same breath
+as the number* fixed the ordering of two fields. **Neither said which field goes
+first**, and on the one call that can end mid-sentence the fields are not equal:
+a name and an address can be recovered on a callback, and without a number there
+is no callback. Rule added: on an emergency, number first, then address, then
+name.
+
+**Measured at n=5 after the change, and it is an improvement rather than a fix
+— say so rather than rounding it up:**
+
+| Scenario | Before | After | The remaining failure |
+|---|---|---|---|
+| `plumber_gas_smell_hot_water_unit` | 3/5 | **4/5** | `name` — no longer the phone |
+| `handyman_gas_smell_while_asking_about_a_shelf` | 1/3 | **4/5** | `phone`, once |
+| `electrician_switchboard_crackling_hot_smell` | 5/5 | 5/5 | no regression |
+
+The residual is the general shape of an emergency intake: a caller who leaves
+mid-sentence loses whichever field was next, and the only thing a rule can
+change is **which** field that is. Losing the name is the right one to lose. Do
+not chase the last run without deciding whether a gas evacuation that yields a
+number, an address and no name is actually a failure — the scenario currently
+says it is, at `captureTarget: "complete"`.
+
+### WATCH: `referred_out` is bleeding into handyman licensing referrals
+Found in the first 30-scenario gate, 2026-07-28.
+`handyman_dripping_tap_plus_mixer_swap` — 3/3 in every earlier run — came back
+**2/3**, and the failing run classified the call `referred_out`, which
+suppressed the owner SMS.
+
+It is wrong, and the reason it is wrong is worth stating precisely: the call
+contains a dripping tap, which a handyman **can** do, alongside a mixer swap,
+which is licensed plumbing. Work for this business does follow, so the intent is
+`new_job` with a licensing note — not a referral. The `# When the Job Belongs to
+Someone Else` section says exactly that, and `LICENSED WORK - ` exists for this
+case, but "some of this needs a licensed trade" apparently reads as "this belongs
+to someone else" often enough to matter.
+
+**This is the third time a rule written for one situation has reached a
+neighbouring one** — a general "partly someone else's" paragraph taught a plumber
+to file a referral as a job, a downed-line example contradicted the intent list,
+and now a referral intent is capturing licensing boundaries. n=1 failing run is
+not enough to act on. Re-measure at `--repeat 9` before touching the prompt, and
+if it is real, the fix is likely a line in the handyman scope saying that
+licensed work alongside work we CAN do is still `new_job`.
+
+### Deferred: the remaining Tier 3 and Tier 4 candidates
+From the survey. Tier 3 is the "caller is wrong about what is broken" family —
+all four trades named it and the rule they all stated is the same, **book the
+symptom, never the caller's diagnosis**, which the library has no scenario for
+in either direction. Tier 4 is storm-week triage against weather rather than
+queue order, the door-knocker second opinion, commercial downtime as its own
+urgency tier, no-water-at-all, solar warranty voiding, possums, and backflow
+testing. Detail and ranking in the research doc.
 Out of the diff above; the ranking and the detail are in the research doc. Tier 1
 is five daily-frequency calls the library does not cover at all, Tier 2 is the
 four licence-protection refusals. **Do not weaken an assertion to fit what the

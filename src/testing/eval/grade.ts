@@ -99,7 +99,7 @@ export async function gradeScenario(
   }
 
   // ── What the assistant actually said ──────────────────────────────────────
-  if (scenario.mustSay?.length || scenario.mustNotSay?.length) {
+  if (scenario.mustSay?.length || scenario.mustNotSay?.length || scenario.mustDiscourage?.length) {
     failures.push(...(await judgeSpeech(scenario, run.transcript)));
   }
 
@@ -178,6 +178,7 @@ async function judgeSpeech(
     ``,
     ...(scenario.mustSay ?? []).map((s, i) => `ITEM_MUST_${i}: ${s}`),
     ...(scenario.mustNotSay ?? []).map((s, i) => `ITEM_MUSTNOT_${i}: ${s}`),
+    ...(scenario.mustDiscourage ?? []).map((s, i) => `ITEM_DISCOURAGE_${i}: ${s}`),
     ``,
     `Reply with ONLY a JSON object, one key per item above:`,
     `  { "ITEM_MUST_0": { "stance": "DIRECTED", "quote": "the exact words that decide it" }, … }`,
@@ -266,6 +267,20 @@ async function judgeSpeech(
       failures.push(
         `SAID SOMETHING IT MUST NOT: ${s}` +
         (r.quote ? `\n          judge quoted: "${r.quote}"` : `\n          judge gave NO quote — treat this verdict as unreliable`)
+      );
+    }
+  });
+  // DIRECTED counts alongside DISCOURAGED: "get down off that ladder" directs an
+  // action whose content is the prohibition, and it is a stronger answer than
+  // "please don't go up", not a wrong one. Only ABSENT and STATED fail — the
+  // assistant either never raised it, or mentioned the risk without telling the
+  // caller to stop, which is the failure this assertion exists to catch.
+  (scenario.mustDiscourage ?? []).forEach((s, i) => {
+    const r = read(`ITEM_DISCOURAGE_${i}`);
+    if (r.stance !== "DISCOURAGED" && r.stance !== "DIRECTED") {
+      failures.push(
+        `did not tell the caller not to: ${s}` +
+        `\n          judge stance: ${r.stance}${r.quote ? ` — "${r.quote}"` : ""}`
       );
     }
   });

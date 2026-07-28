@@ -341,5 +341,78 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
     },
     whyThisMatters:
       "Insurance make-safe jobs have a claim number and a two-stage scope, make-safe now and a separate quote later, that a normal job capture does not ask for — losing that structure means the invoice does not match what the insurer agreed to pay for."
+  },
+
+  // ── From the context-free tradie survey, 2026-07-28 ────────────────────────
+  // See docs/research/trade-call-failure-modes-2026-07.md. Both are daily-
+  // frequency commercial calls, the half of the phone the library barely tests.
+  {
+    id: "plumber_agency_job_no_work_order_no_limit",
+    trade: "plumber",
+    priority: "P0",
+    intent: "new_job",
+    label: "Property manager books a job with no work order number and no spend limit",
+    callerOpening: "Hi, it's Chloe from Harcourts — I've got a tenant at 14 Wattle Street in Preston reporting the toilet's blocked. Can you get someone out?",
+    callerFacts: [
+      "You are a property manager at Harcourts, your direct line is 0412 887 004",
+      "The property is 14 Wattle Street, Preston",
+      "The tenant is Marcus Vella, mobile 0455 210 998",
+      "You have not raised a work order for it yet",
+      "Your agency's approval limit without the landlord signing off is $400",
+      "The tenant will be home after 3pm and can let the plumber in"
+    ],
+    callerBehaviour: [
+      "You are brisk and want it booked in one call",
+      "You volunteer the work order number and the spend limit only when actually asked"
+    ],
+    mustCapture: ["name", "phone", "issue_summary", "address"],
+    expected: {
+      shouldSaveLead: true,
+      shouldEndCall: true,
+      shouldSendOwnerSms: true,
+      captureTarget: "complete"
+    },
+    mustSay: [
+      "asked for a work order or job number for the job",
+      "asked what the agency's approved spend limit is before work goes ahead",
+      "captured how the plumber will get access to the property"
+    ],
+    whyThisMatters:
+      "All four trades independently named agency work as where the money goes missing, in nearly the same words. An invoice with no work order number does not enter the agency's system at all, and work above an unstated approval limit is refused after it has been done — so the two questions nobody asks are the two that decide whether the job gets paid."
+  },
+  {
+    id: "plumber_price_shopper_drain_clear",
+    trade: "plumber",
+    priority: "P0",
+    intent: "quote_only",
+    label: "Ringing around for a drain-clearing price and nothing else — three or four of these a day",
+    callerOpening: "Yeah, just after a price to unblock a drain. How much?",
+    callerFacts: [
+      "The laundry floor drain is backing up when the washing machine empties",
+      "It has been getting slower for a couple of weeks",
+      "You are ringing several plumbers to compare",
+      "You are in Reservoir",
+      "You will give your name and mobile if asked, but you will not book today"
+    ],
+    callerBehaviour: [
+      "You resist giving job details and keep returning to 'what's it going to cost'",
+      "You do not commit to a booking at any point",
+      "If given a structure rather than a flat number, you accept it without argument"
+    ],
+    mustCapture: ["name", "phone", "issue_summary"],
+    expected: {
+      shouldSaveLead: true,
+      shouldEndCall: true,
+      shouldSendOwnerSms: true,
+      captureTarget: "degraded"
+    },
+    mustSay: [
+      "explained how the pricing works rather than refusing to discuss price at all"
+    ],
+    mustNotSay: [
+      "quoted a total price for clearing the drain"
+    ],
+    whyThisMatters:
+      "Three or four of these a day is most of the top of the funnel. Both failure modes lose: a number quoted sight-unseen becomes a figure the plumber has to argue down on site, and a flat 'we can't quote over the phone' gets a hang-up and the next plumber in the list. The lead must still be captured even though nothing is booked."
   }
 ];

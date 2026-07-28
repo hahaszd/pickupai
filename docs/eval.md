@@ -147,6 +147,25 @@ Two lessons worth keeping:
   harness until the transcript says otherwise — and treat an early green as
   suspect in the assertions.
 
+## Three assertion shapes, not two
+
+`mustSay` passes on `DIRECTED` or `STATED`. `mustNotSay` fails on `DIRECTED`.
+**`mustDiscourage` passes on `DISCOURAGED` or `DIRECTED`**, and it exists because
+neither of the other two can express *"the assistant must actively tell the
+caller not to do this."*
+
+- Written as a `mustSay`, the correct answer scores as a miss: *"please don't go
+  up the ladder"* is `DISCOURAGED`, which `mustSay` does not accept.
+- Written as a `mustNotSay`, silence passes — and silence is the failure. A
+  `mustNotSay` only forbids the assistant from *encouraging* the thing.
+
+That was the fourth judge verdict overturned for the same underlying reason: the
+answer had nowhere to land. The first two were fixed by widening the judge's
+stance vocabulary (`STATED`); this one needed no judge change at all — the judge
+returned the right stance and the *schema* had no slot for it. **Before adding an
+instruction telling a judge to try harder, check whether the correct answer is
+sayable in the format it has been given.**
+
 ## The turn budget counts speech, not `chat()` calls
 
 `MAX_TURNS` (14, `EVAL_MAX_TURNS`) counts turns the caller can hear.
