@@ -204,18 +204,25 @@ is not evidence that a behaviour works — it is evidence that it can work.
 
 `npm run eval:p0` — 21 P0 scenarios × 3 runs.
 
-**13/21 passed all three. None failed all three. 8 are marginal.**
-electrician 3/5 · handyman 3/4 · plumber 4/7 · roofer 3/5
+**16/21 passed all three. None failed all three. 5 are marginal.**
+electrician 4/5 · handyman 2/4 · plumber 5/7 · roofer 5/5
 
 It took three full runs to get one that measured the product; the first two
-measured this harness. Both false defects are written up above.
+measured this harness. Both false defects are written up above. The fourth run
+is the one quoted here, after the emergency-intake fixes it produced.
 
-**Quote two numbers, not one.** Failed *runs* went 13/63 → 14/63 → 10/63 across
-those three, while the headline went 14 → 11 → 13. The headline counts only
-scenarios that were perfect, so it moves on how failures are *distributed* as
-much as on how many there are — three flaky scenarios and one broken one produce
-very different headlines from the same failure count.
+**Quote two numbers, not one.** Failed *runs* went 13/63 → 14/63 → 10/63 → 5/63
+across the four, while the headline went 14 → 11 → 13 → 16. The headline counts
+only scenarios that were perfect, so it moves on how failures are *distributed*
+as much as on how many there are — three flaky scenarios and one broken one
+produce very different headlines from the same failure count.
 
-Six of the eight remaining marginals are one pattern: **name, phone or address
-missing on a call the assistant correctly treated as serious.** Full list and
-the current hypothesis in `BACKLOG.md`.
+**A prompt edit is global; measure it globally.** One edit in that sequence was
+verified against three scenarios, fixed none of them, and broke two others that
+happened to be in the same batch. Trade-specific facts belong in `TRADE_CONFIGS`
+where they cannot reach another trade's call; a general category in a shared
+section gets applied to calls it was never about. Full account in `BACKLOG.md`.
+
+Every remaining marginal is now a single failing run out of three, which is
+where `--repeat 3` stops being able to tell a flaky scenario from an unlucky
+one. Going further needs a higher repeat, not more interpretation.

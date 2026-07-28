@@ -87,49 +87,108 @@ only the last one is a measurement of the product:
 |---|---|---|
 | 1 | 14 pass / 2 defect / 5 marginal | Mostly the judge. One "defect" was a backwards assertion, one was a compound assertion the judge could not answer. |
 | 2 | 11 / 1 / 9 | The three-stance judge's own blind spot — informational assertions had no valid answer. |
-| 3 | **13 pass / 0 defect / 8 marginal** | The product. |
+| 3 | 13 pass / 0 defect / 8 marginal | The product. |
+| 4 | **16 pass / 0 defect / 5 marginal** | The product, after the emergency-intake fixes below. |
 
-**Final: 13/21 passed all three runs, no scenario failed all three, 8 marginal.**
-electrician 3/5 · handyman 3/4 · plumber 4/7 · roofer 3/5. **The P0 gate is
-green.** This supersedes the earlier "six scenarios failed in both runs" list,
-which was measured against the broken judge.
+**Current: 16/21 passed all three runs, no scenario failed all three, 5
+marginal.** electrician 4/5 · handyman 2/4 · plumber 5/7 · roofer 5/5.
+**The P0 gate is green.** This supersedes the earlier "six scenarios failed in
+both runs" list, which was measured against the broken judge.
 
 **Read the run-level rate, not just the headline.** Failed *runs* went 13/63 →
-14/63 → 10/63 across the three, while the headline went 14 → 11 → 13. The
-headline counts scenarios that were perfect, so it swings on how failures are
-distributed as much as on how many there are. Quote both.
+14/63 → 10/63 → 5/63 across the four, while the headline went 14 → 11 → 13 → 16.
+The headline counts scenarios that were perfect, so it swings on how failures
+are distributed as much as on how many there are. Quote both.
 
 **Marginal — passed some runs, failed others. Not defects, not passes:**
 
 | Scenario | Rate | What flapped |
 |---|---|---|
-| `electrician_overhead_service_line_down` | 1/3 | 2 of 3 captured no name, phone **or** address at all |
-| `roofer_hail_pockmarked_no_leak_negative_control` | 1/3 | `urgency_level` came out `routine`, expected `urgent`, on 2 of 3 |
 | `plumber_gas_smell_hot_water_unit` | 2/3 | One run captured nothing |
-| `electrician_mains_shock_washing_machine` | 2/3 | One run captured nothing |
-| `plumber_water_through_unit_ceiling_tenant` | 2/3 | One run missed the name |
-| `plumber_burst_hose_no_address` | 2/3 | One run missed the name |
-| `roofer_reroof_quote_followup_terrigal` | 2/3 | One run missed `urgency_level` |
+| `plumber_sewage_surfacing_shower` | 2/3 | One run never mentioned the overflow relief gully |
+| `electrician_whole_street_blackout` | 2/3 | One run captured nothing |
+| `handyman_multi_job_call_with_late_addition` | 2/3 | One run left the line open |
 | `handyman_price_shopping_no_booking` | 2/3 | One run captured nothing |
 
-### The remaining P0 pattern: urgent calls end without details
-Six of the eight marginals above are the same failure — **name, phone or
-address missing on a call the assistant correctly treated as serious.** It is
-worst on `electrician_overhead_service_line_down` (1/3), where a caller standing
-in their own driveway looking at a hanging cable is told to keep clear and ring
-000, and then let go without a name.
+Every one is now a **single** failing run out of three, which is a different
+situation from the 1/3 scenarios in run 3 — the remaining failures look like the
+tail of ordinary sampling rather than a behaviour that is usually wrong. Telling
+those apart needs a higher `--repeat`, not more staring at n=3.
 
-Hypothesis, not yet confirmed by reading transcripts: the evacuation exception
-in `# Life-Threatening Emergencies` — *"Do not keep them on the line if they
-need to evacuate"* — is being applied to **any** call with a hazard in it,
-rather than to a caller who has to leave right now. A driveway is not a burning
-house, and one line takes a name.
+### Urgent calls end without details — transcripts read 2026-07-28
+Six of the eight marginals were the same failure: **name, phone or address
+missing on a call the assistant correctly treated as serious.** Transcripts read
+rather than guessed at. It was **two** mechanisms, not one, and the hypothesis
+in the first draft of this item was only half right.
 
-Next step is to read the failing transcripts for those six before changing
-anything; the eval has now produced three rounds of findings that turned out to
-be about the eval, and this hypothesis is exactly the shape of the ones that
-were wrong. If it holds, the fix is to narrow the exception to callers who are
-leaving, not callers who are near something dangerous.
+**(a) The evacuation exception applied to people who are not evacuating.** On
+`electrician_overhead_service_line_down` the caller — standing in their own
+driveway, chatting calmly — *asked to swap numbers* and was refused:
+
+> **caller:** Thanks for the advice! Can I just grab your number before I go?
+> **assistant:** Absolutely — Eval Trade Co's number is the one you've called
+> today. Please prioritise getting well clear and calling 000 now.
+
+and then wrote into the lead: *"No name or callback number collected because
+immediate safety takes priority."* Confirmed.
+
+**(b) The address gets dropped in the wrap-up.** On
+`electrician_mains_shock_washing_machine` the assistant took name and phone,
+gave correct safety advice, and closed the call itself without ever asking where
+the property is. Not the caller hanging up — its own choice.
+
+Fixed by narrowing the exception in `# Life-Threatening Emergencies` to callers
+who must move *right now*, forbidding it to refuse details a caller is offering,
+and telling it to ask for the address in the same breath as the number.
+`electrician_mains_shock_washing_machine` 1/3 → 3/3;
+`electrician_switchboard_crackling_hot_smell` stayed 3/3, so the evacuation case
+did not regress.
+
+**`plumber_gas_smell_hot_water_unit` did not reproduce** — 3/3 on re-run. Its
+marginal in the baseline was noise at n=3. Recorded because a marginal that
+vanishes is as much a result as one that persists.
+
+### WATCH: `electrician_overhead_service_line_down` is unstable across batches
+Measured 1/3, then 1/3, then **3/3** in the full gate run — 5/9 overall, with
+the good and bad batches separated by prompt edits that did not obviously
+explain the difference. Do not record it as fixed and do not record it as a
+defect; it needs `--repeat 9` or so before anything can be said about it.
+
+When it fails, the scenario demands a full capture and the assistant treats the
+call as something to hand off, so it drops a field — the address first, then the
+name after the address fix. It flaps on *which* field, which suggests an intake
+that never completes rather than a specific missing rule.
+
+**The scenario is right to demand the address**, checked rather than assumed:
+everything from the point of attachment to the switchboard is the property
+owner's, only a licensed electrician may work on it, and the distributor will
+not reconnect until a licensed electrician issues a certificate. A line pulled
+off the house therefore leaves real owner-side work — this is a lead, not just a
+referral, and it needs an address. Sources: Essential Energy private-poles FAQ,
+Energy Safe Victoria private aerial lines, SA Power Networks service rules.
+**Do not "fix" this by loosening the assertion to `degraded`.**
+
+### `plumber_water_bubbling_nature_strip_wrong_number` fails 3/3
+Confirmed at n=3: the assistant classifies a water-authority leak as `new_job`,
+so the owner would get an SMS about a job that does not exist. Pre-existing —
+it was on the previous session's failure list, before any of today's prompt
+work. P1 because it is wrong data reaching a paying customer's phone, not just
+an eval red.
+
+### Method note: a prompt edit is global, so measure it globally
+Three prompt edits were made in this sitting, each verified against three
+scenarios at `--repeat 3`. The second one — a general "some jobs are only
+partly someone else's" paragraph — fixed nothing and broke two neighbours:
+`electrician_whole_street_blackout` went 3/3 → 1/3 and
+`plumber_water_bubbling_nature_strip_wrong_number` started classifying a
+referral as a job. It was caught only because neighbouring scenarios happened to
+be in the same verification batch.
+
+The general framing was the problem: it taught a *category* ("partly someone
+else's") that the model then applied to pure referrals. Reverted, and the same
+fact was put in the electrician's trade config where it cannot reach a plumber's
+call. **Trade-specific knowledge belongs in `TRADE_CONFIGS`, not in a global
+section**, and any prompt edit needs a full `eval:p0` before it is believed.
 
 ### DECIDED: a referred-out call still leaves a phone number
 Promoted from P2 on 2026-07-28 because it was the only thing failing the P0
