@@ -164,10 +164,16 @@ describe("buildSystemPrompt", () => {
     expect(prompt).not.toContain("Holiday / Vacation Mode");
   });
 
-  it("uses 'when they're back' in farewell templates during vacation mode", () => {
+  // A business being away is a FACT about availability, not a promise about
+  // response time, and a caller who is not told it will assume someone is
+  // picking this up today. It belongs in the vacation section; the farewell
+  // templates promise nothing at all now, holiday or not.
+  it("tells the caller the business is away, without promising a callback time", () => {
     const prompt = buildSystemPrompt(makeTenant({ vacation_mode: 1 }), [], null);
-    expect(prompt).toContain("when they're back");
+    expect(prompt).toContain("Holiday / Vacation Mode");
+    expect(prompt).toMatch(/get back to them when they return/);
     expect(prompt).not.toMatch(/get back to you shortly/);
+    expect(prompt).not.toMatch(/first thing tomorrow morning/);
   });
 
   it("includes custom instructions with safety priority clause", () => {
@@ -221,7 +227,10 @@ describe("buildSystemPrompt", () => {
   it("includes callback timing in farewell templates", () => {
     const prompt = buildSystemPrompt(makeTenant(), [], null);
     expect(prompt).toContain("get back to you");
-    expect(prompt).toContain("be in touch");
+    // No callback TIME is promised any more — nobody can know when a tradie
+    // reads an SMS in a van. What the prompt commits to is what the AI itself
+    // does: pass it on.
+    expect(prompt).toMatch(/straight (through )?to the team|going straight to the team|sending them straight/);
   });
 
   it("includes the caller's fromNumber in instructions", () => {
@@ -310,10 +319,11 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("Life-Threatening Emergencies rules below take priority");
   });
 
-  it("complaint path uses callbackTiming, not 'very soon'", () => {
+  it("complaint path promises no callback time", () => {
     const prompt = buildSystemPrompt(makeTenant(), [], null);
-    expect(prompt).toContain("COMPLAINT");
-    expect(prompt).not.toContain("call you back very soon");
+    expect(prompt).toContain("flagged this as priority and sent it straight to the team");
+    expect(prompt).not.toContain("very soon");
+    expect(prompt).not.toContain("call you back shortly");
   });
 
   it("includes caller_intent for all main call types", () => {
@@ -367,13 +377,12 @@ describe("buildSystemPrompt", () => {
 });
 
 describe("buildTimeContext", () => {
-  it("returns 'shortly' during weekday business hours", () => {
+  it("knows it is open during weekday business hours", () => {
     const wed10am = new Date("2026-03-25T10:00:00+11:00");
     vi.useFakeTimers();
     vi.setSystemTime(wed10am);
     try {
       const result = buildTimeContext(makeTenant());
-      expect(result.callbackTiming).toBe("shortly");
       expect(result.isOpen).toBe(true);
       expect(result.section).toContain("OPEN");
       expect(result.timeOfDay).toBe("morning");
@@ -382,13 +391,12 @@ describe("buildTimeContext", () => {
     }
   });
 
-  it("returns 'first thing tomorrow morning' after hours on weeknight", () => {
+  it("knows it is after hours on a weeknight", () => {
     const wed9pm = new Date("2026-03-25T21:00:00+11:00");
     vi.useFakeTimers();
     vi.setSystemTime(wed9pm);
     try {
       const result = buildTimeContext(makeTenant());
-      expect(result.callbackTiming).toBe("first thing tomorrow morning");
       expect(result.isOpen).toBe(false);
       expect(result.section).toContain("AFTER HOURS");
       expect(result.timeOfDay).toBe("evening");
@@ -397,13 +405,12 @@ describe("buildTimeContext", () => {
     }
   });
 
-  it("returns 'on Monday morning' on weekend with WEEKEND status", () => {
+  it("knows it is the weekend, with WEEKEND status", () => {
     const sat10am = new Date("2026-03-28T10:00:00+11:00");
     vi.useFakeTimers();
     vi.setSystemTime(sat10am);
     try {
       const result = buildTimeContext(makeTenant());
-      expect(result.callbackTiming).toBe("on Monday morning");
       expect(result.isOpen).toBe(false);
       expect(result.section).toContain("WEEKEND");
       expect(result.section).not.toContain("the business is closed");
@@ -412,13 +419,12 @@ describe("buildTimeContext", () => {
     }
   });
 
-  it("returns 'on Monday morning' on Friday after hours", () => {
+  it("knows Friday after hours is closed", () => {
     const fri9pm = new Date("2026-03-27T21:00:00+11:00");
     vi.useFakeTimers();
     vi.setSystemTime(fri9pm);
     try {
       const result = buildTimeContext(makeTenant());
-      expect(result.callbackTiming).toBe("on Monday morning");
       expect(result.isOpen).toBe(false);
     } finally {
       vi.useRealTimers();
@@ -576,10 +582,23 @@ describe("buildSystemPrompt — enhanced features", () => {
     expect(prompt).toContain("I totally understand you'd rather speak to someone directly");
   });
 
-  it("includes specific callback request handling", () => {
+  // Two different times, and the prompt must keep them apart: when the caller
+  // wants the WORK done — one of the five core fields from 2026-07-29, and what
+  // the owner sorts his day by now that urgency_level is gone — and when they
+  // want to be RUNG. Both land in preferred_time; only the first is core.
+  it("asks when the work is wanted, and keeps it distinct from a callback time", () => {
     const prompt = buildSystemPrompt(makeTenant(), [], null);
-    expect(prompt).toContain("specific callback time");
+    expect(prompt).toContain("when were you hoping to get this done?");
+    expect(prompt).toContain("specific CALLBACK time");
     expect(prompt).toContain("preferred_time");
+  });
+
+  // "As soon as possible" is what most callers say and it carries no
+  // information. The constraint behind it is what decides schedulability.
+  it("presses once past 'as soon as possible' for the constraint behind it", () => {
+    const prompt = buildSystemPrompt(makeTenant(), [], null);
+    expect(prompt).toMatch(/tells the owner nothing/);
+    expect(prompt).toMatch(/A constraint beats a preference/);
   });
 
   it("includes multi-detail volunteering example", () => {

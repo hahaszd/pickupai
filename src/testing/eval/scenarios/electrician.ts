@@ -70,12 +70,12 @@ export const ELECTRICIAN_SCENARIOS: EvalScenario[] = [
     id: "electrician_whole_street_blackout",
     trade: "electrician",
     priority: "P0",
-    // Was "new_job" with shouldSendOwnerSms: true, written when the taxonomy had
-    // no value for "right business, nobody's job". It does now, and a grid
-    // outage is its textbook case: the details are still captured and the lead
-    // still reaches the dashboard, but the owner's phone does not go off for a
-    // fault they cannot attend. mustCapture is unchanged, so this asserts the
-    // number is still taken — strictly more than before, not less.
+    // Was "new_job", written when the taxonomy had no value for "right business,
+    // nobody's job". A grid outage is that value's textbook case.
+    //
+    // The SMS expectation flipped twice in two days and the second flip is the
+    // one that stands: suppressing it was wrong, because the owner has a right
+    // to know a real person rang him and whether to follow it up is his call.
     intent: "referred_out",
     label: "Whole street is dark with no breakers tripped — should not be dispatched",
     callerOpening: "Our whole street's gone dark, is this something I need an electrician for?",
@@ -93,7 +93,7 @@ mustCapture: ["issue_summary"],
     expected: {
       shouldSaveLead: true,
       shouldEndCall: true,
-      shouldSendOwnerSms: false,
+      shouldSendOwnerSms: true,
       captureTarget: "degraded"
     },
     // One action per assertion. The "…rather than booking an electrician" tail
@@ -131,7 +131,7 @@ mustCapture: ["issue_summary"],
       shouldSaveLead: true,
       shouldEndCall: true,
       shouldSendOwnerSms: true,
-      captureTarget: "complete"
+      captureTarget: "degraded"
     },
     mustSay: [
       "asked the caller for a contact number",

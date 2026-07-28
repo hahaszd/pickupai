@@ -61,10 +61,16 @@ describe("eval scenario library", () => {
   it("keeps shouldSendOwnerSms consistent with the SMS suppression policy", () => {
     // If these disagree, the eval asserts behaviour the product deliberately
     // does not have, and every run fails for the wrong reason.
+    // Both directions. Only the first was checked until 2026-07-29, and taking
+    // referred_out OUT of the suppression list left two scenarios still
+    // expecting no SMS — one of which then failed 3/3 in the gate for a reason
+    // that was a stale expectation rather than a product defect.
     for (const s of ALL_EVAL_SCENARIOS) {
-      if (NO_SMS_INTENTS.has(s.intent)) {
-        expect(s.expected.shouldSendOwnerSms, `${s.id} (${s.intent} is suppressed)`).toBe(false);
-      }
+      if (!s.expected.shouldSaveLead) continue;
+      expect(
+        s.expected.shouldSendOwnerSms,
+        `${s.id}: intent "${s.intent}" is ${NO_SMS_INTENTS.has(s.intent) ? "" : "NOT "}suppressed`
+      ).toBe(!NO_SMS_INTENTS.has(s.intent));
     }
   });
 

@@ -342,58 +342,34 @@ describe("NO_SMS_INTENTS", () => {
 });
 
 describe("buildCallerConfirmationSms", () => {
-  it("says 'shortly' during business hours on a weekday", () => {
-    const wed10am = new Date("2026-03-25T10:00:00+11:00");
-    vi.useFakeTimers();
-    vi.setSystemTime(wed10am);
-    try {
-      const result = buildCallerConfirmationSms({
-        businessName: "Dan's Plumbing",
-        businessHoursStart: "08:00",
-        businessHoursEnd: "17:00",
-        timezone: "Australia/Sydney"
-      });
-      expect(result).toContain("shortly");
-      expect(result).not.toContain("Monday");
-      expect(result).not.toContain("tomorrow");
-    } finally {
-      vi.useRealTimers();
+  // Five tests here used to pin "shortly" / "first thing tomorrow morning" /
+  // "on Monday morning", computed from business hours. All five promised the
+  // caller when the tradie would ring, and nobody can promise that — the lead
+  // lands on a phone in a van. Removed 2026-07-29; these pin the removal.
+  it("never tells the caller when they will be called back", () => {
+    for (const at of ["2026-03-25T10:00:00+11:00", "2026-03-25T21:00:00+11:00", "2026-03-28T10:00:00+11:00"]) {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(at));
+      try {
+        const result = buildCallerConfirmationSms({ businessName: "Dan's Plumbing" });
+        expect(result, at).not.toMatch(/shortly|tomorrow|Monday|call you back/i);
+        expect(result, at).toContain("Your details are with the team");
+      } finally {
+        vi.useRealTimers();
+      }
     }
   });
 
-  it("says 'first thing tomorrow morning' after hours on a weeknight", () => {
-    const wed9pm = new Date("2026-03-25T21:00:00+11:00");
-    vi.useFakeTimers();
-    vi.setSystemTime(wed9pm);
-    try {
-      const result = buildCallerConfirmationSms({
-        businessName: "Dan's Plumbing",
-        businessHoursStart: "08:00",
-        businessHoursEnd: "17:00",
-        timezone: "Australia/Sydney"
-      });
-      expect(result).toContain("first thing tomorrow morning");
-    } finally {
-      vi.useRealTimers();
-    }
+  // A business being away is a fact about availability, not a promise about
+  // response time, and a caller not told it assumes someone is on it today.
+  it("still says the team is away in vacation mode", () => {
+    const result = buildCallerConfirmationSms({ businessName: "Dan's Plumbing", vacationMode: true });
+    expect(result).toContain("The team is away at the moment");
+    expect(result).not.toMatch(/when they're back|shortly/i);
   });
 
-  it("says 'on Monday morning' on a weekend", () => {
-    const sat10am = new Date("2026-03-28T10:00:00+11:00");
-    vi.useFakeTimers();
-    vi.setSystemTime(sat10am);
-    try {
-      const result = buildCallerConfirmationSms({
-        businessName: "Dan's Plumbing",
-        businessHoursStart: "08:00",
-        businessHoursEnd: "17:00",
-        timezone: "Australia/Sydney"
-      });
-      expect(result).toContain("on Monday morning");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+
+
 
   it("includes issue ref when provided", () => {
     const result = buildCallerConfirmationSms({
@@ -418,33 +394,7 @@ describe("buildCallerConfirmationSms", () => {
     expect(result).toContain("- Test");
   });
 
-  it("says 'when they're back' in vacation mode", () => {
-    const result = buildCallerConfirmationSms({
-      businessName: "Dan's Plumbing",
-      vacationMode: true
-    });
-    expect(result).toContain("when they're back");
-    expect(result).not.toContain("shortly");
-    expect(result).not.toContain("Monday");
-    expect(result).not.toContain("tomorrow");
-  });
 
-  it("says 'on Monday morning' on Friday evening", () => {
-    const fri8pm = new Date("2026-03-27T20:00:00+11:00");
-    vi.useFakeTimers();
-    vi.setSystemTime(fri8pm);
-    try {
-      const result = buildCallerConfirmationSms({
-        businessName: "Dan's Plumbing",
-        businessHoursStart: "08:00",
-        businessHoursEnd: "17:00",
-        timezone: "Australia/Sydney"
-      });
-      expect(result).toContain("on Monday morning");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
 });
 
 describe("formatOwnerSms degraded-capture note", () => {

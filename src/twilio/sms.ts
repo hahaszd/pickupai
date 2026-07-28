@@ -5,7 +5,6 @@ import type { LeadRow } from "../db/repo.js";
 import { getSystemConfig } from "../db/repo.js";
 import { twilioClient } from "./client.js";
 import { formatAuPhone, toE164Au } from "../utils/phone.js";
-import { isWithinHours } from "../utils/time.js";
 import { isMobileMessageConfigured, sendMarketingSms } from "../sms/mobile-message.js";
 import { toGsm7 } from "../sms/gsm7.js";
 
@@ -247,36 +246,14 @@ export function buildCallerConfirmationSms(opts: {
 }): string {
   const biz = opts.businessName;
 
-  let timing: string;
-  // "as a priority" used to be promised here when the lead was tagged
-  // emergency. It went with the rest of the urgency machinery on 2026-07-28,
-  // and it was a promise the AI could not keep in any case — nothing downstream
-  // of this message made the callback actually happen sooner.
-  if (opts.vacationMode) {
-    timing = "when they're back";
-  } else {
-    const isOpen = isWithinHours({
-      startHHMM: opts.businessHoursStart || "08:00",
-      endHHMM: opts.businessHoursEnd || "17:00",
-      timeZone: opts.timezone || "Australia/Sydney"
-    });
-
-    const now = new Date();
-    const dayNum = (() => {
-      try {
-        const tz = opts.timezone || "Australia/Sydney";
-        const parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short" }).formatToParts(now);
-        const wd = parts.find((p) => p.type === "weekday")?.value ?? "";
-        return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(wd);
-      } catch { return now.getDay(); }
-    })();
-    const isFriAfterHours = dayNum === 5 && !isOpen;
-    const isWeekend = dayNum === 0 || dayNum === 6;
-
-    if (isWeekend || isFriAfterHours) timing = "on Monday morning";
-    else if (isOpen) timing = "shortly";
-    else timing = "first thing tomorrow morning";
-  }
+  // No callback time is promised. This used to say "shortly" / "first thing
+  // tomorrow morning" / "on Monday morning", computed from business hours —
+  // eleven similar promises lived in the prompt too. Nobody can make them: the
+  // lead lands on a phone in a van and there is no knowing when it is read.
+  // Removed 2026-07-29. Vacation mode is different and survives, because a
+  // business being away is a fact about availability rather than a promise
+  // about response time, and a caller not told it assumes someone is on it.
+  const awayNote = opts.vacationMode ? " The team is away at the moment." : "";
 
   const greeting = compact(opts.callerName)
     ? `Hi ${compact(opts.callerName)}! Thanks`
@@ -287,7 +264,7 @@ export function buildCallerConfirmationSms(opts: {
     ? ` about your ${ref.length > 40 ? ref.slice(0, 37) + "..." : ref}`
     : "";
 
-  return `${greeting} for calling ${biz}!${refSnippet}\nThe team will call you back ${timing}. - ${biz}`;
+  return `${greeting} for calling ${biz}!${refSnippet}\nYour details are with the team.${awayNote} - ${biz}`;
 }
 
 export async function sendOwnerSms(

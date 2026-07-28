@@ -194,6 +194,205 @@ regression through.
 the assistant writes it itself from what it heard, so it never depends on the
 caller's cooperation.
 
+### Gate 14 — 26/34, no defects, 8 failed runs of 102
+The state after the whole principle rewrite: no urgency, no promises, nothing
+compulsory, listen-first, the core five. **Best run-level rate the 34-scenario
+set has had** — 8/102 against 13/102 when the set was assembled. plumber 10/10,
+handyman 6/8, roofer 6/8, electrician 4/8.
+
+Every one of the eight marginals is **2/3 — a single failing run each**, which
+is the tail rather than a behaviour. The composition is worth watching though:
+**name ×3, phone ×1, address ×1, never-asked-for-a-number ×1.** The name is
+still the most-dropped field even after the explicit "ask before you close"
+line, so that line helped and did not finish the job. Do not spend another
+prompt edit on it without measuring at `--repeat 9` first — at n=3 these are
+indistinguishable from sampling.
+
+electrician at 4/8 is the weakest trade and three of its four marginals are
+capture, not behaviour. Worth a `--repeat 9` sweep of that trade before anything
+else.
+
+### DECIDED: no promises at all, and the callback time was the biggest one
+Owner decision, 2026-07-29, and it caught a promise **I had written into the
+prompt ten minutes earlier while removing promises.** The `# You Do Not Make
+Promises` section told the assistant to "say what is true instead: *the team
+will call you back ${callbackTiming}*" — which is itself a commitment about
+when, and a worse one than most, because **nobody knows when a tradie reads an
+SMS in a van.**
+
+`callbackTiming` resolved to `"shortly"`, `"first thing tomorrow morning"` or
+`"on Monday morning"` from business hours, and was interpolated into **eleven
+places in the prompt** — the closing, the follow-up path, the complaint path,
+and every farewell template — plus **the caller's confirmation SMS**. Every one
+of them promised a stranger that someone else would ring them by a certain time.
+
+Removed everywhere. `buildTimeContext` no longer computes it at all, so it
+cannot creep back; the time awareness it still returns is for tone and for
+knowing whether the business is open. The replacement says what **the AI itself
+does**, which is the only thing it controls: *"I'm sending this straight through
+to the team now."*
+
+**What survives, and the distinction is the useful part.** Vacation mode still
+tells the caller the business is away — in the prompt and in the caller SMS —
+because *"the team is away at the moment"* is **a fact about availability, not a
+promise about response time**, and a caller who is not told it will assume
+someone is picking it up today.
+
+The rule generalised beyond price and time. Nothing may be promised: not a time,
+not a price, not whether the job can or cannot be done, not a person, a booking
+or an outcome. One line covers all of it and never wears out — *"I'll get all of
+this to the team and they'll come back to you on it."* And the framing that
+matters most, now written into the prompt: **collecting the caller's information
+IS the job, not a step towards something more impressive. A call where you
+listened well, recorded accurately and promised nothing went perfectly.**
+
+Tests changed from pinning each timing string to pinning its absence, in
+`tests/session.test.ts` and `tests/sms.test.ts`.
+
+### DECIDED: the call shape is listen → ask → confirm nothing more → farewell
+Owner decision, 2026-07-29, and it is the whole conversational model rather than
+a rule. In order:
+
+1. **Let them say what they rang to say.** Be a patient listener. Do not
+   interrupt to get a field, do not steer them back to the list while they are
+   still describing the problem, record their own words. What a caller
+   volunteers unprompted is usually better than what you would have asked for.
+2. **Then ask your questions**, one at a time, in the gaps in the conversation
+   rather than on top of it.
+3. **Answered seriously → record it. Unwilling → let it go.**
+4. **Close only when both are true**: you have asked everything you are going to
+   ask, **and** the caller has confirmed they have nothing more to say.
+5. **A proper goodbye, then hang up.**
+
+The one that changed behaviour is **4**. The old flow closed "after you have all
+key details", which is a test on the *notes*, and the failing transcripts show
+exactly that: the assistant deciding it had enough and ending the call while the
+caller was still mid-sentence and still supplying information. Now the closing
+section requires an explicit "anything else?" **and the answer to it** — a caller
+who replies with more information has not closed the call — and forbids hanging
+up on the back of a question or a thought.
+
+**Why the price rule needed its reasoning, not just its prohibition.** These
+trades price by time, and how long a job takes and what tools and materials it
+needs is something only the tradie can judge, usually only on site. A number
+from the AI would not be a discount or a favour, it would be **a guess with
+nothing behind it** — so there is genuinely nothing useful it can say. Given the
+model that reason, it declines warmly and without apologising, instead of
+improvising the evasive "I don't have pricing on hand" that reopened the topic
+every turn. The move that follows is fixed too: bring it straight back to the
+caller — *"…so what's happening at the property?"*
+
+### DECIDED: price is not the AI's to discuss, and a refusal needs an answer
+Owner decision, 2026-07-29. **Price is settled between the tradie and the
+customer, never by the AI.** When asked, say so plainly: *"Pricing is something
+the team works out with you directly — they'll go through it when they call you
+back."*
+
+**The prompt had a prohibition and no answer**, which is why this needed fixing
+rather than merely restating. `NEVER promise specific prices` told the model
+what not to do and left it to improvise the sentence, and what it improvised was
+*"I don't have pricing details on hand"* — a **lookup failure**, not a boundary.
+That invites the caller to try again, and they do:
+
+> **caller:** …what's your callout fee? I'm not giving details until I know that.
+> **assistant:** I don't have pricing details on hand, but the team can go over that…
+> **caller:** Yeah, but I really need to know the price first…
+> **assistant:** I can't quote the callout fee by phone, but…
+> **caller:** Can you just give me a ballpark?
+> *…five rounds, and the assistant never got to the caller's name.*
+
+That is the whole mechanism behind the price-shopper scenarios burning their
+turns. A boundary stated as whose *decision* it is settles the topic; a boundary
+stated as missing information reopens it every turn.
+
+New `# Price Is Not Yours to Discuss` section, with the specific failure banned
+by name — do not say "I don't have that information" — plus no figure, range,
+hourly or per-square-metre rate, minimum or ballpark, even when the caller offers
+a competitor's number first.
+
+**A tension with the tradie survey, resolved and worth recording.** Every trade
+in `docs/research/trade-call-failure-modes-2026-07.md` said a flat "we can't
+quote over the phone" loses the call, and recommended giving the pricing
+*structure* — *"our callout and first hour is $X, and he confirms on site"*.
+**That advice contains a number, and no tenant's rates are stored anywhere in
+this product**, so the assistant could not follow it even if we wanted it to.
+`plumber_price_shopper_drain_clear` asserted the survey's version; it now asserts
+the decision.
+
+**RETRACTED, same day, and the retraction is the more useful entry.** I recorded
+here that a `callout_fee` / `hourly_rate` on `tenants` was "the feature that
+would let us have both", and framed the missing field as the blocker. The owner
+rejected it, with the better argument: **adding the number does not answer the
+question, it moves it.**
+
+One rate immediately invites — *"what about half an hour?"*, *"is there a
+minimum?"*, *"what if one visit isn't enough and it takes two days?"*, *"does
+that include materials?"* — and **not one of those is answerable from a single
+figure.** Answering them needs a real quoting model, and the moment the AI has a
+number it is expected to reason with it. So the field does not remove the
+complexity, it creates it, and it does so in the place where being wrong costs
+the tradie a customer.
+
+The general option stays: **the caller talks price with the tradie, full stop.**
+A per-tenant rate is at best an opt-in extra for some future tenant who insists,
+never the default, and not worth building now.
+
+**The wider rule this generalised into:** no promises of any kind — not a time,
+not a price, not whether the job can be done, not a person or a booking or an
+outcome. The AI answers the phone and writes down what the caller needs, and
+that **is** the product rather than a step towards a more impressive one. See
+the `# You Do Not Make Promises` section in `session.ts`.
+
+### FIXED: "ask twice then stop" was read as "stop asking"
+Found in the first gate after the rule landed, 2026-07-29, and it is the
+predictable cost of the decision showing up in exactly the place worth watching.
+
+`plumber_blocked_drain_price_first_late_night` — a 10pm caller who demands the
+price before giving anything — went to **0/3**. The transcript is not a caller
+refusing to give details. **The assistant never asked for a name or a number at
+all.** It asked twice what the problem was, the caller deflected *on that
+question*, and the assistant then treated the whole intake as closed and hung
+up — while the caller was still mid-sentence and still supplying information:
+
+> **caller:** No, hang on. It's fully blocked, like, nothing is draining at all.
+> Can you please just tell me the price? I was quoted $300 before…
+> **tool:** `end_call({"reason": "quote request recorded; caller declined further intake"})`
+
+`electrician_whole_street_blackout` showed the same shape at 1/3, twice failing
+*"asked the caller for a contact number"* — never asked, rather than asked and
+refused.
+
+**Two things the rule did not say, and both were needed:**
+
+1. **The limit is per DETAIL, not per call.** Someone brushing off one question
+   says nothing about the next. A caller who will not describe the problem often
+   hands over a number without hesitation, and vice versa. Dropping one topic is
+   never a reason to stop asking about the others.
+2. **Never end a call while the caller is still talking.** If they have just
+   said something new, asked something, or pushed back, they are still in the
+   conversation — answer them and take the opening.
+
+This is the honest cost of the decision and it is worth stating plainly: a cap
+on asking will sometimes be read as permission to stop, and the guard against
+that is scope, not a lower cap. **Do not respond to this by raising the cap
+back to three.**
+
+**A test hole this exposed, worth more than the bug it hid.** Taking
+`referred_out` out of `NO_SMS_INTENTS` needed every scenario carrying that
+intent to flip its `shouldSendOwnerSms`. Two carried it; **one was missed**, and
+`electrician_whole_street_blackout` then failed 3/3 in the gate on a stale
+expectation rather than a product defect.
+
+The library invariant that should have caught it only checked **one direction** —
+*if the intent is suppressed, the scenario must expect no SMS.* Nothing checked
+the reverse. Now it asserts equality in both directions, so a suppression-policy
+change cannot leave a scenario behind again. **A one-directional invariant is a
+half-invariant, and it fails exactly when the policy moves.**
+
+Same sitting, same shape: two of the five "caller may leave" scenarios had their
+`mustCapture` loosened but kept `captureTarget: "complete"`, which demands every
+core field regardless. Both moved to `degraded`.
+
 **What this retires.** The `name`-dropping WATCH item below is now much less
 interesting — a missing name on a call where the caller left is the system
 working as specified. Re-read that item before spending anything on it.

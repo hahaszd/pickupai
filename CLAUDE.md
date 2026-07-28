@@ -4,6 +4,19 @@ Node 20 + TypeScript + Express. Answers inbound Twilio calls with an OpenAI
 Realtime voice agent, extracts a structured lead, SMSes the business owner, and
 serves an owner dashboard + admin panel. Deployed on Railway from `Dockerfile`.
 
+## Read this first
+
+**[`PRINCIPLES.md`](PRINCIPLES.md) is the north star** — what this product is and
+what it refuses to be. It outranks anything in `BACKLOG.md`, which is a task
+list. If a proposed feature and `PRINCIPLES.md` disagree, the document wins or
+the document gets changed on purpose.
+
+The one-line version: **the receptionist records, it does not judge.** It answers
+the phone, finds out what the caller needs, writes it down faithfully and passes
+it on — and that is the whole job, not a step towards something more impressive.
+The tradie decides. Urgency grading, callback-time promises and price answers
+were all built and then deleted for this reason; the evidence is in the file.
+
 ## Commands
 
 | Command | What it does |
@@ -155,6 +168,10 @@ user in the product's history arrived organically.
 
 **Read `HANDOVER.md` first if it exists** — it is a baton from the previous
 session, not a maintained document, and can be deleted once absorbed.
+
+**`PRINCIPLES.md` is the north star and outranks the backlog.** A conclusion
+that would still matter after every backlog item is done does not belong in the
+backlog — it belongs there.
 
 **`BACKLOG.md` at the repo root is the single list of outstanding work.** Add
 an item with a priority the moment it is discovered — a bug found while doing

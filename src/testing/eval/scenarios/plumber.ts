@@ -53,7 +53,7 @@ mustCapture: ["issue_summary"],
       shouldSaveLead: true,
       shouldEndCall: true,
       shouldSendOwnerSms: true,
-      captureTarget: "complete"
+      captureTarget: "degraded"
     },
     mustSay: [
       "asked the caller for a contact number",
