@@ -1,5 +1,6 @@
 import { evaluateCaptureQuality, expectedSmsForIntent } from "../inbound-scenarios.js";
 import type { EvalScenario, EvalResult } from "./types.js";
+import { recordUsage, type OpenAiUsage } from "./cost.js";
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 const JUDGE_MODEL = process.env.EVAL_JUDGE_MODEL ?? "gpt-4o";
@@ -200,7 +201,11 @@ async function judgeSpeech(
 
     if (res.ok) {
       try {
-        const body = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+        const body = (await res.json()) as {
+          choices?: Array<{ message?: { content?: string } }>;
+          usage?: OpenAiUsage;
+        };
+        recordUsage(JUDGE_MODEL, body.usage);
         verdict = JSON.parse(body.choices?.[0]?.message?.content ?? "{}");
       } catch {
         return ["judge returned unparseable output"];

@@ -20,6 +20,7 @@ import { ALL_EVAL_SCENARIOS } from "../src/testing/eval/scenarios/index.js";
 import { runScenario } from "../src/testing/eval/runner.js";
 import { gradeScenario } from "../src/testing/eval/grade.js";
 import { aggregate } from "../src/testing/eval/aggregate.js";
+import { costReport, estimate } from "../src/testing/eval/cost.js";
 import type { EvalResult, EvalScenario, ScenarioReport } from "../src/testing/eval/types.js";
 
 function arg(name: string): string | undefined {
@@ -101,9 +102,17 @@ async function main() {
   const work = scenarios.flatMap((scenario) =>
     Array.from({ length: REPEAT }, (_, run) => ({ scenario, run }))
   );
+  // --estimate answers "is this a 40 cent run or a 40 dollar one" BEFORE
+  // committing. Costing a run only afterwards is the wrong time to find out.
+  if (has("estimate")) {
+    console.log(`\nWould run: ${estimate(work.length)}\n`);
+    process.exit(0);
+  }
+
   console.log(
     `Running ${scenarios.length} scenario(s) × ${REPEAT} = ${work.length} conversation(s) ` +
-      `at concurrency ${CONCURRENCY}…\n`
+      `at concurrency ${CONCURRENCY}\n` +
+      `Projected cost: ${estimate(work.length)}\n`
   );
 
   const results = await pooled<{ scenario: EvalScenario; run: number }, EvalResult>(
@@ -184,6 +193,11 @@ async function main() {
   if (has("verbose")) {
     for (const r of [...defects, ...marginal]) printTranscripts(r);
   }
+
+  // Always, and always before the verdict, so it is read rather than scrolled
+  // past. Built from the token counts OpenAI returned, not from an assumption.
+  const report = costReport(work.length);
+  if (report) console.log(report);
 
   // The gate is the rate. A P0 that fails every run is a defect and blocks; a
   // P0 that flaps is not a release blocker, but it is not a pass either and

@@ -2,6 +2,7 @@ import { buildSystemPrompt, TOOLS } from "../../realtime/session.js";
 import { sanitizeSaveLeadArgs } from "../../realtime/tool-call-guards.js";
 import type { TenantRow } from "../../db/repo.js";
 import type { EvalScenario, EvalResult } from "./types.js";
+import { recordUsage, type OpenAiUsage } from "./cost.js";
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 
@@ -85,7 +86,11 @@ async function chat(body: Record<string, unknown>): Promise<any> {
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify(body)
     });
-    if (res.ok) return res.json();
+    if (res.ok) {
+      const json = (await res.json()) as { usage?: OpenAiUsage };
+      recordUsage(String(body.model ?? "unknown"), json.usage);
+      return json;
+    }
 
     const text = await res.text();
 

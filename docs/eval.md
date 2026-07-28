@@ -166,6 +166,28 @@ returned the right stance and the *schema* had no slot for it. **Before adding a
 instruction telling a judge to try harder, check whether the correct answer is
 sayable in the format it has been given.**
 
+## What it costs, and knowing before you spend
+
+Every run prints its own bill, built from the token counts OpenAI returns rather
+than from an assumption — only the per-million prices in `cost.ts` are assumed.
+
+    npm run eval:p0 -- --repeat 3 --estimate     # projected cost, spends nothing
+    npm run eval:p0 -- --repeat 3                # runs, and prints the actual bill
+
+**Measured 2026-07-29: ~$0.032 per conversation.** So `eval:p0` at `--repeat 3`
+is 102 conversations ≈ **$3.30**, and at `--repeat 9` ≈ **$9.80**.
+
+Nearly all of it is the assistant resending the ~7k system prompt every turn.
+The 90% cache discount on `gpt-5.6-luna` is what keeps a conversation at three
+cents instead of twenty, and it is why the model choice matters more than the
+turn count. The judge is a rounding error at ~$0.003 a call, and the simulated
+caller costs almost nothing.
+
+**Re-measure when the prompt grows or a model changes** — update
+`MEASURED_USD_PER_CONVERSATION` in `cost.ts` from the per-conversation figure
+the run reports. An out-of-date estimate is worse than none, because it will be
+believed.
+
 ## The turn budget counts speech, not `chat()` calls
 
 `MAX_TURNS` (14, `EVAL_MAX_TURNS`) counts turns the caller can hear.
