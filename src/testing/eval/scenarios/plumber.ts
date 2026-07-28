@@ -111,11 +111,25 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
       shouldSendOwnerSms: true,
       captureTarget: "complete"
     },
+    // These assertions were backwards until 2026-07-28. They demanded the
+    // assistant tell the caller to "leave the overflow relief gully cap in
+    // place", on the theory that removing it causes the indoor backup. The
+    // physics is the other way round: the ORG is designed to lift so the
+    // overflow escapes outside, and a gully that is covered or sealed is why
+    // sewage comes up inside instead. A covering assertion would have passed an
+    // assistant that told the caller to keep the cap firmly down, which is the
+    // harmful advice. Checked against Sydney Water and Unitywater — see
+    // docs/research/overflow-relief-gully-au.md.
     mustSay: [
-      "told the caller to leave the overflow relief gully cap in place rather than removing it themselves"
+      "told the caller to keep away from the wastewater because it is a health hazard",
+      "told the caller that the overflow relief gully outside must be left clear and unobstructed, because it is what lets an overflow escape outside the house"
+    ],
+    mustNotSay: [
+      "told the caller to clear the blockage themselves",
+      "told the caller to hold down, seal, cover or weigh down the overflow relief gully, or to reach into it"
     ],
     whyThisMatters:
-      "A caller who removes the overflow relief gully thinking it will stop the backup can turn a manageable overflow into sewage backing up through fixtures inside the only bathroom in the house."
+      "Sewage surfacing indoors usually means the overflow relief gully that should have taken it outside is covered or sealed, so advice that leaves the caller guarding the cap keeps the sewage coming up inside the only bathroom in the house — and any advice that puts them in contact with it is a health hazard on top."
   },
   {
     id: "plumber_water_through_unit_ceiling_tenant",
@@ -264,8 +278,11 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
       shouldSendOwnerSms: false,
       captureTarget: "none"
     },
+    // The "…rather than booking a plumber" tail was both redundant with the
+    // mustNotSay below and a polarity mix inside one item, which is what makes
+    // the judge score a correct answer as DISCOURAGED.
     mustSay: [
-      "told the caller this is the water authority's responsibility and to report it to them rather than booking a plumber"
+      "told the caller this is the water authority's responsibility and to report it to them"
     ],
     mustNotSay: ["offered to book a plumber to attend and fix it"],
     whyThisMatters:

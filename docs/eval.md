@@ -98,6 +98,15 @@ Phrase `mustSay` / `mustNotSay` as **outcomes**, never as literal sentences:
 to match. The judge grades meaning; a substring check would pass a transcript
 that said the opposite.
 
+**One polarity per item.** The judge returns exactly one stance per item, so an
+assertion that mixes an instruction with a prohibition — *"told the caller to
+report it to the distributor **rather than booking an electrician**"* — has no
+correct answer available: the judge reads the prohibition half, returns
+`DISCOURAGED`, and a correct transcript is scored as a failure. Four scenarios
+carried that shape and produced phantom reds, including one that read as a
+release-blocking defect. Split it: the instruction goes in `mustSay`, the thing
+it rules out goes in `mustNotSay`. Two assertions, and both are checked.
+
 Add a scenario when a real call fails in a way the current library would not
 catch. Every scenario carries `whyThisMatters` naming that failure — if you
 cannot write that sentence, the scenario is not earning its cost.

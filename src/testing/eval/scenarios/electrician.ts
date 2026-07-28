@@ -86,9 +86,15 @@ export const ELECTRICIAN_SCENARIOS: EvalScenario[] = [
       shouldSendOwnerSms: true,
       captureTarget: "degraded"
     },
+    // One action per assertion. The "…rather than booking an electrician" tail
+    // this used to carry made the item half instruction and half prohibition,
+    // and the judge can only return one stance for an item — it read the
+    // prohibition and scored a correct answer as DISCOURAGED.
     mustSay: [
-      "told the caller this looks like a network or grid outage affecting the street and to report it to the distributor rather than booking an electrician"
+      "told the caller this looks like a network or grid outage affecting the whole street",
+      "told the caller to report it to their electricity distributor"
     ],
+    mustNotSay: ["offered to book or send an electrician out for the street-wide outage"],
     whyThisMatters:
       "Dispatching an electrician to a suburb-wide grid outage wastes a paid callout on a fault the tradie has no ability to fix, and delays the caller from reporting it to the people who can."
   },

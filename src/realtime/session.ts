@@ -134,7 +134,25 @@ const TRADE_CONFIGS: Record<string, TradeConfig> = {
   • Is it affecting one fixture or multiple areas?
   • Are they an owner-occupier or a tenant (and does the landlord need to be contacted)?`,
     emergencyKeywords: "burst pipe, flooding, sewage overflow, no hot water, blocked drain backing up",
-    emergencySafetyTip: "Turn off the water at the mains tap (usually near the water meter outside) to minimise damage while you wait."
+    // Branched for the same reason the electrician's is: one tip cannot serve
+    // this keyword list. "Turn off the mains" is right for a burst flexi hose
+    // and useless for sewage coming up through a shower drain, which was the
+    // only advice this trade had.
+    //
+    // The overflow relief gully line is written against the water authorities
+    // rather than intuition, because intuition gets it backwards. The ORG is a
+    // grate outside, set lower than the lowest fixture in the house, and it is
+    // DESIGNED to lift under pressure so a blockage overflows outside instead
+    // of inside. Unitywater: check "the grate is loose and not blocked" when
+    // sewage starts overflowing indoors. So the hazard is a gully that has been
+    // covered, sealed or paved over — not a caller who lifts the cap. Sydney
+    // Water's standing instruction is to stay clear of the overflow and not to
+    // clear a blockage yourself. See docs/research/overflow-relief-gully-au.md.
+    emergencySafetyTip: `Match the advice to what they actually describe — do NOT give the same advice every time.
+    - Water actively escaping (burst pipe, split flexible hose, a fixture overflowing): "Turn the water off at the mains tap — usually near the water meter out the front — to stop the damage while you wait."
+    - Wastewater or sewage coming up inside (shower, floor waste, toilet, laundry): tell them to keep everyone and any pets away from it, because it is a health hazard, and to stop running taps, flushing and using the washing machine — everything that goes down the drain adds to what comes up. Do NOT tell them to clear the blockage themselves.
+    - If sewage is surfacing inside, or they ask about the overflow relief gully (the grate outside, set lower than the drains in the house): it is designed to lift so the overflow escapes OUTSIDE instead of inside, so what matters is that nothing is covering, sealing or weighing it down — ask them to check it is clear, without touching the wastewater. Never tell them to hold it down, seal it, or reach into it.
+    - No hot water, a dripping tap, or a slow drain with nothing overflowing: there is nothing urgent for them to do — take the details and get it booked in.`
   },
   electrician: {
     label: "electrical",

@@ -86,19 +86,28 @@ handyman 2/4, plumber 4/7, roofer 4/5. This supersedes the earlier
 "six scenarios failed in both runs" list, which was measured against the broken
 judge and covered non-P0 scenarios too.
 
-**Defects — failed 3/3, these are real and block release:**
+**Defects — failed 3/3. Both have since been run down:**
 
-| Scenario | Failure |
+| Scenario | Outcome |
 |---|---|
-| `plumber_sewage_surfacing_shower` | Never tells the caller to leave the overflow relief gully cap in place instead of pulling it off |
-| `electrician_whole_street_blackout` | 2/3 captured nothing at all (no phone); 1/3 also never said it looks like a distributor outage |
+| `plumber_sewage_surfacing_shower` | **Fixed.** Not the defect it looked like — the assertion was backwards. See below. |
+| `electrician_whole_street_blackout` | **Now 3/3 on speech, still 3/3 red on capture.** Reduced to the open product decision. |
 
-The blackout one is **entangled with an open product decision**, not a
-straightforward bug — see *"should a referred-out call still leave a phone
-number?"* below. The assistant reasons correctly and then ends without details,
-which is what `session.ts:103` forbids and what the prompt's evacuation
-guidance encourages. Decide that first; the eval is asserting one side of an
-argument the prompt has not settled.
+`plumber_sewage_surfacing_shower` asserted that the assistant should tell the
+caller to *leave the overflow relief gully cap in place*, and the prompt had no
+rule about gullies at all. Checked against the water authorities, that advice is
+backwards: the ORG is designed to lift so an overflow escapes outside, and the
+hazard is a gully that has been covered or sealed. The assertion would have
+**passed** an assistant that told the caller to hold the cap down, which is the
+harmful answer. Prompt rule added, assertions rewritten, now 3/3.
+Evidence and citations: `docs/research/overflow-relief-gully-au.md`.
+
+`electrician_whole_street_blackout` loses its speech failures once the compound
+assertion is split, and what is left is purely *no phone number captured*, 3/3.
+That is not a bug, it is the unresolved argument between `session.ts:103`
+("ALWAYS collect the caller's details regardless") and the assistant's own
+correct judgement that a street-wide outage is not our job. **This now blocks
+the P0 gate**, so the decision below is no longer deferrable — promoted from P2.
 
 **Marginal — passed some runs, failed others. Not defects, not passes:**
 
@@ -114,6 +123,32 @@ The bottom two are the ones to watch: a **licensing boundary** and a **gas
 leak** that work two times in three are not features that work. Both were
 recorded last session as verified by a single green run, which is exactly the
 error this rate exists to prevent.
+
+### DECIDE: should a referred-out call still leave a phone number?
+Promoted from P2 on 2026-07-28 because it is now **the only thing failing the
+P0 gate**. Needs the user, not an agent — it is a product call.
+
+In `electrician_whole_street_blackout` and `electrician_overhead_service_line_down`
+the assistant reasons **correctly** — a whole street being dark is the
+distributor's problem, a downed service line is a 000 call — and then ends
+without taking a number. Measured 3/3 on the blackout scenario: no phone, no
+usable capture at all.
+
+`session.ts:103` says the opposite: *"ALWAYS collect the caller's details
+regardless — never turn a caller away without taking their information."* The
+prompt's own rule and the assistant's judgement disagree, and both positions
+are defensible: today's outage caller may have a real job next week, against a
+lead with no job attached being noise the owner learns to ignore.
+
+**Recommendation: take the number.** A referred-out caller has just been given
+something useful for free by a business they had never rung before, which is the
+cheapest goodwill this product will ever buy, and one line — "I'll grab your
+number in case you need us once the power's back" — costs the caller nothing.
+The noise argument is weaker than it looks, because these calls are rare and
+`shouldSendOwnerSms` already suppresses the SMS on a non-job intent.
+
+Whichever way it goes, make the prompt and the eval agree afterwards. If the
+answer is "take it", the fix is in the prompt, not the scenario.
 
 ### DECIDED: should each eval run use a fresh, context-free agent? — no, but generate with one
 Proposed by the user 2026-07-28, assessed the same day. Kept here rather than
@@ -211,6 +246,15 @@ The stance rewrite removes the keyword rule entirely, so both directions are
 gone. Worth noting that reading found the harmless half and only running the
 thing found the half that was actively firing.
 
+**Second defect of the same family, found because the stance made it visible:**
+four scenarios carried a `mustSay` that mixed an instruction with a prohibition
+— *"report it to the distributor **rather than booking an electrician**"*. The
+judge returns one stance per item, so it read the prohibition half, answered
+`DISCOURAGED`, and scored correct transcripts as failures. One of those phantom
+reds was counted as a release-blocking P0 defect in the baseline above. All four
+are split into a `mustSay` plus a `mustNotSay`, which asserts strictly more than
+before, and the rule is written into `docs/eval.md`.
+
 ### The judge cannot see what the caller asked
 Found 2026-07-28. `grade.ts:111` filters the transcript to `role === "assistant"`
 before judging, so the judge grades the assistant's lines in isolation. That is
@@ -248,21 +292,6 @@ trade deliberately and the eval now tests it as designed
 (`captureTarget: "none"`), but it is worth deciding on purpose rather than by
 inheritance. A middle path exists: take the number in one breath *while*
 telling them to leave, rather than either holding them or letting them go.
-
-### Decide: should a referred-out call still leave a phone number?
-Surfaced by the eval, 2026-07-28. In `electrician_whole_street_blackout` and
-`electrician_overhead_service_line_down` the assistant reasons **correctly** —
-a whole street being dark is the distributor's problem, a downed service line
-is a 000 call — and then ends without taking a number.
-
-`session.ts:103` says the opposite: *"ALWAYS collect the caller's details
-regardless — never turn a caller away without taking their information."* So
-the prompt's own rule and the assistant's judgement disagree, and both
-positions are defensible: today's outage caller may have a real job next week,
-against a lead with no job attached being noise.
-
-This is a product decision, not a defect. Whichever way it goes, make the
-prompt and the eval agree afterwards.
 
 ### Decide: how hard should the assistant push for a callback number?
 `handyman_price_shopping_no_booking`. The assistant asks once, the caller

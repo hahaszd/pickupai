@@ -193,8 +193,13 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
       shouldSendOwnerSms: true,
       captureTarget: "complete"
     },
+    // "…rather than handled casually" was both vague and a polarity mix in one
+    // item. The prohibition it was gesturing at is now asserted as one.
     mustSay: [
-      "told the caller the sheeting may contain asbestos and should be assessed carefully rather than handled casually"
+      "raised that the cement sheeting may contain asbestos, given the age of the roof"
+    ],
+    mustNotSay: [
+      "told the caller they can patch, cut, drill or otherwise work on the sheeting themselves"
     ],
     whyThisMatters:
       "Cement-sheet roofing from this era is very likely asbestos, and treating a cracked 'super six' shed roof as an ordinary leak instead of flagging the asbestos risk endangers both the caller and whoever is sent to quote it."
