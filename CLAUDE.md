@@ -153,6 +153,9 @@ things, that the 560-SMS campaign produced zero genuine human clicks — the 60
 `link_clicked_at` stamps are carrier link scanners — and that the only real
 user in the product's history arrived organically.
 
+**Read `HANDOVER.md` first if it exists** — it is a baton from the previous
+session, not a maintained document, and can be deleted once absorbed.
+
 **`BACKLOG.md` at the repo root is the single list of outstanding work.** Add
 an item with a priority the moment it is discovered — a bug found while doing
 something else, a feature agreed in conversation, a deliberate deferral, an
