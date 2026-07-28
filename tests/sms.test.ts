@@ -246,6 +246,12 @@ describe("NO_SMS_INTENTS", () => {
     expect(NO_SMS_INTENTS.has("abusive")).toBe(true);
   });
 
+  // The whole point of adding this intent was that the lead is kept and the
+  // owner's phone stays quiet. Nothing pinned the second half until now.
+  it("suppresses the owner SMS for a call referred to a water authority or distributor", () => {
+    expect(NO_SMS_INTENTS.has("referred_out")).toBe(true);
+  });
+
   it("does not include legitimate intents", () => {
     expect(NO_SMS_INTENTS.has("new_job")).toBe(false);
     expect(NO_SMS_INTENTS.has("follow_up")).toBe(false);
