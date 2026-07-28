@@ -46,8 +46,6 @@ const INTENT_HEADERS: Record<string, string> = {
   job_applicant: "JOB APPLICANT",
   supplier: "SUPPLIER CALL",
   trade_referral: "REFERRAL",
-  // In NO_SMS_INTENTS, so this header only shows up if the suppression is ever
-  // bypassed. Better a correct label than "CALL" if that day comes.
   referred_out: "REFERRED ON",
   cancellation: "CANCELLATION",
   voicemail: "VOICEMAIL",
@@ -64,11 +62,16 @@ export const FIRST_CALL_CELEBRATION_PREFIX =
 
 /** Intents that should NOT trigger an SMS to the owner. */
 export const NO_SMS_INTENTS = new Set([
+  // What these five have in common is that the person on the phone is not a
+  // potential customer. That is the only reason to suppress a message.
+  //
+  // referred_out was briefly in this list and was taken out on 2026-07-29 by
+  // owner decision: that caller rang the RIGHT business, got a straight useful
+  // answer for free, and is the cheapest goodwill this product will ever buy.
+  // The owner has a right to know someone called him, and whether to follow it
+  // up is his call, not the AI's. The message already leads with
+  // "REFERRED - <who>", so it costs him two seconds to read and dismiss.
   "wrong_number",
-  // The caller is real and their details are kept, but the work belongs to a
-  // water authority or a distributor and never becomes a job here. An SMS
-  // would be the owner's phone going off for something nobody can attend.
-  "referred_out",
   "spam",
   "telemarketer",
   "silent",
@@ -84,6 +87,18 @@ export function formatOwnerSms(opts: {
   callId: string;
   callerIntent?: string | null;
   dashboardUrl?: string;
+  /**
+   * The number the caller rang from, from Twilio's `From`.
+   *
+   * Used only when the caller did not give a number. The dashboard has fallen
+   * back to it for a long time; this message did not, so a call where the
+   * caller declined to leave a number reached the owner's phone with no number
+   * on it at all — while the system knew it and showed it on a page the owner
+   * does not open. It is labelled rather than presented as a given number,
+   * because it is not the same thing: a caller can ring from a landline and
+   * want the callback on a mobile, which is why the prompt still asks.
+   */
+  fromNumber?: string | null;
 }) {
   const l = opts.lead;
   const intent = opts.callerIntent ?? "unknown";
@@ -102,6 +117,12 @@ export function formatOwnerSms(opts: {
   const hasName = !!compact(l.name);
   const hasAddress = !!compact(l.address);
   const hasPhone = !!compact(l.phone);
+  // Twilio sends a placeholder rather than a number when the caller withholds
+  // caller ID, and those must not be rendered as something to ring.
+  const rawCallerId = compact(opts.fromNumber);
+  const callerId = rawCallerId && /^\+?\d{6,}$/.test(rawCallerId) && !/^\+?2666/.test(rawCallerId)
+    ? rawCallerId
+    : "";
   const hasSummary = !!compact(l.issue_summary);
   const isDegraded = intent === "new_job" && hasPhone && hasSummary && (!hasName || !hasAddress);
 
@@ -157,6 +178,10 @@ export function formatOwnerSms(opts: {
     // Name and number on one line: this is the callback, and it is the whole
     // reason the message exists.
     [compact(l.name), hasPhone ? formatAuPhone(compact(l.phone)) : ""].filter(Boolean).join("  ") || null,
+    // Only when they gave nothing. Withheld caller ID is real, so this can
+    // still be absent — but silently dropping a number we hold is not a
+    // failure mode worth keeping.
+    !hasPhone && callerId ? `Rang from ${formatAuPhone(callerId)}` : null,
     hasAddress ? truncSms(compact(l.address), 60) : null,
     hasSummary ? truncSms(compact(l.issue_summary), 80) : null,
     notesLine,

@@ -1583,6 +1583,21 @@ export function listOutreachForProspect(db: Db, prospectId: string): OutreachLog
   );
 }
 
+/**
+ * The number the caller rang from.
+ *
+ * Kept separate from `leads.phone`, which is the number the caller *gave*. They
+ * are different things: a caller can ring from a landline and ask to be called
+ * back on a mobile, and a caller who declines to give a number at all still
+ * arrives with a caller ID. The owner SMS uses this as a labelled fallback.
+ */
+export function getCallFromNumber(db: Db, callId: string): string | null {
+  return db.get<{ from_number: string | null }>(
+    "SELECT from_number FROM calls WHERE call_id = ?",
+    [callId]
+  )?.from_number ?? null;
+}
+
 export function getCallsByFromNumber(db: Db, phone: string): CallRow[] {
   return db.all<CallRow>(
     "SELECT * FROM calls WHERE from_number = ? ORDER BY started_at DESC",

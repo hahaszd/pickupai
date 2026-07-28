@@ -111,6 +111,47 @@ describe("formatOwnerSms", () => {
   });
 });
 
+describe("the number the caller rang from", () => {
+  // The dashboard has fallen back to calls.from_number for a long time. This
+  // message did not, so a caller who declined to give a number reached the
+  // owner's phone with no number on it at all — while the system knew it and
+  // showed it on a page the owner does not open.
+  it("shows the caller ID when the caller gave no number", () => {
+    const result = formatOwnerSms({
+      lead: makeLead({ phone: null }),
+      callId: "call-cid",
+      callerIntent: "new_job",
+      fromNumber: "+61412345678"
+    });
+    expect(result).toContain("Rang from 0412 345 678");
+  });
+
+  // Labelled, not merged: a caller can ring from a landline and want the
+  // callback on a mobile, which is exactly why the prompt still asks.
+  it("prefers the number the caller actually gave, and does not add the caller ID as well", () => {
+    const result = formatOwnerSms({
+      lead: makeLead({ phone: "+61499888777" }),
+      callId: "call-both",
+      callerIntent: "new_job",
+      fromNumber: "+61412345678"
+    });
+    expect(result).toContain("0499 888 777");
+    expect(result).not.toContain("Rang from");
+  });
+
+  it("renders nothing for a withheld caller ID rather than a placeholder to ring", () => {
+    for (const withheld of ["+266696687", "anonymous", ""]) {
+      const result = formatOwnerSms({
+        lead: makeLead({ phone: null }),
+        callId: "call-anon",
+        callerIntent: "new_job",
+        fromNumber: withheld
+      });
+      expect(result, withheld).not.toContain("Rang from");
+    }
+  });
+});
+
 describe("notes reach the owner", () => {
   // notes was collected by the assistant and rendered nowhere. The worst case
   // was a voicemail: the owner got "VOICEMAIL:" plus a name and a number, and
@@ -248,10 +289,19 @@ describe("NO_SMS_INTENTS", () => {
     expect(NO_SMS_INTENTS.has("abusive")).toBe(true);
   });
 
-  // The whole point of adding this intent was that the lead is kept and the
-  // owner's phone stays quiet. Nothing pinned the second half until now.
-  it("suppresses the owner SMS for a call referred to a water authority or distributor", () => {
-    expect(NO_SMS_INTENTS.has("referred_out")).toBe(true);
+  // Reversed on 2026-07-29. referred_out spent one day in this set on the
+  // reasoning that an SMS for a job nobody can attend is noise. The owner
+  // decided the other way: that caller rang the RIGHT business and got a free
+  // accurate answer, the owner has a right to know someone called, and whether
+  // to follow it up is his decision. The header already reads "REFERRED ON".
+  it("does NOT suppress a call that was referred on — the caller was real", () => {
+    expect(NO_SMS_INTENTS.has("referred_out")).toBe(false);
+  });
+
+  it("suppresses only callers who are not potential customers", () => {
+    for (const intent of ["wrong_number", "spam", "telemarketer", "silent", "abusive"]) {
+      expect(NO_SMS_INTENTS.has(intent), intent).toBe(true);
+    }
   });
 
   it("does not include legitimate intents", () => {

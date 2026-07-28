@@ -597,8 +597,9 @@ await check("T26", "formatOwnerSms: complaint → header starts with 'COMPLAINT'
   assert(sms.startsWith("COMPLAINT"), `expected COMPLAINT header, got: '${sms.split("\n")[0]}'`);
 });
 
-await check("T27", "NO_SMS_INTENTS set: wrong_number, referred_out, spam, telemarketer, silent, abusive all present", async () => {
-  const shouldSkip = ["wrong_number", "referred_out", "spam", "telemarketer", "silent", "abusive"];
+await check("T27", "NO_SMS_INTENTS suppresses only non-customers; referred_out is NOT suppressed", async () => {
+  const shouldSkip = ["wrong_number", "spam", "telemarketer", "silent", "abusive"];
+  assert(!NO_SMS_INTENTS.has("referred_out"), "'referred_out' must NOT be suppressed - the caller was real");
   for (const intent of shouldSkip) {
     assert(NO_SMS_INTENTS.has(intent), `'${intent}' missing from NO_SMS_INTENTS`);
   }

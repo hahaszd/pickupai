@@ -142,13 +142,56 @@ The residual is the same one recorded above and it is the intended trade: a
 caller who leaves mid-sentence loses whichever field was next, and losing the
 name is the right one to lose.
 
-**Still open, and not decided by this.** `NO_SMS_INTENTS` still suppresses the
-owner SMS for `wrong_number`, `spam`, `telemarketer`, `silent`, `abusive` and —
-added earlier the same day — `referred_out`. Suppressing spam is obviously right
-and is not what this decision was about. **`referred_out` is the one to look at
-again**: it means a real person rang the right business, got useful help, and the
-owner never hears about it, which sits awkwardly against "every call sends one
-message".
+### DECIDED: the owner hears about every real caller, and the caller ID is a number
+Two follow-on decisions, 2026-07-29, both from the owner and both narrowing what
+the principle above actually means in code.
+
+**1. `referred_out` is no longer suppressed.** It spent one day in
+`NO_SMS_INTENTS` on the reasoning that an SMS about a job nobody can attend is
+noise. Reversed: *the tenant has a right to know someone rang him.* That caller
+rang the **right** business, got a straight accurate answer for free, and is the
+cheapest goodwill this product will ever buy — and whether to follow it up is
+his decision, not the AI's. The message already leads with `REFERRED ON` and
+`REFERRED - <who>`, so it costs him two seconds to read and dismiss.
+
+What stays suppressed is `wrong_number`, `spam`, `telemarketer`, `silent`,
+`abusive`, and **the thing they have in common is now written down**: the person
+on the phone is not a potential customer. That is the only admissible reason to
+suppress a message. `plumber_water_bubbling_nature_strip_referred_out` now
+asserts an owner SMS and a captured number, and passes **5/5**.
+
+**2. When the caller will not give a number, use the one they rang from.**
+Raised by the owner as an obvious question — *we can always see it, can't we* —
+and the answer turned out to be "yes, and almost everything already used it
+except the one place that mattered."
+
+`calls.from_number` has always been captured from Twilio's `From`. The dashboard
+lead page has long fallen back to it (`lead.phone ?? lead.from_number`), and the
+voicemail path seeds `phone` from it. **The owner SMS did not.** So a caller who
+declined to leave a number — because they do not yet trust an AI receptionist,
+which is a real and reasonable reaction — reached the tenant's phone **with no
+number on it at all**, while the system knew the number and displayed it on a
+page the tenant does not open. The whole product premise is that he is in a van
+reading an SMS.
+
+Fixed: `formatOwnerSms` takes `fromNumber` and renders `Rang from 0412 345 678`
+**only when the caller gave nothing**. Three deliberate constraints:
+
+- **Labelled, not merged.** A caller can ring from a landline and want the
+  callback on a mobile, or ring from a neighbour's phone. It is not the same
+  fact as a number they gave, so it does not get to look like one — and the
+  prompt still asks, twice, before falling back.
+- **Withheld caller ID renders nothing.** Twilio sends a placeholder for blocked
+  numbers, and a placeholder printed as something to ring is worse than a blank.
+- The dashboard already did this, so the two views finally agree.
+
+**This changes how to read the eval's most common red.** `required field not
+captured: phone` has been the single most frequent failure all week, and it has
+been read as "this lead is unreachable". With the caller ID in the message that
+is usually false — the tenant can ring back. The assertion is still worth
+keeping, because a *confirmed* number is better than a caller ID and the AI
+should still ask, but **it is a quality miss, not a lost lead**, and any future
+prompt work should be priced accordingly.
 
 ## P1
 

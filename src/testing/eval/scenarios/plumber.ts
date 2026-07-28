@@ -276,12 +276,15 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
       "Your own water meter is dry, so it is not on your side of the connection",
       "It has been running all night"
     ],
-    mustCapture: [],
+    // The owner now hears about this call. Suppressing it was the wrong call:
+    // this person rang the right business, got a free and accurate answer, and
+    // whether to follow that up is the owner's decision to make, not ours.
+    mustCapture: ["phone", "issue_summary"],
     expected: {
       shouldSaveLead: true,
       shouldEndCall: true,
-      shouldSendOwnerSms: false,
-      captureTarget: "none"
+      shouldSendOwnerSms: true,
+      captureTarget: "degraded"
     },
     // The "…rather than booking a plumber" tail was both redundant with the
     // mustNotSay below and a polarity mix inside one item, which is what makes

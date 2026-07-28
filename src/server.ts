@@ -84,6 +84,7 @@ import {
   getActiveDemoSession,
   getAdminTenantDetail,
   getLatestLeadForCall,
+  getCallFromNumber,
   getLeadHistoryByPhone,
   getLeadWithCall,
   getNotificationStatus,
@@ -803,7 +804,13 @@ async function main() {
       // Check if this is the tenant's first real call — send a celebration message
       const isFirstCall = notifyTenant && getTenantCallCount(db, notifyTenant.tenant_id) <= 1;
 
-      const body = formatOwnerSms({ lead, callId, callerIntent, dashboardUrl: env.PUBLIC_BASE_URL });
+      const body = formatOwnerSms({
+        lead,
+        callId,
+        callerIntent,
+        dashboardUrl: env.PUBLIC_BASE_URL,
+        fromNumber: getCallFromNumber(db, callId)
+      });
       const firstCallPrefix = isFirstCall ? FIRST_CALL_CELEBRATION_PREFIX : "";
       const sms = await sendOwnerSms(db, firstCallPrefix + body, ownerPhone);
       if (sms.status === "sent") {
