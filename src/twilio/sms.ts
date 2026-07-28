@@ -61,6 +61,30 @@ export const FIRST_CALL_CELEBRATION_PREFIX =
   `[FIRST CALL] Your first real call just came in! PickupAI answered it and here are the details:\n\n`;
 
 /** Intents that should NOT trigger an SMS to the owner. */
+/**
+ * Would this message tell the owner anything at all?
+ *
+ * The rule the owner set on 2026-07-29: send one message for every real
+ * caller, whatever was collected — a name alone is worth having, an issue with
+ * no number is worth having. The single exception is a message with nothing in
+ * it: no name, no number the owner could ring (given or caller ID), and nothing
+ * about what they wanted. That is not a lead, it is a notification that the
+ * phone rang.
+ *
+ * Deliberately an AND, not an OR. A caller who gives only "my hot water's out"
+ * and hangs up from a withheld number leaves nothing to act on; a caller who
+ * gives only a number leaves plenty.
+ */
+export function ownerSmsWouldSayNothing(opts: {
+  lead: Pick<LeadRow, "name" | "phone" | "issue_summary" | "notes">;
+  fromNumber?: string | null;
+}): boolean {
+  const l = opts.lead;
+  const reachable = !!compact(l.phone) || !!usableCallerId(opts.fromNumber);
+  const hasContent = !!compact(l.issue_summary) || !!compact(l.notes);
+  return !compact(l.name) && !reachable && !hasContent;
+}
+
 export const NO_SMS_INTENTS = new Set([
   // What these five have in common is that the person on the phone is not a
   // potential customer. That is the only reason to suppress a message.
@@ -77,6 +101,16 @@ export const NO_SMS_INTENTS = new Set([
   "silent",
   "abusive"
 ]);
+
+/**
+ * A caller ID we could actually ring back. Twilio sends a placeholder rather
+ * than a number when the caller withholds it, and a placeholder printed as
+ * something to ring is worse than a blank.
+ */
+function usableCallerId(from?: string | null): string {
+  const raw = compact(from);
+  return raw && /^\+?\d{6,}$/.test(raw) && !/^\+?2666/.test(raw) ? raw : "";
+}
 
 export type SendOwnerSmsResult =
   | { status: "sent"; sid: string; to: string; from: string }
@@ -119,10 +153,7 @@ export function formatOwnerSms(opts: {
   const hasPhone = !!compact(l.phone);
   // Twilio sends a placeholder rather than a number when the caller withholds
   // caller ID, and those must not be rendered as something to ring.
-  const rawCallerId = compact(opts.fromNumber);
-  const callerId = rawCallerId && /^\+?\d{6,}$/.test(rawCallerId) && !/^\+?2666/.test(rawCallerId)
-    ? rawCallerId
-    : "";
+  const callerId = usableCallerId(opts.fromNumber);
   const hasSummary = !!compact(l.issue_summary);
   const isDegraded = intent === "new_job" && hasPhone && hasSummary && (!hasName || !hasAddress);
 

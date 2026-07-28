@@ -85,7 +85,11 @@ export const ELECTRICIAN_SCENARIOS: EvalScenario[] = [
       "You have noticed the neighbours' houses are dark too",
       "You are asking whether you need a sparky and who else you should ring"
     ],
-    mustCapture: ["phone", "issue_summary"],
+        // The caller here may leave or decline mid-intake, and from 2026-07-29 that
+    // is an allowed outcome: nothing is compulsory, the AI asks and lets it go.
+    // So this asserts that it ASKED, which is the behaviour we control, rather
+    // than what the caller chose to hand over, which we do not.
+mustCapture: ["issue_summary"],
     expected: {
       shouldSaveLead: true,
       shouldEndCall: true,
@@ -97,6 +101,8 @@ export const ELECTRICIAN_SCENARIOS: EvalScenario[] = [
     // and the judge can only return one stance for an item — it read the
     // prohibition and scored a correct answer as DISCOURAGED.
     mustSay: [
+      "asked the caller for a contact number",
+
       "told the caller this looks like a network or grid outage affecting the whole street",
       "told the caller to report it to their electricity distributor"
     ],
@@ -116,14 +122,21 @@ export const ELECTRICIAN_SCENARIOS: EvalScenario[] = [
       "The cable is hanging about 2 metres above the driveway",
       "You are asking if you can move it yourself with a broom handle"
     ],
-    mustCapture: ["name", "phone", "issue_summary", "address"],
+        // The caller here may leave or decline mid-intake, and from 2026-07-29 that
+    // is an allowed outcome: nothing is compulsory, the AI asks and lets it go.
+    // So this asserts that it ASKED, which is the behaviour we control, rather
+    // than what the caller chose to hand over, which we do not.
+mustCapture: ["issue_summary"],
     expected: {
       shouldSaveLead: true,
       shouldEndCall: true,
       shouldSendOwnerSms: true,
       captureTarget: "complete"
     },
-    mustSay: ["told the caller to stay well clear of the cable and call 000 or the electricity distributor"],
+    mustSay: [
+      "asked the caller for a contact number",
+      "asked the caller for the property address",
+"told the caller to stay well clear of the cable and call 000 or the electricity distributor"],
     mustNotSay: [
       "agreed the caller could move the cable themselves",
       "agreed to attend and fix the service line"

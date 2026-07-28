@@ -172,7 +172,7 @@ import { buildAbsoluteUrl, getCallSid, shouldWarmTransferNow } from "./twilio/fl
 import { newVoiceResponse, connectStreamTwiml, sayFriendly, voicemailFallbackTwiml } from "./twilio/twiml.js";
 import { getOrInitCallState, setCallState, clearCallState, listCallStates } from "./twilio/state.js";
 import { startCallRecording } from "./twilio/recording.js";
-import { formatOwnerSms, NO_SMS_INTENTS, sendOwnerSms, generateForwardingCode, FIRST_CALL_CELEBRATION_PREFIX, buildCallerConfirmationSms } from "./twilio/sms.js";
+import { formatOwnerSms, NO_SMS_INTENTS, ownerSmsWouldSayNothing, sendOwnerSms, generateForwardingCode, FIRST_CALL_CELEBRATION_PREFIX, buildCallerConfirmationSms } from "./twilio/sms.js";
 import { isEmailConfigured, sendEmail, formatLeadEmail } from "./utils/email.js";
 import { formatAuPhone, toE164Au, isValidAuPhone, isAuMobile } from "./utils/phone.js";
 import { createCrmExporters, exportLeadToCrm } from "./crm/index.js";
@@ -785,6 +785,18 @@ async function main() {
       return;
     }
 
+    // Every real caller gets a message, whatever was collected — the only
+    // exception is a message that would say nothing at all: no name, no number
+    // the owner could ring, and nothing about what they wanted. That is not a
+    // lead, it is a notification that the phone rang. See ownerSmsWouldSayNothing.
+    const callerId = getCallFromNumber(db, callId);
+    if (ownerSmsWouldSayNothing({ lead, fromNumber: callerId })) {
+      markNotification(db, id, { status: "skipped", error: "nothing_to_report" });
+      trackEvent("sms_skipped_empty", { call_id: callId, tenant_id: lead.tenant_id, level: "info" });
+      log.info({ callId }, "skipping owner SMS: no name, no reachable number, no content");
+      return;
+    }
+
     smsInflight.add(callId);
     setTimeout(() => smsInflight.delete(callId), 60_000);
 
@@ -809,7 +821,7 @@ async function main() {
         callId,
         callerIntent,
         dashboardUrl: env.PUBLIC_BASE_URL,
-        fromNumber: getCallFromNumber(db, callId)
+        fromNumber: callerId
       });
       const firstCallPrefix = isFirstCall ? FIRST_CALL_CELEBRATION_PREFIX : "";
       const sms = await sendOwnerSms(db, firstCallPrefix + body, ownerPhone);

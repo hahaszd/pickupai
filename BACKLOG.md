@@ -142,6 +142,62 @@ The residual is the same one recorded above and it is the intended trade: a
 caller who leaves mid-sentence loses whichever field was next, and losing the
 name is the right one to lose.
 
+### DECIDED: nothing is compulsory — ask twice, then let it go
+Owner decision, 2026-07-29, and the final form of the principle. Three parts:
+
+0. **The conversation is the premise, not the form.** Follow what the caller
+   wants to talk about, answer what they actually asked, and put your questions
+   in where they fit. A caller who feels heard tells you everything; a caller
+   being processed tells you nothing and hangs up.
+1. **No field is mandatory** — not the name, number, address, or any other.
+   **Two distinct stopping conditions, and both are final:**
+   - **An explicit refusal ends it immediately.** "I'd rather not", "I'll ring
+     you back", "why do you need that?" — accept it and never raise it again.
+     One refusal is the whole answer.
+   - **Sliding past it costs one more try.** If they do not refuse but do not
+     engage — change the subject, answer something else — raise it once more at
+     a better moment. If the second attempt does not land, drop it for the rest
+     of the call. Never a third ask.
+2. **Every real caller produces one message**, whatever was collected. A name
+   alone is worth having. An issue with no number is worth having.
+3. **One exception:** a message that would say nothing at all — no name, no
+   number the owner could ring (given *or* caller ID), and nothing about what
+   they wanted. That is not a lead, it is a notification that the phone rang.
+
+**Product changes.** `ownerSmsWouldSayNothing()` in `sms.ts` implements part 3,
+deliberately as an AND rather than an OR, and is checked in
+`notifyOwnerSmsIfNeeded` before the message is built. The prompt lost its
+"ALWAYS ask", "not optional" and "ALWAYS collect regardless" language and gained
+an explicit two-ask cap, including a line telling the assistant that declining
+to give a number is fine because the number they rang from reaches the owner
+anyway.
+
+**The eval change is the subtle one, and it was a judgement call worth stating.**
+`mustCapture: ["phone"]` looks like it asserts the wrong thing now — the product
+no longer promises a captured number. But in this library the simulated caller
+*co-operates*: it hands over what it is asked for. So a missing field is almost
+always a proxy for "the assistant never asked", which is still a red worth
+having, and ripping `mustCapture` out of all 34 scenarios would have removed the
+only thing catching that.
+
+The exception is the handful of scenarios where the caller is **scripted to
+leave or to refuse**: two gas evacuations, the downed service line, the
+street-wide blackout, and the drain price-shopper. There, "did not capture" is
+now an *allowed* outcome, so those five moved from asserting the capture to
+asserting **that the assistant asked** — the half we control, judged from its
+spoken lines. The library invariant in `tests/eval-scenarios.test.ts` changed to
+match: every lead-producing scenario must demand `issue_summary` **and** either a
+captured phone or an explicit ask for one. Asserting neither would let a silent
+regression through.
+
+`issue_summary` stays compulsory everywhere, and the reason is worth keeping:
+the assistant writes it itself from what it heard, so it never depends on the
+caller's cooperation.
+
+**What this retires.** The `name`-dropping WATCH item below is now much less
+interesting — a missing name on a call where the caller left is the system
+working as specified. Re-read that item before spending anything on it.
+
 ### DECIDED: the owner hears about every real caller, and the caller ID is a number
 Two follow-on decisions, 2026-07-29, both from the owner and both narrowing what
 the principle above actually means in code.

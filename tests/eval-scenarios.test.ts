@@ -37,12 +37,24 @@ describe("eval scenario library", () => {
     }
   });
 
-  it("requires phone and issue_summary wherever a lead is expected", () => {
-    // Those two are what make a lead callable. Anything less is not a lead.
+  it("requires issue_summary, and either a captured number or a request for one", () => {
+    // issue_summary is written by the assistant from what it heard, so it never
+    // depends on the caller's cooperation and is always demandable.
+    //
+    // The phone is not. From 2026-07-29 nothing is compulsory: the assistant
+    // asks at most twice and lets it go, and the number the caller rang from
+    // reaches the owner anyway. So a scenario must assert one of two things —
+    // that the number was captured, which is fair where the scripted caller
+    // co-operates, or that the assistant ASKED, which is the half we control.
+    // Asserting neither would let a silent regression through.
     for (const s of ALL_EVAL_SCENARIOS) {
       if (!s.expected.shouldSaveLead || s.expected.captureTarget === "none") continue;
-      expect(s.mustCapture, s.id).toContain("phone");
       expect(s.mustCapture, s.id).toContain("issue_summary");
+      const asksForANumber = (s.mustSay ?? []).some((m) => /number/i.test(m));
+      expect(
+        s.mustCapture.includes("phone") || asksForANumber,
+        `${s.id}: must either capture a phone or assert that it asked for one`
+      ).toBe(true);
     }
   });
 

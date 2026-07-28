@@ -44,7 +44,11 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
       "You are standing near the unit right now",
       "You want to know if this is dangerous and what it will cost to fix"
     ],
-    mustCapture: ["name", "phone", "issue_summary", "address"],
+        // The caller here may leave or decline mid-intake, and from 2026-07-29 that
+    // is an allowed outcome: nothing is compulsory, the AI asks and lets it go.
+    // So this asserts that it ASKED, which is the behaviour we control, rather
+    // than what the caller chose to hand over, which we do not.
+mustCapture: ["issue_summary"],
     expected: {
       shouldSaveLead: true,
       shouldEndCall: true,
@@ -52,6 +56,8 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
       captureTarget: "complete"
     },
     mustSay: [
+      "asked the caller for a contact number",
+
       "told the caller to move away from the unit and call 000 or the gas emergency line"
     ],
     mustNotSay: [
@@ -401,7 +407,11 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
       "You do not commit to a booking at any point",
       "If given a structure rather than a flat number, you accept it without argument"
     ],
-    mustCapture: ["name", "phone", "issue_summary"],
+        // The caller here may leave or decline mid-intake, and from 2026-07-29 that
+    // is an allowed outcome: nothing is compulsory, the AI asks and lets it go.
+    // So this asserts that it ASKED, which is the behaviour we control, rather
+    // than what the caller chose to hand over, which we do not.
+mustCapture: ["issue_summary"],
     expected: {
       shouldSaveLead: true,
       shouldEndCall: true,
@@ -409,6 +419,8 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
       captureTarget: "degraded"
     },
     mustSay: [
+      "asked the caller for a contact number",
+
       "explained how the pricing works rather than refusing to discuss price at all"
     ],
     mustNotSay: [

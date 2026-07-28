@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { formatOwnerSms, NO_SMS_INTENTS, generateForwardingCode, FIRST_CALL_CELEBRATION_PREFIX, buildCallerConfirmationSms } from "../src/twilio/sms.js";
+import { formatOwnerSms, NO_SMS_INTENTS, ownerSmsWouldSayNothing, generateForwardingCode, FIRST_CALL_CELEBRATION_PREFIX, buildCallerConfirmationSms } from "../src/twilio/sms.js";
 import type { LeadRow } from "../src/db/repo.js";
 
 function makeLead(overrides: Partial<LeadRow> = {}): LeadRow {
@@ -108,6 +108,35 @@ describe("formatOwnerSms", () => {
     expect(result).not.toContain("Address:");
     expect(result).not.toContain("Wants:");
     expect(result).not.toContain("Next:");
+  });
+});
+
+describe("ownerSmsWouldSayNothing", () => {
+  // The owner's rule: every real caller gets a message, whatever was collected.
+  // The single exception is a message that would say nothing at all.
+  const bare = { name: null, phone: null, issue_summary: null, notes: null };
+
+  it("suppresses only when there is no name, no reachable number and no content", () => {
+    expect(ownerSmsWouldSayNothing({ lead: bare, fromNumber: null })).toBe(true);
+    expect(ownerSmsWouldSayNothing({ lead: bare, fromNumber: "+266696687" })).toBe(true);
+  });
+
+  it("sends on a name alone", () => {
+    expect(ownerSmsWouldSayNothing({ lead: { ...bare, name: "Gary" }, fromNumber: null })).toBe(false);
+  });
+
+  it("sends on the caller ID alone, even with nothing else", () => {
+    expect(ownerSmsWouldSayNothing({ lead: bare, fromNumber: "+61412345678" })).toBe(false);
+  });
+
+  it("sends on an issue summary alone", () => {
+    expect(ownerSmsWouldSayNothing({ lead: { ...bare, issue_summary: "No hot water" }, fromNumber: null })).toBe(false);
+  });
+
+  // A voicemail body lands in notes rather than issue_summary, and it is
+  // exactly the thing the owner needs to hear about.
+  it("sends on notes alone", () => {
+    expect(ownerSmsWouldSayNothing({ lead: { ...bare, notes: "Voicemail: ring me back" }, fromNumber: null })).toBe(false);
   });
 });
 
