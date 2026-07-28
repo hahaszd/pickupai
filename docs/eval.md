@@ -147,6 +147,29 @@ Two lessons worth keeping:
   harness until the transcript says otherwise — and treat an early green as
   suspect in the assertions.
 
+## The turn budget counts speech, not `chat()` calls
+
+`MAX_TURNS` (14, `EVAL_MAX_TURNS`) counts turns the caller can hear.
+`MAX_ITERATIONS` (3×) is a separate runaway guard on the loop itself.
+
+They were the same number until 2026-07-28, and the conflation was expensive. A
+`save_lead` with no accompanying speech is its own `chat()` call, and the prompt
+tells the assistant to save progressively — so the budget was being spent on
+bookkeeping the caller never hears, and **the calls that followed the
+instruction most diligently ran out of turns first**. Five runs across three
+trades in one gate hit exactly 14 iterations and were reported as *"the line
+would stay open"*; one of them was the report's only defect. The assistant had
+never been given the turn in which it would have called `end_call()`.
+
+A run that exhausts the budget now sets `hitTurnCap` and grades as *"hit the
+harness turn cap (N turns) … inconclusive, not a line left open"*. **Inconclusive
+is not a pass** — it still fails the run, because a call that cannot finish in
+fourteen spoken turns is worth looking at. It is simply not evidence about
+`end_call()`.
+
+If a scenario legitimately needs more room, raise `EVAL_MAX_TURNS` for that run
+rather than trimming the scenario.
+
 ## Why the judge reports a stance, not a boolean
 
 The speech judge used to answer true/false per requirement, and it kept scoring

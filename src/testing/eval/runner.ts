@@ -27,7 +27,16 @@ const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 const ASSISTANT_MODEL = process.env.EVAL_ASSISTANT_MODEL ?? "gpt-5.6-luna";
 // Unchanged: at $0.15/$0.60 nothing OpenAI currently lists undercuts it.
 const CALLER_MODEL = process.env.EVAL_CALLER_MODEL ?? "gpt-4o-mini";
+// Spoken turns, not chat() calls. The distinction matters: the prompt tells the
+// assistant to save progressively, and a save_lead with no accompanying speech
+// costs an iteration of the loop below. Charging those against the same budget
+// billed the assistant for following its own instructions — the calls that saved
+// most diligently ran out of turns first, and every one of them was reported as
+// "the line would stay open" when the truth was that the harness stopped asking.
 const MAX_TURNS = Number(process.env.EVAL_MAX_TURNS ?? 14);
+// Absolute stop, so a model that only ever calls tools cannot spin forever.
+// Generous on purpose — it is a runaway guard, not a conversation length.
+const MAX_ITERATIONS = MAX_TURNS * 3;
 
 type ChatMessage = {
   role: "system" | "user" | "assistant" | "tool";
@@ -217,7 +226,7 @@ function evalTenant(scenario: EvalScenario): TenantRow {
  */
 export async function runScenario(
   scenario: EvalScenario
-): Promise<Pick<EvalResult, "captured" | "savedLead" | "endedCall" | "callerHungUp" | "turnCount" | "transcript">> {
+): Promise<Pick<EvalResult, "captured" | "savedLead" | "endedCall" | "callerHungUp" | "turnCount" | "hitTurnCap" | "transcript">> {
   const systemPrompt = buildSystemPrompt(evalTenant(scenario), [], "+61411222333");
 
   const assistantMessages: ChatMessage[] = [
@@ -238,9 +247,11 @@ export async function runScenario(
   let callerHungUp = false;
   let graceTurnAt = Infinity;
   let turnCount = 0;
+  let iterations = 0;
+  let hitTurnCap = false;
 
   while (turnCount < MAX_TURNS && !endedCall) {
-    turnCount++;
+    if (++iterations > MAX_ITERATIONS) { hitTurnCap = true; break; }
     // One grace turn after a hangup, then stop regardless.
     if (callerHungUp && turnCount > graceTurnAt) break;
 
@@ -287,6 +298,8 @@ export async function runScenario(
 
     const spoken = (msg.content ?? "").trim();
     if (spoken) {
+      // Only a turn the caller can hear counts against the budget.
+      turnCount++;
       transcript.push({ role: "assistant", text: spoken });
       callerMessages.push({ role: "user", content: spoken });
     }
@@ -314,5 +327,10 @@ export async function runScenario(
     assistantMessages.push({ role: "user", content: callerText });
   }
 
-  return { captured, savedLead, endedCall, callerHungUp, turnCount, transcript };
+  // Ran out of budget rather than reaching an ending. The run is inconclusive
+  // about whether the assistant would have closed the call, and the grader must
+  // say so instead of reporting it as a line left open.
+  if (!endedCall && turnCount >= MAX_TURNS) hitTurnCap = true;
+
+  return { captured, savedLead, endedCall, callerHungUp, turnCount, hitTurnCap, transcript };
 }

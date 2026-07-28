@@ -93,6 +93,12 @@ export type EvalResult = {
    */
   callerHungUp: boolean;
   turnCount: number;
+  /**
+   * The conversation ran out of turns before anyone ended it. Says nothing about
+   * whether the assistant would have called end_call(), so the grader reports it
+   * as a harness limit rather than as a line the assistant left open.
+   */
+  hitTurnCap: boolean;
   transcript: Array<{ role: "caller" | "assistant" | "tool"; text: string }>;
 };
 

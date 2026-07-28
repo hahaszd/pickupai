@@ -26,7 +26,7 @@ type Stance = "DIRECTED" | "STATED" | "DISCOURAGED" | "ABSENT";
  */
 export async function gradeScenario(
   scenario: EvalScenario,
-  run: Pick<EvalResult, "captured" | "savedLead" | "endedCall" | "callerHungUp" | "turnCount" | "transcript">
+  run: Pick<EvalResult, "captured" | "savedLead" | "endedCall" | "callerHungUp" | "turnCount" | "hitTurnCap" | "transcript">
 ): Promise<EvalResult> {
   const failures: string[] = [];
   const c = run.captured as Record<string, string | null | undefined>;
@@ -44,8 +44,17 @@ export async function gradeScenario(
   // tears the call down, so that ends it too — end_call() is the preferred
   // ending, not the only acceptable one. The failure worth catching is a call
   // that reaches the turn limit with neither side ending it.
+  //
+  // A run that ran out of turns is a different thing and must say so. It was
+  // read as a product defect for a whole gate run — five reds across three
+  // trades, one of them the only "defect" in the report — when the assistant had
+  // simply never been given the turn in which it would have ended the call.
   if (scenario.expected.shouldEndCall && !run.endedCall && !run.callerHungUp) {
-    failures.push("neither end_call nor a caller hangup — the line would stay open");
+    failures.push(
+      run.hitTurnCap
+        ? `hit the harness turn cap (${run.turnCount} turns) before anyone ended the call — inconclusive, not a line left open`
+        : "neither end_call nor a caller hangup — the line would stay open"
+    );
   }
 
   // ── Field capture ─────────────────────────────────────────────────────────
@@ -104,6 +113,7 @@ export async function gradeScenario(
     savedLead: run.savedLead,
     endedCall: run.endedCall,
     callerHungUp: run.callerHungUp,
+    hitTurnCap: run.hitTurnCap,
     turnCount: run.turnCount,
     transcript: run.transcript
   };

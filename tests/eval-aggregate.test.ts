@@ -18,6 +18,7 @@ function run(scenarioId: string, passed: boolean, failures: string[] = []): Eval
     endedCall: passed,
     callerHungUp: false,
     turnCount: 4,
+    hitTurnCap: false,
     transcript: []
   };
 }
