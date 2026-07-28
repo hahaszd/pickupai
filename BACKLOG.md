@@ -80,53 +80,71 @@ The gate exits non-zero only on a P0 that fails every run; a marginal P0 is
 printed loudly and does not block. See `docs/eval.md`.
 
 ### The first trustworthy P0 baseline — 21 scenarios × 3, 2026-07-28
-`npm run eval:p0`, concurrency 4, after the judge stance fix. **14/21 passed
-all three runs, 2 failed all three, 5 are marginal.** By trade: electrician 4/5,
-handyman 2/4, plumber 4/7, roofer 4/5. This supersedes the earlier
-"six scenarios failed in both runs" list, which was measured against the broken
-judge and covered non-P0 scenarios too.
+`npm run eval:p0`, concurrency 4. Three full runs were needed to get here, and
+only the last one is a measurement of the product:
 
-**Defects — failed 3/3. Both have since been run down:**
+| Run | Result | What it measured |
+|---|---|---|
+| 1 | 14 pass / 2 defect / 5 marginal | Mostly the judge. One "defect" was a backwards assertion, one was a compound assertion the judge could not answer. |
+| 2 | 11 / 1 / 9 | The three-stance judge's own blind spot — informational assertions had no valid answer. |
+| 3 | **13 pass / 0 defect / 8 marginal** | The product. |
 
-| Scenario | Outcome |
-|---|---|
-| `plumber_sewage_surfacing_shower` | **Fixed.** Not the defect it looked like — the assertion was backwards. See below. |
-| `electrician_whole_street_blackout` | **Now 3/3 on speech, still 3/3 red on capture.** Reduced to the open product decision. |
+**Final: 13/21 passed all three runs, no scenario failed all three, 8 marginal.**
+electrician 3/5 · handyman 3/4 · plumber 4/7 · roofer 3/5. **The P0 gate is
+green.** This supersedes the earlier "six scenarios failed in both runs" list,
+which was measured against the broken judge.
 
-`plumber_sewage_surfacing_shower` asserted that the assistant should tell the
-caller to *leave the overflow relief gully cap in place*, and the prompt had no
-rule about gullies at all. Checked against the water authorities, that advice is
-backwards: the ORG is designed to lift so an overflow escapes outside, and the
-hazard is a gully that has been covered or sealed. The assertion would have
-**passed** an assistant that told the caller to hold the cap down, which is the
-harmful answer. Prompt rule added, assertions rewritten, now 3/3.
-Evidence and citations: `docs/research/overflow-relief-gully-au.md`.
-
-`electrician_whole_street_blackout` loses its speech failures once the compound
-assertion is split, and what is left is purely *no phone number captured*, 3/3.
-That is not a bug, it is the unresolved argument between `session.ts:103`
-("ALWAYS collect the caller's details regardless") and the assistant's own
-correct judgement that a street-wide outage is not our job. **This now blocks
-the P0 gate**, so the decision below is no longer deferrable — promoted from P2.
+**Read the run-level rate, not just the headline.** Failed *runs* went 13/63 →
+14/63 → 10/63 across the three, while the headline went 14 → 11 → 13. The
+headline counts scenarios that were perfect, so it swings on how failures are
+distributed as much as on how many there are. Quote both.
 
 **Marginal — passed some runs, failed others. Not defects, not passes:**
 
 | Scenario | Rate | What flapped |
 |---|---|---|
+| `electrician_overhead_service_line_down` | 1/3 | 2 of 3 captured no name, phone **or** address at all |
 | `roofer_hail_pockmarked_no_leak_negative_control` | 1/3 | `urgency_level` came out `routine`, expected `urgent`, on 2 of 3 |
-| `handyman_multi_job_call_with_late_addition` | 1/3 | Line stayed open — neither `end_call` nor a hangup — on 2 of 3 |
-| `plumber_gas_smell_hot_water_unit` | 2/3 | One run captured no name, phone or address at all |
-| `plumber_blocked_drain_price_first_late_night` | 2/3 | One run captured no name |
-| `handyman_garage_power_points_plus_sliding_door` | 2/3 | One run never said power points need a licensed electrician |
+| `plumber_gas_smell_hot_water_unit` | 2/3 | One run captured nothing |
+| `electrician_mains_shock_washing_machine` | 2/3 | One run captured nothing |
+| `plumber_water_through_unit_ceiling_tenant` | 2/3 | One run missed the name |
+| `plumber_burst_hose_no_address` | 2/3 | One run missed the name |
+| `roofer_reroof_quote_followup_terrigal` | 2/3 | One run missed `urgency_level` |
+| `handyman_price_shopping_no_booking` | 2/3 | One run captured nothing |
 
-The bottom two are the ones to watch: a **licensing boundary** and a **gas
-leak** that work two times in three are not features that work. Both were
-recorded last session as verified by a single green run, which is exactly the
-error this rate exists to prevent.
+### The remaining P0 pattern: urgent calls end without details
+Six of the eight marginals above are the same failure — **name, phone or
+address missing on a call the assistant correctly treated as serious.** It is
+worst on `electrician_overhead_service_line_down` (1/3), where a caller standing
+in their own driveway looking at a hanging cable is told to keep clear and ring
+000, and then let go without a name.
 
-### DECIDE: should a referred-out call still leave a phone number?
-Promoted from P2 on 2026-07-28 because it is now **the only thing failing the
-P0 gate**. Needs the user, not an agent — it is a product call.
+Hypothesis, not yet confirmed by reading transcripts: the evacuation exception
+in `# Life-Threatening Emergencies` — *"Do not keep them on the line if they
+need to evacuate"* — is being applied to **any** call with a hazard in it,
+rather than to a caller who has to leave right now. A driveway is not a burning
+house, and one line takes a name.
+
+Next step is to read the failing transcripts for those six before changing
+anything; the eval has now produced three rounds of findings that turned out to
+be about the eval, and this hypothesis is exactly the shape of the ones that
+were wrong. If it holds, the fix is to narrow the exception to callers who are
+leaving, not callers who are near something dangerous.
+
+### DECIDED: a referred-out call still leaves a phone number
+Promoted from P2 on 2026-07-28 because it was the only thing failing the P0
+gate, decided by the user the same day: **take the number.** Implemented as a
+new `# When the Job Belongs to Someone Else` section in `session.ts`, placed
+directly under Life-Threatening Emergencies so the evacuation exception visibly
+outranks it. `electrician_whole_street_blackout` went 0/3 → 3/3.
+
+**Correct the record while you are here.** The previous session recorded this
+as the prompt contradicting itself, citing `session.ts:103`'s *"ALWAYS collect
+the caller's details regardless"*. That line lives inside the **Service Area**
+section, which is only emitted when the tenant has a `service_area` configured
+— and the eval tenant's is `null`, so the rule was never in the prompt being
+tested. There was no contradiction to resolve; there was simply no rule. A
+citation to a line number is not a citation to a rule that was in force.
 
 In `electrician_whole_street_blackout` and `electrician_overhead_service_line_down`
 the assistant reasons **correctly** — a whole street being dark is the
@@ -245,6 +263,17 @@ from a phantom failure, and it would have read like a product defect.
 The stance rewrite removes the keyword rule entirely, so both directions are
 gone. Worth noting that reading found the harmless half and only running the
 thing found the half that was actively firing.
+
+**Third round of the same bug, in the fix itself.** The stance vocabulary
+shipped with only the three *action* stances, and informational requirements had
+nowhere to land. `handyman_garage_power_points_plus_sliding_door` asserts *"told
+the caller that adding power points requires a licensed electrician"* — a fact.
+The sentence that conveys it correctly also declines the work, so the judge
+answered `DISCOURAGED`, and a working P0 licensing boundary was reported as a
+3/3 release-blocking defect. Added `STATED`; `mustSay` now passes on `DIRECTED`
+or `STATED`. Same prompt, 3/3 green. **Widening a judge's answer format tends to
+reveal the next class it has no room for — re-run and read before believing the
+new numbers either.**
 
 **Second defect of the same family, found because the stance made it visible:**
 four scenarios carried a `mustSay` that mixed an instruction with a prohibition

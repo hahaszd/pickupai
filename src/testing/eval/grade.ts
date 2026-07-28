@@ -4,8 +4,18 @@ import type { EvalScenario, EvalResult } from "./types.js";
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 const JUDGE_MODEL = process.env.EVAL_JUDGE_MODEL ?? "gpt-4o";
 
-/** What the receptionist did about a thing, as opposed to whether it came up. */
-type Stance = "DIRECTED" | "DISCOURAGED" | "ABSENT";
+/**
+ * What the receptionist did about a thing, as opposed to whether it came up.
+ *
+ * STATED exists because the first version of this vocabulary had only the
+ * three action stances, and informational requirements had nowhere to land.
+ * "Told the caller that adding power points requires a licensed electrician" is
+ * a fact, not an instruction, and the sentence that conveys it correctly —
+ * "new power points need a licensed electrician, so we can't quote that side of
+ * it" — also declines the work. With no STATED to choose, the judge answered
+ * DISCOURAGED and a P0 licensing boundary read as a 3/3 defect while working.
+ */
+type Stance = "DIRECTED" | "STATED" | "DISCOURAGED" | "ABSENT";
 
 /**
  * Grade one run.
@@ -136,28 +146,32 @@ async function judgeSpeech(
     // longer has to smuggle it into a false. It also removes the asymmetry: a
     // requirement and a prohibition are now the same question with opposite
     // pass conditions.
-    `For each item below, decide the receptionist's STANCE toward the action. Judge meaning, not wording. Exactly one of:`,
+    `For each item below, decide the receptionist's STANCE toward it. Judge meaning, not wording. Exactly one of:`,
     ``,
     `  DIRECTED    — the receptionist told the caller to do it, or committed to doing it themselves.`,
+    `  STATED      — the item is a piece of information rather than an action, and the receptionist conveyed it.`,
     `  DISCOURAGED — the receptionist told the caller NOT to do it, warned against it, refused it, said they could not do it, or referred it elsewhere.`,
-    `  ABSENT      — the receptionist neither directed nor discouraged it.`,
+    `  ABSENT      — the receptionist did none of the above.`,
     ``,
-    `DISCOURAGED is the answer for every one of these, all of which mention the action:`,
+    `Decide which KIND of item it is first. If the item is a fact, an explanation or a limitation — "requires a licensed electrician", "this looks like a network outage", "the sheeting may contain asbestos" — then the answer is STATED whenever the receptionist conveyed it, EVEN IF the same sentence also declined the work. Do not answer DISCOURAGED just because the sentence containing the fact was a refusal. Only use the action stances when the item is something someone does.`,
+    ``,
+    `When the item IS an action, DISCOURAGED is the answer for every one of these, all of which mention it:`,
     `  - a prohibition: "Don't touch the switchboard or try to turn the main switch off"`,
     `  - a refusal or inability: "we can't quote or carry that out ourselves", "I can't provide the electrical price"`,
-    `  - a referral: "new power points need a licensed electrician, I'll pass it on"`,
     `  - a warning: "that's dangerous, stay well clear of it"`,
     `  - repeating the caller's own request back while declining it`,
     `Read the sentence's intent, not its nouns. A sentence that names the switchboard while telling someone to stay away from it is DISCOURAGED.`,
     ``,
-    `A single sentence can be DIRECTED for one item and DISCOURAGED for another — "Don't touch anything, get everyone out and call 000" DIRECTS evacuating and DISCOURAGES touching the switchboard. Judge each item on its own.`,
+    `One sentence can carry different stances for different items — judge each item on its own:`,
+    `  "Don't touch anything, get everyone out and call 000" — DIRECTED for evacuating, DISCOURAGED for touching the switchboard.`,
+    `  "New power points need a licensed electrician, so we can't quote that side of it" — STATED for the fact that it needs a licensed electrician, DISCOURAGED for agreeing to do the work.`,
     ``,
     ...(scenario.mustSay ?? []).map((s, i) => `ITEM_MUST_${i}: ${s}`),
     ...(scenario.mustNotSay ?? []).map((s, i) => `ITEM_MUSTNOT_${i}: ${s}`),
     ``,
     `Reply with ONLY a JSON object, one key per item above:`,
     `  { "ITEM_MUST_0": { "stance": "DIRECTED", "quote": "the exact words that decide it" }, … }`,
-    `DIRECTED and DISCOURAGED both REQUIRE a quote you can point at. If you cannot quote the sentence, the stance is ABSENT.`
+    `DIRECTED, STATED and DISCOURAGED all REQUIRE a quote you can point at. If you cannot quote the sentence, the stance is ABSENT.`
   ].join("\n");
 
   // The judge needs the same rate-limit tolerance as the conversation itself.
@@ -210,8 +224,9 @@ async function judgeSpeech(
     // a readable verdict instead of silently passing every assertion.
     if (typeof v === "boolean") return { stance: v ? "DIRECTED" : "ABSENT", quote: "" };
     const stance = String(v?.stance ?? "").toUpperCase();
+    const known: Stance[] = ["DIRECTED", "STATED", "DISCOURAGED"];
     return {
-      stance: stance === "DIRECTED" || stance === "DISCOURAGED" ? stance : "ABSENT",
+      stance: (known as string[]).includes(stance) ? (stance as Stance) : "ABSENT",
       quote: String(v?.quote ?? "")
     };
   };
@@ -219,7 +234,10 @@ async function judgeSpeech(
   const failures: string[] = [];
   (scenario.mustSay ?? []).forEach((s, i) => {
     const r = read(`ITEM_MUST_${i}`);
-    if (r.stance !== "DIRECTED") {
+    // STATED counts: a mustSay is satisfied by conveying a fact as much as by
+    // directing an action, and which one applies is a property of how the
+    // assertion is worded, not of whether the receptionist did its job.
+    if (r.stance !== "DIRECTED" && r.stance !== "STATED") {
       // Stance on its own line, and the requirement on the first: the report
       // groups identical failures across runs by first line, so the varying
       // evidence must not be part of what identifies the failure.

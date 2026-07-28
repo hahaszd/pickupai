@@ -162,17 +162,33 @@ the switchboard. The assistant's behaviour in those runs was correct.
 
 The fix was to stop asking a boolean. A boolean forces "mentioned it while
 forbidding it" into one of two answers and the wrong one is nearer, so the judge
-has nowhere to put the truth. It now names a stance — `DIRECTED`,
-`DISCOURAGED`, or `ABSENT` — which makes the correct answer sayable, and makes
-a requirement and a prohibition the same question with opposite pass conditions.
-`mustSay` passes on `DIRECTED`; `mustNotSay` fails on `DIRECTED`.
+has nowhere to put the truth. It now names a stance, and `mustSay` passes on
+`DIRECTED` or `STATED` while `mustNotSay` fails only on `DIRECTED`:
+
+| Stance | Meaning |
+|---|---|
+| `DIRECTED` | Told the caller to do it, or committed to doing it themselves. |
+| `STATED` | The item is information rather than an action, and it was conveyed. |
+| `DISCOURAGED` | Told the caller not to, warned against it, refused, or referred it on. |
+| `ABSENT` | None of the above. |
 
 Same scenario immediately after the change: **5 of 5 passed.** Small n, and the
 scenario was already marginal, so treat it as a strong signal rather than proof.
 
-The general lesson is worth more than the fix: **when a judge keeps getting one
-class of case wrong, check whether its answer format has room for the right
-answer** before adding another instruction telling it to try harder.
+`STATED` was not in the first version, and its absence cost a full P0 run.
+`handyman_garage_power_points_plus_sliding_door` requires the assistant to have
+*told the caller that adding power points requires a licensed electrician* — a
+**fact**, not an action. The sentence that conveys it correctly ("new power
+points need a licensed electrician, so we can't quote that side of it") also
+declines the work, so with only the three action stances available the judge
+answered `DISCOURAGED` and a working licensing boundary read as a 3/3
+release-blocking defect. With `STATED` available: 3/3 green, same prompt.
+
+The general lesson, which the second bug proves harder than the first:
+**when a judge keeps getting one class of case wrong, check whether its answer
+format has room for the right answer** before adding another instruction telling
+it to try harder. The first fix widened the format and immediately exposed a
+second class it still had no room for.
 
 Verified working by this: the branching electrical safety advice, the
 electric-shock rule, the handyman licensing boundary, and all three negative
@@ -186,14 +202,20 @@ is not evidence that a behaviour works — it is evidence that it can work.
 
 ## First baseline on a rate — 2026-07-28
 
-`npm run eval:p0` — 21 P0 scenarios × 3 runs, after the judge stance fix.
+`npm run eval:p0` — 21 P0 scenarios × 3 runs.
 
-**14/21 passed all three. 2 failed all three. 5 are marginal.**
-electrician 4/5 · handyman 2/4 · plumber 4/7 · roofer 4/5
+**13/21 passed all three. None failed all three. 8 are marginal.**
+electrician 3/5 · handyman 3/4 · plumber 4/7 · roofer 3/5
 
-The marginal five are the interesting result. `roofer_hail_pockmarked_no_leak_negative_control`
-passes 1 in 3; `handyman_multi_job_call_with_late_addition` leaves the line open
-2 in 3; the handyman licensing boundary and a gas-leak capture each hold 2 in 3.
-None of those would have been visible in a single run — each would have read as
-a clean pass or a clean defect depending on the day. Full list, with what
-flapped, in `BACKLOG.md`.
+It took three full runs to get one that measured the product; the first two
+measured this harness. Both false defects are written up above.
+
+**Quote two numbers, not one.** Failed *runs* went 13/63 → 14/63 → 10/63 across
+those three, while the headline went 14 → 11 → 13. The headline counts only
+scenarios that were perfect, so it moves on how failures are *distributed* as
+much as on how many there are — three flaky scenarios and one broken one produce
+very different headlines from the same failure count.
+
+Six of the eight remaining marginals are one pattern: **name, phone or address
+missing on a call the assistant correctly treated as serious.** Full list and
+the current hypothesis in `BACKLOG.md`.
