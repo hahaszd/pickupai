@@ -748,3 +748,52 @@ describe("withheld caller ID never reaches the owner as something to ring", () =
     })).toBe(true);
   });
 });
+
+describe("SMS provider selection", () => {
+  // Having the three MOBILE_MSG_* vars present used to be enough to route all
+  // outbound SMS through Mobile Message. That made the provider an accident of
+  // which credentials a deploy happened to carry, and it meant the /mobilemsg/*
+  // webhooks started mattering without anyone deciding they should.
+  it("stays on Twilio unless SMS_PROVIDER explicitly says otherwise", async () => {
+    const prev = {
+      p: process.env.SMS_PROVIDER,
+      u: process.env.MOBILE_MSG_API_USER,
+      w: process.env.MOBILE_MSG_API_PASSWORD,
+      s: process.env.MOBILE_MSG_SENDER
+    };
+    try {
+      process.env.MOBILE_MSG_API_USER = "u";
+      process.env.MOBILE_MSG_API_PASSWORD = "p";
+      process.env.MOBILE_MSG_SENDER = "PickupAI";
+
+      // Full credentials, no SMS_PROVIDER: Twilio.
+      delete process.env.SMS_PROVIDER;
+      vi.resetModules();
+      let mm = await import("../src/sms/mobile-message.js");
+      expect(mm.isMobileMessageConfigured()).toBe(false);
+      expect(mm.smsProviderConfig().provider).toBe("twilio");
+
+      // Explicitly asked for, with credentials: Mobile Message.
+      process.env.SMS_PROVIDER = "mobilemessage";
+      vi.resetModules();
+      mm = await import("../src/sms/mobile-message.js");
+      expect(mm.isMobileMessageConfigured()).toBe(true);
+      expect(mm.smsProviderConfig().provider).toBe("mobilemessage");
+
+      // Explicitly asked for, credentials missing: still Twilio, not broken.
+      delete process.env.MOBILE_MSG_SENDER;
+      vi.resetModules();
+      mm = await import("../src/sms/mobile-message.js");
+      expect(mm.isMobileMessageConfigured()).toBe(false);
+      expect(mm.smsProviderConfig().provider).toBe("twilio");
+    } finally {
+      for (const [k, v] of [
+        ["SMS_PROVIDER", prev.p], ["MOBILE_MSG_API_USER", prev.u],
+        ["MOBILE_MSG_API_PASSWORD", prev.w], ["MOBILE_MSG_SENDER", prev.s]
+      ] as const) {
+        if (v === undefined) delete process.env[k]; else process.env[k] = v;
+      }
+      vi.resetModules();
+    }
+  });
+});

@@ -6,7 +6,18 @@ const log = pino({ level: "info" });
 
 const API_BASE = "https://api.mobilemessage.com.au/v1";
 
+/**
+ * The single gate every send path branches on. Twilio is the fallback
+ * everywhere, so returning false here routes all SMS through Twilio.
+ *
+ * SMS_PROVIDER has to say "mobilemessage" as well as the credentials being
+ * present. Credentials alone used to be enough, which made the provider an
+ * accident of which env vars a deploy happened to carry — and it meant the
+ * /mobilemsg/* webhooks started mattering without anyone deciding they should.
+ * Off by owner decision 2026-07-29.
+ */
 export function isMobileMessageConfigured(): boolean {
+  if (env.SMS_PROVIDER !== "mobilemessage") return false;
   return !!(env.MOBILE_MSG_API_USER && env.MOBILE_MSG_API_PASSWORD && env.MOBILE_MSG_SENDER);
 }
 
@@ -19,8 +30,8 @@ export interface SmsProviderConfig {
 /**
  * Snapshot of which SMS provider would handle the next outbound send if it
  * were attempted right now. Mirrors the routing gate used by `sendOwnerSms`
- * and the admin send endpoints — Mobile Message is preferred when fully
- * configured; Twilio is the fallback.
+ * and the admin send endpoints — Twilio unless SMS_PROVIDER explicitly selects
+ * Mobile Message and its credentials are present.
  *
  * `ready=true` means the chosen provider has all credentials present and a
  * send call would not be skipped at the configuration step. `ready=false`

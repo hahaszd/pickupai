@@ -42,6 +42,19 @@ const envSchema = z.object({
 
   ADMIN_TOKEN: z.string().optional(),
   /**
+   * Which provider sends outbound SMS. Defaults to twilio.
+   *
+   * Mobile Message is the cheaper AU provider and the code for it works, but it
+   * is off by owner decision on 2026-07-29 and stays off until deliberately
+   * turned back on. Having the three MOBILE_MSG_* vars present is no longer
+   * enough to route traffic through it — that made the provider a side effect
+   * of which credentials happened to be set.
+   *
+   * Turning it on means turning on everything that hangs off it, including the
+   * /mobilemsg/* webhooks. Read MOBILEMSG_WEBHOOK_SECRET below before doing so.
+   */
+  SMS_PROVIDER: z.enum(["twilio", "mobilemessage"]).default("twilio"),
+  /**
    * Shared secret for the Mobile Message inbound/status webhooks, which have no
    * signature scheme of their own. Sent as ?s=<secret> on the webhook URL
    * configured in the Mobile Message dashboard.

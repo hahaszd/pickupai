@@ -522,6 +522,21 @@ function seedDefaultTenant(db: any) {
   if (existing.length > 0) return;
   if (!env.TWILIO_DEFAULT_VOICE_NUMBER) return;
 
+  // No fallback credentials. This used to default to owner@example.com /
+  // changeme123, which meant an empty tenants table produced a live dashboard
+  // account with a password written in the source — a working credential for
+  // anyone who read the repo, on any deploy that had not signed anyone up yet.
+  // CODING_STANDARDS: never inline a credential. Refusing to seed is the safe
+  // failure; an unreachable dashboard is recoverable and a known password is
+  // not.
+  if (!env.SEED_EMAIL || !env.SEED_PASSWORD) {
+    log.warn(
+      "No tenants found, and SEED_EMAIL / SEED_PASSWORD are not both set — not seeding. " +
+      "Set both to bootstrap the first tenant, or sign up through /dashboard/signup."
+    );
+    return;
+  }
+
   log.info("No tenants found — seeding default tenant from env vars");
   try {
     createTenant(db, {
@@ -530,12 +545,12 @@ function seedDefaultTenant(db: any) {
       ai_name: "Olivia",
       twilio_number: env.TWILIO_DEFAULT_VOICE_NUMBER,
       owner_phone: env.OWNER_PHONE_NUMBER || "",
-      owner_email: env.SEED_EMAIL ?? "owner@example.com",
-      password: env.SEED_PASSWORD ?? "changeme123"
+      owner_email: env.SEED_EMAIL,
+      password: env.SEED_PASSWORD
     });
     log.info(
-      { number: env.TWILIO_DEFAULT_VOICE_NUMBER, email: env.SEED_EMAIL ?? "owner@example.com" },
-      "Default tenant created. Check SEED_EMAIL / SEED_PASSWORD env vars for login credentials."
+      { number: env.TWILIO_DEFAULT_VOICE_NUMBER, email: env.SEED_EMAIL },
+      "Default tenant created. Log in with SEED_EMAIL / SEED_PASSWORD."
     );
   } catch (err) {
     log.warn({ err }, "Failed to seed default tenant");

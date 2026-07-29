@@ -52,6 +52,7 @@ In your service → **Variables**, add:
 | `OPENAI_API_KEY` | Your OpenAI key |
 | `OPENAI_VOICE` | `marin` (or `sage`, `alloy`, etc.) |
 | `ADMIN_TOKEN` | A strong random secret (generate with `openssl rand -hex 32`) |
+| `SMS_PROVIDER` | `twilio` (default) or `mobilemessage`. Mobile Message is off by decision as of 2026-07-29; having the `MOBILE_MSG_*` credentials present is not enough to route traffic through it. Turning it on also turns on the `/mobilemsg/*` webhooks — set `MOBILEMSG_WEBHOOK_SECRET` in the same change. |
 | `MOBILEMSG_WEBHOOK_SECRET` | Shared secret for the Mobile Message webhooks, which have no signature scheme of their own. Append `?s=<value>` to **both** callback URLs in the Mobile Message dashboard (`/mobilemsg/sms/incoming` and `/mobilemsg/sms/status`). Setting the var without updating the dashboard drops inbound SMS; updating the dashboard without setting the var does nothing. While unset the endpoints accept unauthenticated writes to `prospects` and `outreach_log` — the ACMA consent trail — and log a warning on every hit. |
 | `OWNER_PHONE_NUMBER` | Admin mobile for system alerts (e.g. `+61412000000`) |
 | `TWILIO_VALIDATE_SIGNATURE` | `true` |
