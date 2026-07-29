@@ -79,7 +79,7 @@ export function ownerSmsWouldSayNothing(opts: {
   fromNumber?: string | null;
 }): boolean {
   const l = opts.lead;
-  const reachable = !!compact(l.phone) || !!usableCallerId(opts.fromNumber);
+  const reachable = (!!compact(l.phone) && !isUnreachableNumber(l.phone)) || !!usableCallerId(opts.fromNumber);
   const hasContent = !!compact(l.issue_summary) || !!compact(l.notes);
   return !compact(l.name) && !reachable && !hasContent;
 }
@@ -102,13 +102,55 @@ export const NO_SMS_INTENTS = new Set([
 ]);
 
 /**
+ * Values that turn up in a phone field and cannot be rung.
+ *
+ * Twilio documents only the alpha forms: since 2023-05-17 a withheld caller ID
+ * arrives as the string `anonymous`, and it persists whatever alpha string the
+ * carrier sent (`ANONYMOUS`, `RESTRICTED`).
+ * https://www.twilio.com/en-us/changelog/changes-to-withheld-caller-id-behavior
+ *
+ * The NUMERIC forms below are what carriers hand over and Twilio does not
+ * document them anywhere, so they are listed by the word each one spells on a
+ * phone keypad rather than as magic numbers — otherwise the next person reads
+ * them as a typo and deletes them. Only `266696687` was caught before; a
+ * withheld caller arriving as `+7378742833` was printed to the owner as a
+ * number to ring back.
+ *
+ * Matching is on the EXACT digit string, so a real number that merely contains
+ * one of these runs (+61266696687) is unaffected.
+ */
+const PLACEHOLDER_DIGITS = new Set([
+  "266696687",  // ANONYMOUS
+  "7378742833", // RESTRICTED
+  "8656696",    // UNKNOWN
+  "862825",     // UNAVAIL
+  "7748433"     // PRIVATE
+]);
+const PLACEHOLDER_WORDS = new Set([
+  "anonymous", "restricted", "unavailable", "unknown", "private", "withheld", "blocked"
+]);
+
+/**
+ * True for anything the owner could not ring back. Deliberately narrow: it only
+ * rejects the exact known placeholders, because a false positive here silently
+ * drops a real customer's number, which is the worse of the two failures.
+ */
+export function isUnreachableNumber(value?: string | null): boolean {
+  const raw = compact(value);
+  if (!raw) return false;
+  const letters = raw.toLowerCase().replace(/[^a-z]/g, "");
+  if (letters && PLACEHOLDER_WORDS.has(letters)) return true;
+  return PLACEHOLDER_DIGITS.has(raw.replace(/\D/g, ""));
+}
+
+/**
  * A caller ID we could actually ring back. Twilio sends a placeholder rather
  * than a number when the caller withholds it, and a placeholder printed as
  * something to ring is worse than a blank.
  */
 function usableCallerId(from?: string | null): string {
   const raw = compact(from);
-  return raw && /^\+?\d{6,}$/.test(raw) && !/^\+?2666/.test(raw) ? raw : "";
+  return raw && /^\+?\d{6,}$/.test(raw) && !isUnreachableNumber(raw) ? raw : "";
 }
 
 export type SendOwnerSmsResult =
@@ -149,7 +191,7 @@ export function formatOwnerSms(opts: {
 
   const hasName = !!compact(l.name);
   const hasAddress = !!compact(l.address);
-  const hasPhone = !!compact(l.phone);
+  const hasPhone = !!compact(l.phone) && !isUnreachableNumber(l.phone);
   // Twilio sends a placeholder rather than a number when the caller withholds
   // caller ID, and those must not be rendered as something to ring.
   const callerId = usableCallerId(opts.fromNumber);

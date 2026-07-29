@@ -172,7 +172,7 @@ import { buildAbsoluteUrl, getCallSid, shouldWarmTransferNow } from "./twilio/fl
 import { newVoiceResponse, connectStreamTwiml, sayFriendly, voicemailFallbackTwiml } from "./twilio/twiml.js";
 import { getOrInitCallState, setCallState, clearCallState, listCallStates } from "./twilio/state.js";
 import { startCallRecording } from "./twilio/recording.js";
-import { formatOwnerSms, NO_SMS_INTENTS, ownerSmsWouldSayNothing, sendOwnerSms, generateForwardingCode, FIRST_CALL_CELEBRATION_PREFIX, buildCallerConfirmationSms } from "./twilio/sms.js";
+import { formatOwnerSms, isUnreachableNumber, NO_SMS_INTENTS, ownerSmsWouldSayNothing, sendOwnerSms, generateForwardingCode, FIRST_CALL_CELEBRATION_PREFIX, buildCallerConfirmationSms } from "./twilio/sms.js";
 import { isEmailConfigured, sendEmail, formatLeadEmail } from "./utils/email.js";
 import { formatAuPhone, toE164Au, isValidAuPhone, isAuMobile } from "./utils/phone.js";
 import { createCrmExporters, exportLeadToCrm } from "./crm/index.js";
@@ -785,10 +785,24 @@ async function main() {
       return;
     }
 
+    // The CRM export runs before the emptiness check, and deliberately.
+    // ownerSmsWouldSayNothing decides whether to INTERRUPT the owner — it is a
+    // rule about his phone buzzing, not about what is worth keeping. A row
+    // carrying only an address and a timestamp is a poor notification and a
+    // perfectly good record, and the CRM is silent.
+    exportLeadToCrm(crmExporters, lead)
+      .then((results) => {
+        const errors = results.filter((r) => !r.ok);
+        if (errors.length) log.warn({ errors }, "crm export errors");
+      })
+      .catch((err) => log.warn({ err }, "crm export failed"));
+
     // Every real caller gets a message, whatever was collected — the only
     // exception is a message that would say nothing at all: no name, no number
     // the owner could ring, and nothing about what they wanted. That is not a
     // lead, it is a notification that the phone rang. See ownerSmsWouldSayNothing.
+    // Email is suppressed alongside the SMS: it is the same interruption in a
+    // slower medium, and an empty one costs the same attention to dismiss.
     const callerId = getCallFromNumber(db, callId);
     if (ownerSmsWouldSayNothing({ lead, fromNumber: callerId })) {
       markNotification(db, id, { status: "skipped", error: "nothing_to_report" });
@@ -799,13 +813,6 @@ async function main() {
 
     smsInflight.add(callId);
     setTimeout(() => smsInflight.delete(callId), 60_000);
-
-    exportLeadToCrm(crmExporters, lead)
-      .then((results) => {
-        const errors = results.filter((r) => !r.ok);
-        if (errors.length) log.warn({ errors }, "crm export errors");
-      })
-      .catch((err) => log.warn({ err }, "crm export failed"));
 
     // Resolve tenant to get business name and owner email for notifications
     const notifyTenant = lead.tenant_id ? getTenantById(db, lead.tenant_id) : null;
@@ -4597,7 +4604,11 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
                     tenant_id: tenant.tenant_id !== "default" ? tenant.tenant_id : null,
                     call_id: callSid!,
                     name: s.lead.name ?? null,
-                    phone: s.lead.phone ?? fromNumber ?? null,
+                    // Fall back to the caller ID only when it is a number
+                    // somebody could actually ring. A withheld caller arrives
+                    // as a placeholder, and writing that into lead.phone puts
+                    // it in the owner's SMS as the callback number.
+                    phone: s.lead.phone ?? (isUnreachableNumber(fromNumber) ? null : fromNumber) ?? null,
                     address: null,
                     issue_type: null,
                     issue_summary: "Call ended without details - check recording",

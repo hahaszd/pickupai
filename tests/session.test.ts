@@ -652,3 +652,27 @@ describe("buildSystemPrompt — enhanced features", () => {
     expect(prompt).toContain("All noted");
   });
 });
+
+describe("the prompt does not promise a withheld number reaches the owner", () => {
+  // It used to say "the number they rang from reaches the owner anyway" to
+  // every caller. True for most, and false for exactly the ones most likely to
+  // decline — who were then reassured into leaving no way to be contacted.
+  it("tells the caller their number is private, once, when it is", () => {
+    const prompt = buildSystemPrompt(makeTenant(), [], "+7378742833");
+    expect(prompt).not.toContain("7378742833");
+    expect(prompt).not.toContain("reaches the owner anyway");
+    expect(prompt).toContain("your number's coming through private");
+    expect(prompt).toContain("never raise it again");
+  });
+
+  it("keeps the ordinary wording, and the number, for a real caller ID", () => {
+    const prompt = buildSystemPrompt(makeTenant(), [], "+61412345678");
+    expect(prompt).toContain("+61412345678");
+    expect(prompt).not.toContain("coming through private");
+  });
+
+  it("treats a missing caller ID the same as a withheld one", () => {
+    const prompt = buildSystemPrompt(makeTenant(), [], null);
+    expect(prompt).toContain("coming through private");
+  });
+});

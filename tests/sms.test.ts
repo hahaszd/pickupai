@@ -690,3 +690,61 @@ describe("buildCallerConfirmationSms — enhanced features", () => {
     expect(result).not.toMatch(/photo/i);
   });
 });
+
+describe("withheld caller ID never reaches the owner as something to ring", () => {
+  // Twilio documents only the alpha forms of a withheld caller ID; the numeric
+  // ones come from carriers and are undocumented, so only "+266696687" was
+  // known about. A caller withholding their number on a carrier that sends
+  // "+7378742833" had that printed in the owner's SMS as the callback number —
+  // the owner rings it, gets nothing, and the job is gone.
+  it("rejects every known placeholder and no real number", async () => {
+    const { isUnreachableNumber } = await import("../src/twilio/sms.js");
+
+    for (const v of [
+      "anonymous", "ANONYMOUS", "Restricted", "unavailable", "unknown", "private",
+      "+266696687", "266696687", "+7378742833", "7378742833", "+8656696"
+    ]) {
+      expect(isUnreachableNumber(v), `${v} should be unreachable`).toBe(true);
+    }
+
+    // False positives silently drop a real customer, which is the worse failure.
+    for (const v of [
+      "+61412345678", "0412 345 678", "+61266696687", "02 6669 6687",
+      "+61 2 6669 6687", "0266696687", null, undefined, ""
+    ]) {
+      expect(isUnreachableNumber(v), `${v} should be reachable`).toBe(false);
+    }
+  });
+
+  it("omits the placeholder from the owner SMS rather than printing it", async () => {
+    const { formatOwnerSms } = await import("../src/twilio/sms.js");
+
+    // The path that produced this: server.ts writes the caller ID into
+    // lead.phone when the model captured no number of its own.
+    const sms = formatOwnerSms({
+      lead: makeLead({ name: "Dana", phone: "+7378742833", issue_summary: "Blocked drain" }),
+      callId: "call-withheld-1",
+      callerIntent: "new_job",
+      fromNumber: "+7378742833"
+    });
+
+    expect(sms).not.toContain("7378742833");
+    expect(sms).not.toContain("Rang from");
+    expect(sms).toContain("Dana");
+    expect(sms).toContain("Blocked drain");
+  });
+
+  it("still sends when a withheld caller gave a name and a problem", async () => {
+    const { ownerSmsWouldSayNothing } = await import("../src/twilio/sms.js");
+    expect(ownerSmsWouldSayNothing({
+      lead: makeLead({ name: "Dana", phone: "+7378742833", issue_summary: "Blocked drain" }),
+      fromNumber: "+7378742833"
+    })).toBe(false);
+
+    // Nothing but a placeholder is nothing at all.
+    expect(ownerSmsWouldSayNothing({
+      lead: makeLead({ name: null, phone: "+7378742833", issue_summary: null, notes: null }),
+      fromNumber: "+7378742833"
+    })).toBe(true);
+  });
+});
