@@ -22,11 +22,12 @@
       "Bash(rg:*)",
       "Bash(ls:*)",
       "Bash(find:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ],
     "ask": [
       "Bash(git push:*)",
-      "Bash(git commit:*)",
       "Bash(railway:*)",
       "Bash(npm run test:e2e)",
       "Bash(node scripts/send-sms-batch.mjs:*)",
