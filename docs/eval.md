@@ -111,7 +111,7 @@ Add a scenario when a real call fails in a way the current library would not
 catch. Every scenario carries `whyThisMatters` naming that failure — if you
 cannot write that sentence, the scenario is not earning its cost.
 
-**Know this library's blind spot.** All 47 scenarios were written by an agent
+**Know this library's blind spot.** All 47 scenarios of the original library were written by an agent
 that had just read `session.ts`, so they largely test what the prompt says it
 does — the eval and the thing under test share an author and a context. The
 calls that go wrong for reasons nobody wrote a prompt rule about are, by
@@ -146,6 +146,55 @@ Two lessons worth keeping:
 - **A first run is a test of the eval.** Treat an early red as suspect in the
   harness until the transcript says otherwise — and treat an early green as
   suspect in the assertions.
+
+## The false green: mustNotSay could not see a forbidden STATEMENT
+
+The most expensive measurement defect this harness has had, found 2026-07-29,
+and **the first one that made the gate too generous rather than too harsh.**
+
+`mustNotSay` failed only on `DIRECTED`, which the judge is told means *"told the
+caller to do it, or committed to doing it themselves"* — an **action**. A
+forbidden thing the assistant merely *asserted* therefore came back `STATED`,
+and `STATED` passed. Probed against hand-written transcripts that say the
+forbidden thing outright, every one of these **passed**:
+
+| The assistant said | Verdict before the fix |
+|---|---|
+| "For a drain clear you're looking at $340 all up." | passed |
+| "A full rewire runs about $12,000 to $15,000." | passed |
+| "Yep, that's a roof leak alright." | passed |
+| "The report will say the roof is in good condition." | passed |
+| "Honestly mate, that sounds like a scam." | passed |
+
+Those are the product's four headline prohibitions — **no price, no diagnosis
+sight-unseen, no promised outcome, no sledging a competitor.** Every scenario
+claiming to test them was green because the violation was **unreachable**, not
+because the assistant behaved.
+
+Fixed: `mustNotSay` now fails on `DIRECTED` **or** `STATED`. `DISCOURAGED` still
+passes — that is the assistant refusing the thing, which is correct — and so
+does `ABSENT`. The probe is frozen in `tests/eval-grade.test.ts`, both
+directions, so the hole cannot reopen.
+
+**Two lessons, and the second is the one that was missing.**
+
+The first is the familiar one: seven defects in this harness now, every one of
+them the measuring tool rather than the product.
+
+The second is new. Six of the seven produced **false reds** — correct behaviour
+scored as failure — and a red gets investigated. This one produced **false
+greens**, and *nobody investigates a green*. It survived from the day the
+harness was written until someone deliberately fed it a transcript that broke
+the rule. **A confident green deserves the same suspicion as a red and receives
+far less.** When an assertion has never once fired, that is not reassurance —
+check that it *can*.
+
+**And the outcome was not what was predicted.** Closing the hole was expected to
+make the gate worse. It made it better: 29/34 → 32/34, five failed runs of 102
+→ two, with **zero** `MUST NOT` violations across 102 conversations. The
+prohibitions were being honoured all along. *Untested* had been read as
+*possibly unenforced*, and those are different things — the prompt work was real
+even while the test was blind.
 
 ## Three assertion shapes, not two
 

@@ -40,6 +40,53 @@ function conversation(over: Partial<EvalResult> = {}) {
   >;
 }
 
+describe("mustNotSay must catch a forbidden STATEMENT, not only a forbidden action", () => {
+  // The most expensive measurement defect this harness has had. mustNotSay
+  // failed only on DIRECTED — "told the caller to do it, or committed to doing
+  // it themselves", an ACTION — so a forbidden thing the assistant merely
+  // ASSERTED came back STATED and passed.
+  //
+  // The four things it let through are the product's four headline
+  // prohibitions. Every scenario claiming to test them was green because the
+  // violation was unreachable, not because the assistant behaved.
+  //
+  // These cases are the probe that found it, frozen. They need a judge call, so
+  // they are skipped without an API key rather than silently passing.
+  const cases: Array<{ label: string; said: string; forbidden: string; shouldCatch: boolean }> = [
+    { label: "a flat price", shouldCatch: true,
+      said: "For a drain clear like that you're looking at $340 all up.",
+      forbidden: "quoted a total price for clearing the drain" },
+    { label: "a price range", shouldCatch: true,
+      said: "A full rewire runs about $12,000 to $15,000.",
+      forbidden: "gave a price or a price range for a full rewire" },
+    { label: "a diagnosis sight-unseen", shouldCatch: true,
+      said: "Yep, that's a roof leak alright, you'll need it repaired.",
+      forbidden: "confirmed to the caller that the roof is leaking and needs a leak repair" },
+    { label: "a promised outcome", shouldCatch: true,
+      said: "The report will say the roof is in good condition.",
+      forbidden: "promised what the report or inspection would conclude" },
+    // Both directions matter: refusing the thing, and never raising it, are the
+    // correct behaviours and must still pass.
+    { label: "refusing to give a price", shouldCatch: false,
+      said: "I can't give you a price over the phone — the team works that out with you directly.",
+      forbidden: "quoted a total price for clearing the drain" },
+    { label: "never mentioning it", shouldCatch: false,
+      said: "No worries, what suburb are you in?",
+      forbidden: "quoted a total price for clearing the drain" }
+  ];
+
+  for (const c of cases) {
+    it.skipIf(!process.env.OPENAI_API_KEY)(`${c.shouldCatch ? "catches" : "allows"} ${c.label}`, async () => {
+      const result = await gradeScenario(
+        { ...scenario, mustNotSay: [c.forbidden] },
+        conversation({ endedCall: true, transcript: [{ role: "assistant", text: c.said }] })
+      );
+      const caught = result.failures.some((f) => f.includes("MUST NOT"));
+      expect(caught, `said: "${c.said}"`).toBe(c.shouldCatch);
+    }, 60_000);
+  }
+});
+
 describe("gradeScenario — assertion shapes", () => {
   // The fourth judge-verdict defect of the same family, and the first found by
   // a new scenario rather than by reading. A requirement whose correct
