@@ -80,6 +80,64 @@ and [ADR-0002](docs/adr/0002-critical-writes-flush-synchronously.md).
   their raw numbers and how they were obtained. `docs/channel-evidence.md` for
   market and channel evidence, `docs/adr/` for decisions.
 
+## Editing the system prompt
+
+`src/realtime/session.ts` builds a ~10k-token prompt that has grown by accretion
+across many behaviour fixes. OpenAI's own guidance for prompts this size is that
+**instruction conflict, not length, is what costs you** — and this prompt has hit
+that four times, every one found by reading a transcript after a paid eval run
+rather than by review.
+
+- **Review before you spend. Widen before you conclude.** The order is: draft →
+  an **independent agent reviews** it (one with no stake in the wording, asked
+  to find fault) → a second agent polishes → review again → test the **smallest
+  slice** that could show the effect → widen → full gate last. A 3-scenario
+  slice at `--repeat 3` costs ~$0.30 against ~$3.30 for the gate, so ten slices
+  are cheaper than one gate. Reviewers cost less than either and catch the class
+  testing finds slowly: contradiction, unscoped limits, a ban with no
+  replacement sentence.
+- **Stop the run the moment a problem is obvious.** Do not let 102
+  conversations finish to confirm what the third transcript already showed. Kill
+  it, fix it, re-run the slice. Free checks — typecheck, unit tests,
+  `tests/prompt-conflicts.test.ts` — always run immediately; this rule is about
+  the paid ones.
+- **A prompt edit is global, so the FINAL check is global.** Every rule reaches
+  every call of every trade. Verifying only against the three scenarios you were
+  thinking about is how a fix for one trade taught another to misfile a
+  referral. `npm run eval:p0` before believing a prompt change — but as the last
+  step, not the first.
+- **Change one thing per measurement.** Two prompt edits in one gate run cannot
+  be told apart afterwards, and one of them is usually a regression hiding
+  behind the other's improvement.
+- **Measure the neighbours, not just the target.** When changing a rule, include
+  the scenarios that share its code path in the same batch. That is the only
+  thing that has ever caught this class.
+- **Trade-specific knowledge goes in `TRADE_CONFIGS`, never in a global
+  section.** A general "some jobs are partly someone else's" paragraph taught a
+  plumber to file a referral as a job. `extraScope` exists for boundaries that
+  must reach one trade only.
+- **When you ban something, supply the sentence to say instead.** A prohibition
+  with no replacement gets improvised, and the improvisation is usually worse:
+  "NEVER promise prices" with no alternative produced "I don't have pricing on
+  hand", which reads as a failed lookup and invites the caller to ask again —
+  five times, in the transcript that found it.
+- **A concrete quoted template beats an abstract rule stated nearby.** The model
+  follows whatever is closest to the words it is about to say. If a rule and a
+  template disagree, the template wins — so edit the template, do not add
+  another rule.
+- **Scope a limit explicitly: per what, for how long, when it resets.** "Ask
+  twice then stop" did not say per detail or per call, and was read as "stop
+  asking" — the assistant abandoned an entire intake after two deflections on
+  one question.
+- **Two rules that reverse each other must both say when they apply.** The
+  emergency field order is the reverse of the ordinary one; only the emergency
+  side was scoped, and the caller's name became the most-dropped field across
+  three gate runs.
+- **`tests/prompt-conflicts.test.ts` catches the cheap half of this in CI** —
+  a banned phrase that also appears as something the prompt tells the model to
+  say, and reversed rules that are not both scoped. Add to it when you find a
+  new conflict shape; two seconds in CI beats a $3 gate run and a transcript.
+
 ## Tests
 
 - **A test must be able to fail.** Assert on the mechanism under test, not on a

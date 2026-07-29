@@ -20,7 +20,7 @@ rather than being deleted.
 
 A deferral with a documented trigger is P2, however alarming it reads.
 
-Last updated: **2026-07-28**
+Last updated: **2026-07-29**
 
 ---
 
@@ -482,19 +482,28 @@ See [ADR-0001](docs/adr/0001-whole-blob-persistence-and-deferred-migration.md).
 
 ### Log the `response.done` usage payload — we are throwing away the only cache/cost data we have
 
-`src/realtime/session.ts:1178` logs `response.id`/`status` and discards
-`response.usage`. Two lines would give us, per turn:
-`input_token_details.cached_tokens` and `cached_tokens_details.text_tokens`
-(does the 10.1k-token prompt actually hit the cache?), `input_tokens`,
-`output_tokens`. Documented fields — see
-`docs/research/realtime-instruction-length-latency-2026-07.md`.
+**Partly done.** `src/realtime/session.ts:1208-1209` now logs
+`input_token_details.audio_tokens` and `output_token_details.audio_tokens`. The
+**cache fields are still missing**, and without them the audio counts cannot be
+converted to dollars at all. Still to add, same log line:
+`input_token_details.cached_tokens` and `cached_tokens_details.text_tokens` /
+`cached_tokens_details.audio_tokens` (does the 10.1k-token prompt actually hit
+the cache?), plus `input_tokens` / `output_tokens`. All documented fields — see
+`docs/research/realtime-instruction-length-latency-2026-07.md` and
+`docs/research/per-call-cost-inputs-2026-07.md`.
 
 Why it matters: instructions are re-sent to the model on **every** Response, not
 once per session (OpenAI: *"The entire conversation is sent to the model for each
-Response"*). At 10.1k tokens that is $0.0404/response uncached vs $0.0040 cached
-— roughly **$0.72 per 5-minute call** riding on whether the cache hits. We
-currently cannot tell. The same change gives us per-call cost, which we also do
-not have.
+Response"*), and so is all prior audio. At 10.1k tokens the prompt alone is
+$0.0404/response uncached vs $0.0040 cached. Priced end-to-end
+(2026-07-29, `per-call-cost-inputs-2026-07.md`), a **3-minute call is ~$0.20 of
+OpenAI spend if the cache hits and ~$0.96 if it does not — a 4.8× swing**; at
+the 5-minute cap the cold-cache case is **$2.04 for a single call**. The same
+two fields also finally give us per-call cost, which we do not have.
+
+Sharpened 2026-07-29: the identical 11,385 replayed audio tokens on a 3-minute
+call are worth $0.0046 or $0.3643 depending purely on which field they land in.
+That is the whole reason this is P1 and not a nice-to-have.
 
 Follow-on, same file: stamp `Date.now()` at `input_audio_buffer.speech_stopped`,
 `response.created` and the first `response.output_audio.delta` (line 1170). The
@@ -504,8 +513,16 @@ answers: does a cached instruction prefix survive **between** calls? Turn 1 is
 the greeting, the moment dead air is most audible, and it is the one turn the
 cache probably does not help.
 
-Not a reason to trim the prompt: OpenAI's only published figure is that
-*"cutting 50% of your prompt may only result in a 1-5% latency improvement"*.
+Not a reason to trim the prompt **for latency**: OpenAI's only published figure
+is that *"cutting 50% of your prompt may only result in a 1-5% latency
+improvement"*.
+
+**Amended 2026-07-29 — it is a reason to trim the prompt for _cost_.** Because
+the 10.1k tokens are re-sent every Response, they are the largest or
+second-largest line item on a call: ~$0.085 of a cached 3-minute call, ~$0.485
+uncached. The latency argument and the cost argument point opposite ways, and
+the cost one was not previously on the table. Measure the cache rate before
+acting on either — if the prefix caches reliably, trimming buys little.
 
 ## P1
 
@@ -923,6 +940,22 @@ verdicts, all in the same direction (scoring a refusal as an agreement), now
 patched with a growing keyword list. See the P2 item on its scoping bug.
 
 ## P2
+
+### Price a `gpt-realtime-2.1-mini` run against the eval suite
+Discovered 2026-07-29 while pricing a call
+(`docs/research/per-call-cost-inputs-2026-07.md`). `gpt-realtime-2.1-mini` is
+**$10/$20 per 1M audio in/out against our $32/$64**, and $0.60/$2.40 text
+against $4/$24 — roughly a 3× cut on the line item that dominates the bill.
+OpenAI's own advice is to build on the large model, then *"attempt to optimize
+using the mini model"*, with the tradeoff in *"instruction following and
+function calling"*. We now have a repeatable pass-rate eval, so this is a
+measurable question rather than a guess: run `--repeat N` against the mini and
+compare pass rates. Tool-calling reliability is the thing to watch — `save_lead`
+/ `end_call` failing is worse than any saving.
+
+Also noted: `gpt-realtime-1.5`, our documented rollback target, has **cheaper
+text output** ($16 vs $24 per 1M) at identical audio rates. The rollback lever
+is not a pure cost regression.
 
 ### FIXED: the judge scored prohibitions as agreements
 Found by reading `grade.ts` on 2026-07-28, then measured, and the measurement

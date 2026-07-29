@@ -44,5 +44,19 @@
       "Bash(git clean:*)",
       "Bash(npm publish:*)"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command // \"\"' | grep -qE 'run-eval|eval:p0' && printf '\\n⚠  PAID EVAL — before this runs:\\n   1. Has an independent agent REVIEWED the prompt change?  (iron rule: prompt-changes-review-then-widen)\\n   2. Is this the SMALLEST slice that could show it?  (--id X --repeat 3 ~ $0.30  vs  full gate ~ $3.30)\\n   3. Is only ONE thing changed since the last measurement?\\n   4. Kill it the moment a transcript shows the problem - do not let 102 conversations finish.\\n\\n' >&2; exit 0",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
   }
 }
