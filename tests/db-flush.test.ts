@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { rm } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { openDb, type FlushInfo } from "../src/db/db.js";
 
 function tmpPath(name: string) {
@@ -45,16 +45,48 @@ describe("db.flush durability", () => {
     await rm(path, { force: true });
   });
 
+  // This test asserted recovery from a failing flush without ever inducing one:
+  // it flushed successfully twice and passed. The behaviour it names — one
+  // transient Neon blip must not stop all future persistence — could have been
+  // deleted outright and it stayed green.
+  //
+  // Mutation-checked 2026-07-29, and the check corrected a wrong assumption
+  // worth recording. flushNow() guards the chain TWICE over:
+  //   const run = (inFlight ?? Promise.resolve()).then(writeOut, writeOut);
+  //   inFlight = run.catch(() => {});
+  // Either one alone is sufficient — passing writeOut as the rejection handler
+  // already consumes a failed predecessor, and .catch() already hands the chain
+  // a resolved promise. Removing either leaves this test green; removing both
+  // fails it with EISDIR on the recovery flush. So the assertion is real, and
+  // the redundancy is real too: no single line here is load-bearing, which is
+  // exactly why a line-by-line mutation check would have called this untested.
   it("a failing flush does not wedge the queue for later flushes", async () => {
     const path = tmpPath("recover");
     const db = await openDb(path);
 
-    // The chain keeps its own rejection swallowed so the next link still runs;
-    // without that, one transient Neon blip would stop all future persistence.
     db.run("INSERT INTO system_config (key, value, updated_at) VALUES (?, ?, datetime('now'))", ["a", "1"]);
     await db.flush();
+
+    // Induce a real failure: a directory where the blob file goes, so the
+    // write rejects with EISDIR. Standing in for the transient Postgres
+    // failure this guard exists for, which a unit test cannot produce.
+    await rm(path, { force: true });
+    await mkdir(path, { recursive: true });
+
     db.run("INSERT INTO system_config (key, value, updated_at) VALUES (?, ?, datetime('now'))", ["b", "2"]);
+    await expect(db.flush()).rejects.toThrow();
+
+    // The queue must not be wedged. Clear the obstruction and flush again —
+    // this is the assertion the old test claimed to make.
+    await rm(path, { recursive: true, force: true });
+    db.run("INSERT INTO system_config (key, value, updated_at) VALUES (?, ?, datetime('now'))", ["c", "3"]);
     await expect(db.flush()).resolves.toBeUndefined();
+
+    // And the write made DURING the failed flush is still there — it lives in
+    // memory, so the next successful flush carries it.
+    const reopened = await openDb(path);
+    expect(reopened.get("SELECT value FROM system_config WHERE key = ?", ["b"])?.value).toBe("2");
+    expect(reopened.get("SELECT value FROM system_config WHERE key = ?", ["c"])?.value).toBe("3");
 
     await rm(path, { force: true });
   });

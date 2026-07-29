@@ -1,21 +1,13 @@
 import { describe, it, expect } from "vitest";
+import { localiseDemo } from "../src/utils/demo-localise.js";
 
 /**
- * The demo fixtures in server.ts are written with Sydney suburbs. The one real
- * organic signup this product has had was a Melbourne business, and the sample
- * lead SMS it showed him carried "10 Station Street, Parramatta NSW 2150".
- *
- * server.ts calls main() on import so its internal helper is unreachable from a
- * test; this pins the behaviour of the same regex against the actual fixture
- * strings. If the fixtures gain a new Sydney suburb, add it in both places.
+ * This file used to declare its own COPY of localiseDemo and assert against
+ * that, because server.ts calls main() on import and the helper was declared
+ * inside it. Every assertion below passed no matter what server.ts did. The
+ * function now lives in src/utils/demo-localise.ts and this imports it, so
+ * these assertions finally test the code that runs.
  */
-const DEMO_FIXTURE_SUBURBS = /\b(Parramatta|Chatswood|Penrith)(,?\s*(NSW\s*)?\d{4})?\b/g;
-const localiseDemo = (text: string, serviceArea?: string | null): string => {
-  const area = (serviceArea ?? "").split(/[,\n;]/)[0].trim();
-  if (!area) return text;
-  return text.replace(DEMO_FIXTURE_SUBURBS, area);
-};
-
 describe("demo localisation", () => {
   it("rewrites a full Sydney address to the tenant's service area", () => {
     expect(localiseDemo("52 Smith Street, Parramatta NSW 2150", "Melbourne"))

@@ -625,6 +625,27 @@ export type DailyFunnelStats = {
   demo_recordings_ready: number;
 };
 
+/**
+ * The two numbers on the landing page. They were inline in server.ts's
+ * /api/stats handler, and tests/repo.test.ts held a verbatim COPY of both
+ * strings and asserted against the copy — so the numbers shown to every visitor
+ * could change meaning and the test stayed green. Moved here 2026-07-29 so the
+ * page and the test read the same SQL.
+ *
+ * Both exclusions are deliberate and both are load-bearing for an honest claim:
+ * demo calls are ours, not customers', and a +PENDING number is a signup that
+ * never finished provisioning.
+ */
+export function getPublicStats(db: Db): { calls_answered: number; businesses_served: number } {
+  const calls = db.get<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM calls WHERE status = 'completed' AND is_demo = 0"
+  )?.n ?? 0;
+  const tenants = db.get<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM tenants WHERE active = 1 AND twilio_number NOT LIKE '+PENDING%'"
+  )?.n ?? 0;
+  return { calls_answered: calls, businesses_served: tenants };
+}
+
 export function getDailyFunnelStats(db: Db, days = 7): DailyFunnelStats[] {
   const safeDays = Math.max(1, Math.min(90, Math.floor(days)));
   const sinceIso = new Date(Date.now() - (safeDays - 1) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);

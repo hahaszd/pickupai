@@ -473,7 +473,7 @@ describe("getTenantCallCount", () => {
 describe("stats queries (calls_answered, businesses_served)", () => {
   it("counts only completed non-demo calls and active non-PENDING tenants", async () => {
     const { openDb } = await import("../src/db/db.js");
-    const { createTenant, upsertCall } = await import("../src/db/repo.js");
+    const { createTenant, upsertCall, getPublicStats } = await import("../src/db/repo.js");
 
     const sqlitePath = `.tmp/test-stats-${Date.now()}.sqlite`;
     const db = await openDb(sqlitePath);
@@ -506,13 +506,12 @@ describe("stats queries (calls_answered, businesses_served)", () => {
     upsertCall(db, { call_id: "stats-call-4", tenant_id: "any", status: "completed", is_demo: 1 }); // demo — excluded
     upsertCall(db, { call_id: "stats-call-5", tenant_id: "any", status: "in-progress" }); // not completed — excluded
 
-    const totalCalls = db.get<{ n: number }>("SELECT COUNT(*) AS n FROM calls WHERE status = 'completed' AND is_demo = 0")?.n ?? 0;
-    const totalTenants = db.get<{ n: number }>(
-      "SELECT COUNT(*) AS n FROM tenants WHERE active = 1 AND twilio_number NOT LIKE '+PENDING%'"
-    )?.n ?? 0;
-
-    expect(totalCalls).toBe(2);
-    expect(totalTenants).toBe(2);
+    // This block used to re-declare both queries verbatim and assert on its own
+    // copy. It now calls what /api/stats calls, so the assertion covers the
+    // numbers a visitor is actually shown.
+    const stats = getPublicStats(db);
+    expect(stats.calls_answered).toBe(2);
+    expect(stats.businesses_served).toBe(2);
 
     await db.flush();
     await rm(sqlitePath, { force: true });
