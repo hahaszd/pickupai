@@ -4343,7 +4343,7 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
       const newStatus = req.body?.status;
       const allowed = ["new", "handled", "booked", "called_back"];
       if (!allowed.includes(newStatus)) return res.status(400).send("Invalid status");
-      updateLeadStatus(db, req.params.id, newStatus);
+      updateLeadStatus(db, req.params.id, newStatus, tenant.tenant_id);
       res.redirect(`/dashboard/leads/${req.params.id}?flash=Status+updated`);
     }
   );
@@ -4568,6 +4568,7 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
                   next_action: s.lead.next_action ?? null,
                   property_type: s.lead.property_type ?? null,
                   caller_sentiment: s.lead.caller_sentiment ?? null,
+                  caller_intent: s.callerIntent ?? null,
                   job_size: s.lead.job_size ?? null
                 });
 

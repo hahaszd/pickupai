@@ -165,6 +165,13 @@ export const migrationStatements = [
   `CREATE INDEX IF NOT EXISTS idx_calls_from_number ON calls(from_number) WHERE from_number IS NOT NULL`,
   `ALTER TABLE leads ADD COLUMN property_type TEXT`,
   `ALTER TABLE leads ADD COLUMN caller_sentiment TEXT`,
+  // caller_intent was collected by save_lead() on every call since the tool
+  // existed, used in memory to decide whether to SMS the owner, and then
+  // discarded — the leads table never had a column for it. Added 2026-07-29
+  // when the daily funnel's "complete captures" metric turned out to be
+  // filtering on it. It is one of the four CORE_FIELDS the eval grades
+  // capture quality against.
+  `ALTER TABLE leads ADD COLUMN caller_intent TEXT`,
   `CREATE TABLE IF NOT EXISTS chat_logs (
     chat_id      TEXT PRIMARY KEY,
     tenant_id    TEXT,

@@ -22,6 +22,7 @@ function makeLead(overrides: Partial<LeadRow> = {}): LeadRow {
     job_size: null,
     property_type: null,
     caller_sentiment: null,
+    caller_intent: null,
     created_at: new Date().toISOString(),
     ...overrides
   };

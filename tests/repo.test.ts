@@ -133,6 +133,67 @@ describe("multi-tenant lead isolation", () => {
     await db.flush();
     await rm(sqlitePath, { force: true });
   });
+
+  // getLeadHistoryByPhone feeds returning-caller history straight into the live
+  // system prompt, so an unfiltered result is not a data-access bug, it is one
+  // tenant's receptionist reading another tenant's customer name, address and
+  // previous job aloud to whoever rang. It had an optional tenantId and an
+  // un-filtered fallback branch until 2026-07-29; the parameter is now required
+  // and the branch is gone, which is why this test can assert on shape rather
+  // than having to guard against the caller forgetting an argument.
+  it("lead history and status updates are scoped to one tenant", async () => {
+    const { openDb } = await import("../src/db/db.js");
+    const {
+      createTenant, upsertCall, upsertLead,
+      getLeadHistoryByPhone, getLeadHistoryByName, updateLeadStatus, getLeadWithCall
+    } = await import("../src/db/repo.js");
+
+    const sqlitePath = `.tmp/test-history-isolation-${Date.now()}.sqlite`;
+    const db = await openDb(sqlitePath);
+
+    const tenantA = createTenant(db, {
+      name: "History A", trade_type: "plumber", twilio_number: "+61400000444",
+      owner_phone: "+61444444444", owner_email: "ha@test.local", password: "ha-pass"
+    });
+    const tenantB = createTenant(db, {
+      name: "History B", trade_type: "electrician", twilio_number: "+61400000555",
+      owner_phone: "+61455555555", owner_email: "hb@test.local", password: "hb-pass"
+    });
+
+    // The same person rings both businesses — the case that makes the leak real.
+    const caller = "+61412345678";
+    upsertCall(db, { call_id: "h-a", tenant_id: tenantA.tenant_id, from_number: caller, status: "completed" });
+    upsertCall(db, { call_id: "h-b", tenant_id: tenantB.tenant_id, from_number: caller, status: "completed" });
+
+    upsertLead(db, {
+      lead_id: "h-lead-a", tenant_id: tenantA.tenant_id, call_id: "h-a",
+      name: "Sam Carter", phone: caller, address: "12 Hidden St Parramatta",
+      issue_type: "plumbing", issue_summary: "Hot water system replaced",
+      urgency_level: null, preferred_time: null, notes: null,
+      confidence: null, next_action: null, lead_status: "new"
+    });
+    upsertLead(db, {
+      lead_id: "h-lead-b", tenant_id: tenantB.tenant_id, call_id: "h-b",
+      name: "Sam Carter", phone: caller, address: "12 Hidden St Parramatta",
+      issue_type: "electrical", issue_summary: "Switchboard upgrade",
+      urgency_level: null, preferred_time: null, notes: null,
+      confidence: null, next_action: null, lead_status: "new"
+    });
+
+    expect(getLeadHistoryByPhone(db, caller, tenantA.tenant_id).map((l) => l.lead_id)).toEqual(["h-lead-a"]);
+    expect(getLeadHistoryByPhone(db, caller, tenantB.tenant_id).map((l) => l.lead_id)).toEqual(["h-lead-b"]);
+    expect(getLeadHistoryByName(db, "Sam Carter", tenantA.tenant_id).map((l) => l.lead_id)).toEqual(["h-lead-a"]);
+    expect(getLeadHistoryByName(db, "Sam Carter", tenantB.tenant_id).map((l) => l.lead_id)).toEqual(["h-lead-b"]);
+
+    // A write scoped to the wrong tenant must change nothing at all.
+    updateLeadStatus(db, "h-lead-a", "handled", tenantB.tenant_id);
+    expect(getLeadWithCall(db, "h-lead-a", tenantA.tenant_id)?.lead_status).toBe("new");
+    updateLeadStatus(db, "h-lead-a", "handled", tenantA.tenant_id);
+    expect(getLeadWithCall(db, "h-lead-a", tenantA.tenant_id)?.lead_status).toBe("handled");
+
+    await db.flush();
+    await rm(sqlitePath, { force: true });
+  });
 });
 
 describe("getTenantsNeedingNudge", () => {
@@ -499,6 +560,7 @@ describe("daily funnel stats", () => {
       issue_type: "plumbing",
       issue_summary: "Leaking tap",
       urgency_level: "urgent",
+      caller_intent: "new_job",
       preferred_time: null,
       notes: null,
       confidence: null,
@@ -506,7 +568,7 @@ describe("daily funnel stats", () => {
       lead_status: "new",
       created_at: ts
     });
-    // Captured but incomplete (missing urgency_level)
+    // Captured but incomplete — no caller_intent, one of the four CORE_FIELDS
     upsertLead(db, {
       lead_id: "f-lead-2",
       tenant_id: tenant.tenant_id,
@@ -517,6 +579,7 @@ describe("daily funnel stats", () => {
       issue_type: "plumbing",
       issue_summary: "Blocked drain",
       urgency_level: null,
+      caller_intent: null,
       preferred_time: null,
       notes: null,
       confidence: null,
@@ -553,6 +616,47 @@ describe("daily funnel stats", () => {
     expect(row.demos_started).toBeGreaterThanOrEqual(1);
     expect(row.demo_recordings_ready).toBeGreaterThanOrEqual(1);
 
+    await db.flush();
+    await rm(sqlitePath, { force: true });
+  });
+});
+
+describe("the funnel's 'complete capture' definition", () => {
+  // This metric spent an unknown number of weeks reading a permanent zero. It
+  // filtered on urgency_level, that column stopped being written when the
+  // urgency feature was deleted, and the only thing anyone updated was the
+  // admin page's label — the description was corrected and the query it
+  // described was not. Nothing failed, because nothing asserted the two halves
+  // still named the same fields.
+  //
+  // So assert exactly that: the columns the funnel calls "complete" are the
+  // columns the eval grades capture quality on, and every one of them is a real
+  // column that upsertLead writes. Either half drifting is a silent zero.
+  it("names the same fields as the eval's CORE_FIELDS, and all of them exist", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const { openDb } = await import("../src/db/db.js");
+
+    const repoSrc = await readFile(new URL("../src/db/repo.ts", import.meta.url), "utf8");
+    const completeQuery = repoSrc.slice(
+      repoSrc.indexOf("const completeByDay"),
+      repoSrc.indexOf("const smsByDay")
+    );
+    expect(completeQuery).toContain("FROM leads");
+    const filtered = [...completeQuery.matchAll(/COALESCE\(TRIM\((\w+)\)/g)].map((m) => m[1]).sort();
+
+    const scenariosSrc = await readFile(
+      new URL("../src/testing/inbound-scenarios.ts", import.meta.url), "utf8"
+    );
+    const coreLine = /const CORE_FIELDS = \[([^\]]+)\]/.exec(scenariosSrc);
+    expect(coreLine).not.toBeNull();
+    const coreFields = [...coreLine![1].matchAll(/"(\w+)"/g)].map((m) => m[1]).sort();
+
+    expect(filtered).toEqual(coreFields);
+
+    const sqlitePath = `.tmp/test-corefields-${Date.now()}.sqlite`;
+    const db = await openDb(sqlitePath);
+    const cols = db.all<{ name: string }>("PRAGMA table_info(leads)").map((c) => c.name);
+    for (const f of coreFields) expect(cols).toContain(f);
     await db.flush();
     await rm(sqlitePath, { force: true });
   });

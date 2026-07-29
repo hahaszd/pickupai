@@ -54,6 +54,7 @@ function makeLeadHistory(overrides: Partial<LeadRow> = {}): LeadRow {
     job_size: null,
     property_type: null,
     caller_sentiment: null,
+    caller_intent: null,
     created_at: "2026-03-20T10:00:00Z",
     ...overrides
   };

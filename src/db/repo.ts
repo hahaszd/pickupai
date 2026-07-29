@@ -70,6 +70,8 @@ export type LeadRow = {
   job_size: string | null;
   property_type: string | null;
   caller_sentiment: string | null;
+  /** new_job | quote_only | complaint | supplier | spam | … — see session.ts. */
+  caller_intent: string | null;
   created_at: string;
 };
 
@@ -272,13 +274,14 @@ export function appendTranscript(db: Db, callId: string, text: string) {
 
 export function upsertLead(
   db: Db,
-  lead: Omit<LeadRow, "created_at" | "lead_status" | "job_value" | "job_size" | "property_type" | "caller_sentiment"> & {
+  lead: Omit<LeadRow, "created_at" | "lead_status" | "job_value" | "job_size" | "property_type" | "caller_sentiment" | "caller_intent"> & {
     created_at?: string;
     lead_status?: string | null;
     job_value?: number | null;
     job_size?: string | null;
     property_type?: string | null;
     caller_sentiment?: string | null;
+    caller_intent?: string | null;
   }
 ) {
   const created_at = lead.created_at ?? new Date().toISOString();
@@ -304,6 +307,7 @@ export function upsertLead(
       ["job_size", lead.job_size],
       ["property_type", lead.property_type],
       ["caller_sentiment", lead.caller_sentiment],
+      ["caller_intent", lead.caller_intent],
     ];
     const updatableFields = allFields.filter(([, v]) => v !== undefined);
     if (updatableFields.length === 0) return;
@@ -317,8 +321,8 @@ export function upsertLead(
     `INSERT INTO leads (
       lead_id, tenant_id, call_id, name, phone, address, issue_type, issue_summary,
       urgency_level, preferred_time, notes, confidence, next_action, lead_status,
-      job_value, job_size, property_type, caller_sentiment, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      job_value, job_size, property_type, caller_sentiment, caller_intent, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       lead.lead_id,
       lead.tenant_id ?? null,
@@ -338,13 +342,20 @@ export function upsertLead(
       lead.job_size ?? null,
       lead.property_type ?? null,
       lead.caller_sentiment ?? null,
+      lead.caller_intent ?? null,
       created_at
     ]
   );
 }
 
-export function updateLeadStatus(db: Db, leadId: string, status: string) {
-  db.run("UPDATE leads SET lead_status = ? WHERE lead_id = ?", [status, leadId]);
+/**
+ * Scoped by tenant as well as by lead. The route already checks ownership
+ * first, but a repo function that can rewrite another tenant's row is one
+ * careless call site from doing it — and a mutation removing the WHERE clause
+ * entirely passed all 372 tests when this was probed.
+ */
+export function updateLeadStatus(db: Db, leadId: string, status: string, tenantId: string) {
+  db.run("UPDATE leads SET lead_status = ? WHERE lead_id = ? AND tenant_id = ?", [status, leadId, tenantId]);
 }
 
 // ─── Lead queries ─────────────────────────────────────────────────────────────
@@ -456,22 +467,25 @@ export function listNotificationsForCall(
   );
 }
 
-export function getLeadHistoryByPhone(db: Db, phone: string, tenantId?: string, limit = 3): LeadRow[] {
-  if (tenantId) {
-    return db.all<LeadRow>(
-      `SELECT l.* FROM leads l
-       JOIN calls c ON l.call_id = c.call_id
-       WHERE c.from_number = ? AND l.tenant_id = ? AND l.issue_summary IS NOT NULL
-       ORDER BY l.created_at DESC LIMIT ?`,
-      [phone, tenantId, limit]
-    );
-  }
+/**
+ * `tenantId` is REQUIRED, and the un-filtered branch that used to sit behind an
+ * optional parameter is gone.
+ *
+ * This feeds returning-caller history into the live system prompt
+ * (`server.ts`), so a missing filter means one tenant's receptionist greeting a
+ * caller with another tenant's name, address and previous job. The only call
+ * site always passed a tenantId, which made the other branch pure trap: nothing
+ * used it, nothing tested it, and it was one forgotten argument from a
+ * cross-tenant disclosure on a live call. Deleting it makes the leak
+ * unrepresentable rather than merely untested.
+ */
+export function getLeadHistoryByPhone(db: Db, phone: string, tenantId: string, limit = 3): LeadRow[] {
   return db.all<LeadRow>(
     `SELECT l.* FROM leads l
      JOIN calls c ON l.call_id = c.call_id
-     WHERE c.from_number = ? AND l.issue_summary IS NOT NULL
+     WHERE c.from_number = ? AND l.tenant_id = ? AND l.issue_summary IS NOT NULL
      ORDER BY l.created_at DESC LIMIT ?`,
-    [phone, limit]
+    [phone, tenantId, limit]
   );
 }
 
@@ -479,20 +493,13 @@ export function escapeLike(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
 }
 
-export function getLeadHistoryByName(db: Db, name: string, tenantId?: string, limit = 5): LeadRow[] {
-  if (tenantId) {
-    return db.all<LeadRow>(
-      `SELECT * FROM leads
-       WHERE LOWER(name) LIKE LOWER(?) ESCAPE '\\' AND tenant_id = ? AND issue_summary IS NOT NULL
-       ORDER BY created_at DESC LIMIT ?`,
-      [`%${escapeLike(name)}%`, tenantId, limit]
-    );
-  }
+/** `tenantId` required, same reasoning as getLeadHistoryByPhone. */
+export function getLeadHistoryByName(db: Db, name: string, tenantId: string, limit = 5): LeadRow[] {
   return db.all<LeadRow>(
     `SELECT * FROM leads
-     WHERE LOWER(name) LIKE LOWER(?) ESCAPE '\\' AND issue_summary IS NOT NULL
+     WHERE LOWER(name) LIKE LOWER(?) ESCAPE '\\' AND tenant_id = ? AND issue_summary IS NOT NULL
      ORDER BY created_at DESC LIMIT ?`,
-    [`%${escapeLike(name)}%`, limit]
+    [`%${escapeLike(name)}%`, tenantId, limit]
   );
 }
 
@@ -637,6 +644,17 @@ export function getDailyFunnelStats(db: Db, days = 7): DailyFunnelStats[] {
     [sinceIso]
   );
   const completeByDay = db.all<{ day: string; n: number }>(
+  // These four are CORE_FIELDS in inbound-scenarios.ts, which is what the eval
+  // grades capture quality against. The funnel and the eval must name the same
+  // fields or they measure two different products.
+  //
+  // Filtered on urgency_level until 2026-07-29. That column stopped being
+  // written when the urgency feature was deleted, so the metric read a
+  // permanent zero — and the admin page's label had been changed to say
+  // "caller intent" without the query underneath it changing, which is the
+  // exact failure CODING_STANDARDS warns about: presenting an unexamined
+  // column as a measurement. caller_intent had to be added to the leads table
+  // in the same change; it had been collected on every call and discarded.
     `SELECT substr(created_at,1,10) AS day, COUNT(*) AS n
      FROM leads
      WHERE created_at IS NOT NULL
@@ -644,7 +662,7 @@ export function getDailyFunnelStats(db: Db, days = 7): DailyFunnelStats[] {
        AND COALESCE(TRIM(name), '') <> ''
        AND COALESCE(TRIM(phone), '') <> ''
        AND COALESCE(TRIM(issue_summary), '') <> ''
-       AND COALESCE(TRIM(urgency_level), '') <> ''
+       AND COALESCE(TRIM(caller_intent), '') <> ''
      GROUP BY day`,
     [sinceIso]
   );

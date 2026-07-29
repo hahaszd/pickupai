@@ -1391,44 +1391,19 @@ export class RealtimeSession {
     } else if (name === "end_call") {
       if (this.ended || this.endCallPending) return;
       this.endCallPending = true;
-      // Telemetry only — this MUST NOT become a guard that refuses end_call.
+
+      // ORDER MATTERS. Setting endCallPending above disables the voicemail
+      // fallback, so from this line until the timer is armed the call has NO
+      // backstop except the 5-minute MAX_CALL_DURATION_MS watchdog. Arm the
+      // guarantee first, then do anything that can throw.
       //
-      // Refusing it was designed and rejected on 2026-07-29 for three separate
-      // reasons, any one of which is fatal:
-      //   1. Setting endCallPending is what arms the 15-second end-guarantee
-      //      below. A path that returns without it falls back to
-      //      MAX_CALL_DURATION_MS — 15 seconds becomes 5 minutes of billed
-      //      call, and one failure path drops the caller into voicemail after
-      //      they have already heard the farewell.
-      //   2. The prompt tells the model to end a silent call WITHOUT a
-      //      save_lead first, so no intent would be known — the guard would
-      //      interrogate a dead line and hold it open for the full cap. Silent
-      //      calls would go from the cheapest to the most expensive.
-      //   3. It is the prompt's own pre-close rule with the ask budget deleted,
-      //      which is a third ask sourced from code. PRINCIPLES.md: one refusal
-      //      is the whole answer.
-      //
-      // What is left is the measurement, because nobody knows whether a real
-      // call that ends without a number was never asked or asked and refused.
-      // The owner SMS falls back to the caller ID either way (sms.ts), so this
-      // is a quality question, not a lost lead.
-      this.callbacks.onLifecycleEvent?.("end_call_invoked", {
-        callSid: this.callSid,
-        phoneCaptured: this.sawPhone,
-        intent: this.lastIntent ?? "unset"
-      });
-      this.send({
-        type: "conversation.item.create",
-        item: {
-          type: "function_call_output",
-          call_id: callId,
-          output: JSON.stringify({ ok: true })
-        }
-      });
-      // Store the reason — hangup is triggered by waitForMarksDrained() once
-      // response.done fires and Twilio has played all buffered audio.
+      // It used to be the other way round, with an unwrapped onLifecycleEvent
+      // in between — the only callback in this file not in a try/catch, and one
+      // that reaches a synchronous sql.js INSERT. A throw there unwound to the
+      // swallowing catch in the message handler and left endCallPending=true,
+      // pendingEndReason=null, no timer: the caller sat on a dead line after
+      // hearing the farewell, billed, for five minutes.
       this.pendingEndReason = sanitizeEndCallReason(args);
-      // Hard safety fallback: if response.done never arrives within 15 s, hang up anyway.
       this.endCallFallbackTimer = setTimeout(() => {
         if (this.pendingEndReason !== null && !this.ended) {
           this.ended = true;
@@ -1442,6 +1417,36 @@ export class RealtimeSession {
           this.cleanup();
         }
       }, 15_000);
+
+      // Everything below can throw without consequence now — the guarantee is armed.
+      this.send({
+        type: "conversation.item.create",
+        item: {
+          type: "function_call_output",
+          call_id: callId,
+          output: JSON.stringify({ ok: true })
+        }
+      });
+
+      // Telemetry only — this MUST NOT become a guard that refuses end_call.
+      // Refusing it was designed and rejected on 2026-07-29: it would have
+      // dropped the end-guarantee back to the 5-minute cap, interrogated a
+      // silent line that had no save_lead and therefore no intent, and it was
+      // the prompt's own pre-close rule with the ask budget deleted. See
+      // BACKLOG.md. What survives is the measurement: nobody knows whether a
+      // real call ending without a number was never asked or asked and refused.
+      //
+      // Wrapped because it reaches a synchronous sql.js INSERT via trackEvent,
+      // and it is the only callback in this file that used to be bare.
+      try {
+        this.callbacks.onLifecycleEvent?.("end_call_invoked", {
+          callSid: this.callSid,
+          phoneCaptured: this.sawPhone,
+          intent: this.lastIntent ?? "unset"
+        });
+      } catch (e) {
+        log.error({ callSid: this.callSid, err: e }, "onLifecycleEvent threw on end_call");
+      }
     } else {
       log.warn({ callSid: this.callSid, name }, "unknown function call — acknowledging with error");
       this.send({
