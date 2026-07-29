@@ -173,12 +173,13 @@ import { buildAbsoluteUrl, getCallSid, shouldWarmTransferNow } from "./twilio/fl
 import { newVoiceResponse, connectStreamTwiml, sayFriendly, voicemailFallbackTwiml } from "./twilio/twiml.js";
 import { getOrInitCallState, setCallState, clearCallState, listCallStates } from "./twilio/state.js";
 import { startCallRecording } from "./twilio/recording.js";
-import { formatOwnerSms, isUnreachableNumber, NO_SMS_INTENTS, ownerSmsWouldSayNothing, sendOwnerSms, generateForwardingCode, FIRST_CALL_CELEBRATION_PREFIX, buildCallerConfirmationSms } from "./twilio/sms.js";
+import { decideOwnerSms, formatOwnerSms, isUnreachableNumber, NO_SMS_INTENTS, ownerSmsWouldSayNothing, sendOwnerSms, generateForwardingCode, FIRST_CALL_CELEBRATION_PREFIX, buildCallerConfirmationSms } from "./twilio/sms.js";
 import { isEmailConfigured, sendEmail, formatLeadEmail } from "./utils/email.js";
 import { localiseDemo } from "./utils/demo-localise.js";
 import { formatAuPhone, toE164Au, isValidAuPhone, isAuMobile } from "./utils/phone.js";
 import { createCrmExporters, exportLeadToCrm } from "./crm/index.js";
 import { RealtimeSession } from "./realtime/session.js";
+import { persistLeadPatch } from "./realtime/lead-persist.js";
 import {
   loginPage,
   signupPage,
@@ -782,8 +783,26 @@ async function main() {
   ) {
     if (smsInflight.has(callId)) return;
 
+    // The decision itself is decideOwnerSms in twilio/sms.ts, so it can be
+    // tested: it was three conditionals in here, and a reviewer inverted the
+    // suppression check with all 374 tests still green — which suppresses every
+    // real job and wakes the owner for every telemarketer.
+    const lead = getLatestLeadForCall(db, callId);
+    const callerId = getCallFromNumber(db, callId);
+    const decision = decideOwnerSms({
+      callerIntent,
+      alreadySent: getNotificationStatus(db, callId, "sms")?.status === "sent",
+      lead,
+      fromNumber: callerId
+    });
+
+    // Nothing to record for a message that already went out — creating a row
+    // here left an orphan "pending" notification on every repeat call, and
+    // getDailyFunnelStats counts rows, so it inflated sms_total.
+    if (!decision.send && decision.reason === "already_sent") return;
+
     const id = createNotification(db, callId, "sms");
-    if (callerIntent && NO_SMS_INTENTS.has(callerIntent)) {
+    if (!decision.send && decision.reason === "intent") {
       markNotification(db, id, { status: "skipped", error: `intent:${callerIntent}` });
       trackEvent("sms_skipped_intent", {
         call_id: callId,
@@ -793,9 +812,6 @@ async function main() {
       log.info({ callId, callerIntent }, "skipping owner SMS for non-actionable call type");
       return;
     }
-    const existing = getNotificationStatus(db, callId, "sms");
-    if (existing?.status === "sent") return;
-    const lead = getLatestLeadForCall(db, callId);
     if (!lead) {
       markNotification(db, id, { status: "skipped", error: "no_lead_for_call" });
       trackEvent("sms_skipped_no_lead", { call_id: callId, level: "warn" });
@@ -830,8 +846,7 @@ async function main() {
     // lead, it is a notification that the phone rang. See ownerSmsWouldSayNothing.
     // Email is suppressed alongside the SMS: it is the same interruption in a
     // slower medium, and an empty one costs the same attention to dismiss.
-    const callerId = getCallFromNumber(db, callId);
-    if (ownerSmsWouldSayNothing({ lead, fromNumber: callerId })) {
+    if (!decision.send && decision.reason === "nothing_to_report") {
       markNotification(db, id, { status: "skipped", error: "nothing_to_report" });
       trackEvent("sms_skipped_empty", { call_id: callId, tenant_id: lead.tenant_id, level: "info" });
       log.info({ callId }, "skipping owner SMS: no name, no reachable number, no content");
@@ -4611,44 +4626,20 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
             isDemo,
             callbacks: {
               onLeadUpdate: (patch) => {
-                const s = getOrInitCallState(callSid!);
-                for (const [k, v] of Object.entries(patch)) {
-                  if (v !== null && v !== undefined && v !== "") {
-                    (s.lead as any)[k] = v;
-                  }
-                }
-                if (patch.caller_intent) s.callerIntent = patch.caller_intent;
-                setCallState(callSid!, s);
-
-                upsertLead(db, {
-                  lead_id: callSid!,
-                  tenant_id: tenant.tenant_id !== "default" ? tenant.tenant_id : null,
-                  call_id: callSid!,
-                  name: s.lead.name ?? null,
-                  phone: s.lead.phone ?? null,
-                  address: s.lead.address ?? null,
-                  issue_type: s.lead.issue_type ?? null,
-                  issue_summary: s.lead.issue_summary ?? null,
-                  urgency_level: s.lead.urgency_level ?? null,
-                  preferred_time: s.lead.preferred_time ?? null,
-                  notes: s.lead.notes ?? null,
-                  confidence: s.lead.confidence ?? null,
-                  next_action: s.lead.next_action ?? null,
-                  property_type: s.lead.property_type ?? null,
-                  caller_sentiment: s.lead.caller_sentiment ?? null,
-                  caller_intent: s.callerIntent ?? null,
-                  job_size: s.lead.job_size ?? null
-                });
-
-                if (env.STORE_FULL_TRANSCRIPT) {
-                  appendTranscript(db, callSid!, `[lead] ${JSON.stringify(patch)}`);
-                }
-
-                // Critical write: a lost lead is a lost job for the tradie, and
-                // they would never know it happened. docs/adr/0002.
-                flushCritical(db, "save_lead");
-
-                log.info({ callSid, patch }, "lead updated");
+                // Body lives in src/realtime/lead-persist.ts. It was inline
+                // here, inside main(), which made it unreachable from a test —
+                // and flushCritical could be replaced with a no-op with the
+                // whole suite green, silently voiding ADR-0002's guarantee.
+                persistLeadPatch({
+                  db, tenant, callSid: callSid!,
+                  getState: getOrInitCallState,
+                  setState: setCallState,
+                  upsertLead: upsertLead as never,
+                  flushCritical,
+                  appendTranscript,
+                  storeFullTranscript: env.STORE_FULL_TRANSCRIPT,
+                  log
+                }, patch);
               },
 
               onEndCall: (reason) => {

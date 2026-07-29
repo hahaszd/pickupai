@@ -797,3 +797,64 @@ describe("SMS provider selection", () => {
     }
   });
 });
+
+describe("decideOwnerSms", () => {
+  // NO_SMS_INTENTS and ownerSmsWouldSayNothing were both well covered as a set
+  // and as a predicate. What had no coverage at all was whether the routing
+  // consulted them — a reviewer inverted the suppression check and all 374
+  // tests stayed green. That inversion suppresses every genuine job and wakes
+  // the owner at 2am for every telemarketer, and it is undetectable from the
+  // outside: the owner just stops getting work.
+  const usable = () => makeLead({ name: "Gary", phone: "+61412345678", issue_summary: "Leaking tap" });
+
+  it("sends for a real caller", async () => {
+    const { decideOwnerSms } = await import("../src/twilio/sms.js");
+    expect(decideOwnerSms({ callerIntent: "new_job", alreadySent: false, lead: usable() }))
+      .toEqual({ send: true });
+  });
+
+  it("suppresses the five non-customer intents and nothing else", async () => {
+    const { decideOwnerSms, NO_SMS_INTENTS } = await import("../src/twilio/sms.js");
+    for (const intent of NO_SMS_INTENTS) {
+      expect(decideOwnerSms({ callerIntent: intent, alreadySent: false, lead: usable() }),
+        `${intent} should be suppressed`).toMatchObject({ send: false, reason: "intent" });
+    }
+    // referred_out was deliberately taken OUT of that set: that caller rang the
+    // right business and got a useful answer, and the owner has a right to know.
+    for (const intent of ["new_job", "quote_only", "complaint", "referred_out", "follow_up"]) {
+      expect(decideOwnerSms({ callerIntent: intent, alreadySent: false, lead: usable() }),
+        `${intent} should send`).toEqual({ send: true });
+    }
+  });
+
+  it("does not re-send, and does not record a row for the repeat", async () => {
+    const { decideOwnerSms } = await import("../src/twilio/sms.js");
+    expect(decideOwnerSms({ callerIntent: "new_job", alreadySent: true, lead: usable() }))
+      .toMatchObject({ send: false, reason: "already_sent" });
+  });
+
+  it("skips a message that would say nothing at all", async () => {
+    const { decideOwnerSms } = await import("../src/twilio/sms.js");
+    expect(decideOwnerSms({
+      callerIntent: "new_job", alreadySent: false,
+      lead: makeLead({ name: null, phone: null, issue_summary: null, notes: null }),
+      fromNumber: null
+    })).toMatchObject({ send: false, reason: "nothing_to_report" });
+
+    // But ANY one of the three is enough — the rule is an AND on purpose.
+    for (const lead of [
+      makeLead({ name: "Gary", phone: null, issue_summary: null, notes: null }),
+      makeLead({ name: null, phone: "+61412345678", issue_summary: null, notes: null }),
+      makeLead({ name: null, phone: null, issue_summary: "Blocked drain", notes: null })
+    ]) {
+      expect(decideOwnerSms({ callerIntent: "new_job", alreadySent: false, lead, fromNumber: null }))
+        .toEqual({ send: true });
+    }
+  });
+
+  it("checks intent before anything else, so a spam call is never examined", async () => {
+    const { decideOwnerSms } = await import("../src/twilio/sms.js");
+    expect(decideOwnerSms({ callerIntent: "spam", alreadySent: true, lead: null }))
+      .toMatchObject({ send: false, reason: "intent" });
+  });
+});

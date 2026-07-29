@@ -153,6 +153,48 @@ function usableCallerId(from?: string | null): string {
   return raw && /^\+?\d{6,}$/.test(raw) && !isUnreachableNumber(raw) ? raw : "";
 }
 
+export type OwnerSmsDecision =
+  | { send: true }
+  | {
+      send: false;
+      /** `already_sent` is not worth recording; the others are. */
+      reason: "intent" | "already_sent" | "no_lead" | "nothing_to_report";
+      detail?: string;
+    };
+
+/**
+ * Whether this call should wake the owner's phone, as a pure function.
+ *
+ * The decision used to be three conditionals inside notifyOwnerSmsIfNeeded,
+ * which lives inside main() in server.ts and is therefore unreachable from a
+ * test. A reviewer INVERTED the suppression check — `!NO_SMS_INTENTS.has(...)`
+ * — and all 374 tests stayed green. That inversion suppresses every genuine job
+ * and wakes the owner at 2am for every telemarketer, and nothing would have
+ * caught it. NO_SMS_INTENTS and ownerSmsWouldSayNothing were both well covered
+ * as a set and a predicate; what had no coverage was whether anything consulted
+ * them.
+ *
+ * Order is deliberate. `already_sent` is checked before the emptiness rule so a
+ * retry of a message that went out is never re-examined, and intent is checked
+ * first of all because a telemarketer's call should not even be looked at.
+ */
+export function decideOwnerSms(input: {
+  callerIntent?: string | null;
+  alreadySent: boolean;
+  lead: (Pick<LeadRow, "name" | "phone" | "issue_summary" | "notes">) | null;
+  fromNumber?: string | null;
+}): OwnerSmsDecision {
+  if (input.callerIntent && NO_SMS_INTENTS.has(input.callerIntent)) {
+    return { send: false, reason: "intent", detail: input.callerIntent };
+  }
+  if (input.alreadySent) return { send: false, reason: "already_sent" };
+  if (!input.lead) return { send: false, reason: "no_lead" };
+  if (ownerSmsWouldSayNothing({ lead: input.lead, fromNumber: input.fromNumber })) {
+    return { send: false, reason: "nothing_to_report" };
+  }
+  return { send: true };
+}
+
 export type SendOwnerSmsResult =
   | { status: "sent"; sid: string; to: string; from: string }
   | { status: "skipped"; reason: "no_recipient" | "no_sender" };
