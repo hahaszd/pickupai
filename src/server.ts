@@ -787,6 +787,16 @@ async function main() {
       return;
     }
 
+    // Claim the call BEFORE anything with a side effect. notifyOwnerSmsIfNeeded
+    // is invoked twice for the same call about a second apart — once from
+    // onEndCall and once from /twilio/voice/status — and smsInflight is the
+    // only guard covering that window, because getNotificationStatus is still
+    // not "sent" while the first sendOwnerSms is in flight. Round 1 moved the
+    // CRM export above this line and gave every tenant with Airtable or Sheets
+    // export enabled two copies of every lead.
+    smsInflight.add(callId);
+    setTimeout(() => smsInflight.delete(callId), 60_000);
+
     // The CRM export runs before the emptiness check, and deliberately.
     // ownerSmsWouldSayNothing decides whether to INTERRUPT the owner — it is a
     // rule about his phone buzzing, not about what is worth keeping. A row
@@ -812,9 +822,6 @@ async function main() {
       log.info({ callId }, "skipping owner SMS: no name, no reachable number, no content");
       return;
     }
-
-    smsInflight.add(callId);
-    setTimeout(() => smsInflight.delete(callId), 60_000);
 
     // Resolve tenant to get business name and owner email for notifications
     const notifyTenant = lead.tenant_id ? getTenantById(db, lead.tenant_id) : null;

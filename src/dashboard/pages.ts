@@ -193,7 +193,7 @@ ${banner}
 <div class="container">
   ${body}
 </div>
-${tenant ? `<script>window.__pickupai_chat_context=${JSON.stringify({ name: tenant.name, trade: tenant.trade_type })};</script>` : ""}
+${tenant ? `<script>window.__pickupai_chat_context=${jsonForScriptTag({ name: tenant.name, trade: tenant.trade_type })};</script>` : ""}
 <script src="/chat-widget.js" defer></script>
 <script>
 document.addEventListener('click',function(e){var n=document.querySelector('nav'),l=document.querySelector('.nav-links'),t=document.querySelector('.nav-toggle');if(l&&l.classList.contains('open')&&n&&!n.contains(e.target)){l.classList.remove('open');if(t)t.setAttribute('aria-expanded','false');}});
@@ -203,6 +203,25 @@ ${gaUser}
 ${extraHeadScripts ?? ""}
 </body>
 </html>`;
+}
+
+/**
+ * JSON for embedding inside a <script> tag.
+ *
+ * JSON.stringify escapes quotes and backslashes and does NOT escape `<`, so a
+ * tenant name containing `</script><img src=x onerror=...>` closes the tag and
+ * runs. This is in shell(), so it was on EVERY dashboard page, and the tenant
+ * name comes from the public signup form, which does not validate it.
+ *
+ * U+2028/U+2029 are escaped too: they are valid in JSON and are line
+ * terminators in JavaScript, so an unescaped one is a syntax error that blanks
+ * the page.
+ */
+function jsonForScriptTag(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
 }
 
 function escape(s: string) {

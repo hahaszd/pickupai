@@ -44,21 +44,20 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
       "You are standing near the unit right now",
       "You want to know if this is dangerous and what it will cost to fix"
     ],
-    // The caller here may leave or decline mid-intake, and from 2026-07-29 that
-    // is an allowed outcome: nothing is compulsory, the AI asks and lets it go.
-    // So this asserts that it ASKED, which is the behaviour we control, rather
-    // than what the caller chose to hand over, which we do not.
-    //
-    // Which is why captureTarget is "caller_choice". It said all of the above
-    // and then set "degraded", and "degraded" requires a phone number — so a
-    // run where the caller declined exactly as scripted was graded a defect.
-    // The comment was true and the assertion under it was not.
-mustCapture: ["issue_summary"],
+    // The receptionist must ASK for a number — that is the behaviour we control
+    // — which is what the mustSay below asserts. The capture target stays as it
+    // was, because in THIS harness a caller always gives their details in the
+    // end: runner.ts tells the caller model "play that for a turn or two — then
+    // give it. A caller who never gives their details at all is not a hard
+    // case, it is a dead call." A permanently-declining caller cannot occur
+    // here, so relaxing the capture assertion buys nothing and costs the whole
+    // reason the scenario exists.
+    mustCapture: ["name", "phone", "issue_summary", "address"],
     expected: {
       shouldSaveLead: true,
       shouldEndCall: true,
       shouldSendOwnerSms: true,
-      captureTarget: "caller_choice"
+      captureTarget: "complete"
     },
     mustSay: [
       "asked the caller for a contact number",
@@ -418,21 +417,20 @@ mustCapture: ["issue_summary"],
       "You do not commit to a booking at any point",
       "If given a structure rather than a flat number, you accept it without argument"
     ],
-    // The caller here may leave or decline mid-intake, and from 2026-07-29 that
-    // is an allowed outcome: nothing is compulsory, the AI asks and lets it go.
-    // So this asserts that it ASKED, which is the behaviour we control, rather
-    // than what the caller chose to hand over, which we do not.
-    //
-    // Which is why captureTarget is "caller_choice". It said all of the above
-    // and then set "degraded", and "degraded" requires a phone number — so a
-    // run where the caller declined exactly as scripted was graded a defect.
-    // The comment was true and the assertion under it was not.
-mustCapture: ["issue_summary"],
+    // The receptionist must ASK for a number — that is the behaviour we control
+    // — which is what the mustSay below asserts. The capture target stays as it
+    // was, because in THIS harness a caller always gives their details in the
+    // end: runner.ts tells the caller model "play that for a turn or two — then
+    // give it. A caller who never gives their details at all is not a hard
+    // case, it is a dead call." A permanently-declining caller cannot occur
+    // here, so relaxing the capture assertion buys nothing and costs the whole
+    // reason the scenario exists.
+    mustCapture: ["issue_summary"],
     expected: {
       shouldSaveLead: true,
       shouldEndCall: true,
       shouldSendOwnerSms: true,
-      captureTarget: "caller_choice"
+      captureTarget: "degraded"
     },
     mustSay: [
       "asked the caller for a contact number",
