@@ -26,7 +26,107 @@ Last updated: **2026-07-29**
 
 ## P0
 
-*Nothing open.*
+### Round 2 killed two of round 1's own fixes — and the eval still has open holes
+2026-07-29. Three agents re-reviewed round 1's diff. Commits `a3b1bc8`,
+`8b03321`, `853fa44`, `eed92eb`.
+
+**Round 1 was wrong twice, and both were mine:**
+
+1. **`captureTarget: "caller_choice"` — reverted.** I relaxed the capture
+   assertion on five scenarios so a declining caller would not be graded a
+   defect. The reviewer checked the one thing I did not: `runner.ts` tells every
+   caller model *"play that for a turn or two — **then give it**. A caller who
+   never gives their details at all is not a hard case, it is a dead call."* **A
+   permanently-declining caller cannot occur in this harness.** Worse, two of the
+   five were `complete`, not `degraded` — so the comment I pasted five times was
+   false at two sites, and I traded a four-field capture assertion for **none**
+   on two P0 safety scenarios. `plumber_gas_smell_hot_water_unit` exists to catch
+   "silently drops the lead" and after my change a run with no name, no number
+   and no address passed it.
+2. **A duplicate CRM export.** Moving `exportLeadToCrm` above
+   `smsInflight.add()` put it outside the only guard covering the ~1s window in
+   which `notifyOwnerSmsIfNeeded` runs twice. Every tenant with Airtable or
+   Sheets export would have got two copies of every lead.
+
+**The lesson is specific and it is not "review more".** Both defects came from
+the same act: I wrote one comment and pasted it into five places, and I moved
+one line without asking what the line below it was for. **A change applied N
+times is N changes, and each one needs its own check.** The rule already in
+CODING_STANDARDS — *change one thing per measurement* — was about paid eval
+runs; it applies to edits too.
+
+**Security, all previously unfalsifiable:**
+
+| | Finding | Reachable by |
+|---|---|---|
+| P0 | `confirm('… ${esc(t.name)} …')` — the HTML parser decodes `&#39;` back to an apostrophe **before** JS sees it, so esc() does not hold inside an event handler | anyone who can use the public signup form; runs in the admin session, which can delete tenants and read every tenant's leads |
+| P0 | `<script>…${JSON.stringify({name})}…</script>` in `shell()` — stringify does not escape `<`, so `</script>` breaks out. On **every** dashboard page | same |
+| P0 | `/mobilemsg/*` had no guard at all — forge an unsubscribe, a prospect status, or an `outreach_log` reply row | anyone who learns the URL. That table is the **ACMA consent trail** and the dataset `docs/channel-evidence.md` measures from |
+| P0 | `tenantLogin`'s password check and `getTenantBySessionToken`'s `AND active = 1` were both deletable with 374 tests green | anyone with a tradie's email address |
+| P0 | `src/twilio/verify.ts` had **zero** tests; the whole signature check could be replaced with `return next()` | anyone who learns the webhook URL |
+| P0 | `tests/prompt-conflicts.test.ts` exempted the whole LINE containing a ban, so the PAYMENT QUESTIONS bullet — conflict **#4 in its own header** — was the one line it could not fail on | — |
+
+**Customer-visible, and quietly wrong for a fortnight:** the dashboard leads
+list has not been newest-first since 2026-07-28. It ordered by
+`CASE l.urgency_level` first, that column stopped being written, so every lead
+since is NULL and lands last — pinning historical "emergency" rows permanently
+above every job that has come in since.
+
+**A withheld caller ID reached six places**, not the two round 1 guarded: the
+`tel:` link, the owner email, both CSV exports, the CRM export, and the
+confirmation SMS **sent to the caller** — where `toE164Au("+7378742833")` returns
+it unchanged, so a stranger on a real +7 number gets an unsolicited SMS naming
+an Australian business, billed to the tenant. It was also the join key for
+returning-caller history, so **every withheld caller matched every previous
+withheld caller's leads** and the prompt reads that history aloud by name and
+address.
+
+### STILL OPEN from round 2 — the eval, before any paid run
+The eval reviewer's remaining findings are not fixed and the gate should not be
+run until they are, because each one is a false red or a false green in the
+instrument:
+
+- **Seven more price-demanding scenarios with no price assertion**, five of them
+  P0 — and two whose `whyThisMatters` states the forbidden behaviour as the
+  goal (*"has to give a straight answer on price"*). Round 1 fixed six and the
+  ban landed only where a comment block happened to be.
+- **`plumber_price_shopper_drain_clear`'s new mustSay demands what the prompt
+  forbids** — the prompt bans giving "a minimum" or a call-out figure, and the
+  assertion asks for the pricing structure to be explained. And the new
+  mustNotSay is itself a compound (*"refused … with nothing offered in its
+  place"*) — the same defect the fix was meant to remove.
+- **`electrician_overhead_service_line_down`'s mustNotSay contradicts the
+  prompt**: the prompt says the repair afterwards *is* a real job for the
+  business; the assertion fails the model for agreeing to attend.
+- **`captureTarget: "none"` asserts nothing**, and `roofer_storm_lead_broker_telemarketer`
+  — the only scenario exercising the fast-spam-exit path — rests entirely on it.
+- **`caller_intent` classification is untestable library-wide**: the only
+  intent-sensitive check is "is it in `NO_SMS_INTENTS`", so an assistant that
+  files a street-wide outage as `new_job` passes.
+- **Three "negative control" scenarios test a deleted feature** — every one is
+  built on "must not be tagged emergency", and there is no label left to apply.
+- **Four scenarios where the caller demands a time** and nothing forbids
+  promising one, though PRINCIPLES 3 is unconditional.
+- **An inconclusive run (turn cap) is still scored as a failure** — round 1
+  relabelled the message and left the `failures.push`, so the label is a lie.
+- **`runner.ts` gives every caller a suburb that contradicts nine scenarios'
+  own facts**, including the one whose point is the VIC $10,000 threshold.
+
+### STILL OPEN — untestable-by-construction production code
+`flushCritical` can be made a no-op and the suite stays green; so can inverting
+the owner-SMS suppression check. Both live inside `main()` in `server.ts` and
+are therefore unreachable from a test — **the same defect class round 1 fixed
+for `localiseDemo`, one layer up.** Extracting `onLeadUpdate` and
+`notifyOwnerSmsIfNeeded` into modules closes both. ADR-0002 names the lead-save
+flush as the one write whose loss a paying customer would notice.
+
+Also open: `getTenantLeadStats` and the dashboard's urgency filter chips still
+read the deleted `urgency_level`, so the chips can never match a new lead;
+three more tenant-scoped queries have no isolation test; `upsertLead`'s update
+branch has no tenant filter and can `SET tenant_id`; the admin token is accepted
+in the query string and logged in the clear by `pinoHttp`; `SEED_PASSWORD`
+falls back to `"changeme123"`.
+
 
 ### FIXED: three review agents found nine defects nothing could have failed on
 Round 1 of an independent review loop, 2026-07-29 — one agent on the eval
