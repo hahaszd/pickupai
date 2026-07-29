@@ -158,3 +158,22 @@ rather than by review.
   asserting a feature that had been intentionally deleted.
 - **Unit tests do not touch the network.** `tests/setup-env.ts` deliberately
   leaves optional credentials unset so the offline paths are exercised.
+- **A test that costs money is opt-in by its own flag, never by a credential
+  being present.** `it.skipIf(!process.env.OPENAI_API_KEY)` reads like a guard
+  and behaves like a coin toss: `npm test` on a developer machine quietly billed
+  six `gpt-4o` judge calls, and CI quietly ran six fewer tests than the machine
+  that wrote them. The judge probes now need `EVAL_JUDGE_PROBE=1`, so the suite
+  reports the same 374 passed / 6 skipped everywhere.
+- **A suite whose test COUNT depends on the environment is not a gate.** If the
+  number moves between CI and a laptop, something is being skipped where nobody
+  is looking. Skips are fine; skips that vary are not.
+- **Extract before you assert.** Two tests here declared their own copy of the
+  thing under test — one of `localiseDemo`, one of both `/api/stats` queries —
+  and asserted against the copy, so production could change freely and stay
+  green. If a helper is unreachable because `server.ts` runs `main()` on import,
+  move the helper into a module; do not retype it into the test.
+- **Mutation-check a test that has never failed.** Break the line it protects
+  and confirm it goes red. Three tests fixed this way on 2026-07-29 had all been
+  green since they were written, and one check corrected the fix itself: the
+  flush chain turned out to be guarded twice over, so no single line was
+  load-bearing and a naive one-line mutation would have called it untested.

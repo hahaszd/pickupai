@@ -3,6 +3,13 @@ import { gradeScenario } from "../src/testing/eval/grade.js";
 import type { EvalScenario, EvalResult } from "../src/testing/eval/types.js";
 
 /**
+ * The judge probes below are the only tests here that call OpenAI, and they
+ * cost real money per run. Opt in explicitly rather than inferring it from a
+ * key being present — see the block comment above `cases`.
+ */
+const judgeProbeEnabled = process.env.EVAL_JUDGE_PROBE === "1" && !!process.env.OPENAI_API_KEY;
+
+/**
  * Only the deterministic half of the grader is covered here. Scenarios with no
  * mustSay/mustNotSay never reach the judge, so these run offline.
  */
@@ -50,8 +57,16 @@ describe("mustNotSay must catch a forbidden STATEMENT, not only a forbidden acti
   // prohibitions. Every scenario claiming to test them was green because the
   // violation was unreachable, not because the assistant behaved.
   //
-  // These cases are the probe that found it, frozen. They need a judge call, so
-  // they are skipped without an API key rather than silently passing.
+  // These cases are the probe that found it, frozen. Each one costs a real
+  // gpt-4o judge call, which breaks the standing rule that unit tests do not
+  // touch the network — and gating them on OPENAI_API_KEY alone made that
+  // invisible in both directions: `npm test` on a developer machine quietly
+  // billed six calls, and CI quietly ran six fewer tests than the machine that
+  // wrote them. A test count that differs by environment is not a gate.
+  //
+  // So they are opt-in: EVAL_JUDGE_PROBE=1 npm test -- tests/eval-grade.test.ts
+  // Run them after any change to the judge prompt or the stance vocabulary in
+  // grade.ts, which is the only thing that can break them.
   const cases: Array<{ label: string; said: string; forbidden: string; shouldCatch: boolean }> = [
     { label: "a flat price", shouldCatch: true,
       said: "For a drain clear like that you're looking at $340 all up.",
@@ -76,7 +91,7 @@ describe("mustNotSay must catch a forbidden STATEMENT, not only a forbidden acti
   ];
 
   for (const c of cases) {
-    it.skipIf(!process.env.OPENAI_API_KEY)(`${c.shouldCatch ? "catches" : "allows"} ${c.label}`, async () => {
+    it.skipIf(!judgeProbeEnabled)(`${c.shouldCatch ? "catches" : "allows"} ${c.label}`, async () => {
       const result = await gradeScenario(
         { ...scenario, mustNotSay: [c.forbidden] },
         conversation({ endedCall: true, transcript: [{ role: "assistant", text: c.said }] })
