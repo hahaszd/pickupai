@@ -53,18 +53,72 @@ const FORBIDDEN_PHRASES = [
   "I don't have those details on hand"
 ];
 
-const BANNING_LINE = /Do NOT say|one phrasing to avoid|Never say/;
+/**
+ * Strip the BANNING clauses from a line, leaving the part the model is actually
+ * told to say.
+ *
+ * This used to exempt the whole LINE whenever it contained a banning marker,
+ * and that is exactly backwards for the one line that matters. The PAYMENT
+ * QUESTIONS bullet carries a template the model speaks AND the words "is the
+ * one phrasing to avoid" in the same line — so the entire bullet was exempt,
+ * and conflict #4 in the header above, the one that produced a transcript where
+ * a caller asked for a price five times and was never asked their name, was the
+ * single line this test could not fail on. Proven by inserting the banned
+ * phrase into that template: 7 passed, 0 failed.
+ *
+ * Exempt the clause, never the line.
+ */
+export function sayablePart(line: string): string {
+  return line
+    // - Do NOT say "…", "…", or "…"  — the ban is usually a LIST, so take the
+    //   whole comma/or-separated run, not just the first quoted span.
+    .replace(
+      /(?:Do NOT say|Never say)\s*[:,]?\s*"[^"]*"(?:\s*,?\s*(?:or|and)?\s*"[^"]*")*/gi,
+      ""
+    )
+    // - … "…" is the one phrasing to avoid …
+    .replace(/"[^"]*"\s*(?:is|are)\s+(?:the\s+)?(?:one\s+)?phrasing(?:s)? to avoid/gi, "")
+    // - … avoid "…" / never "…"
+    .replace(/(?:avoid|never)\s+"[^"]*"/gi, "");
+}
 
 describe("the prompt does not hand the model a phrase it also bans", () => {
   for (const trade of TRADES) {
     it(`${trade}`, () => {
       const lines = buildSystemPrompt(tenant(trade), [], "+61411222333").split("\n");
       for (const phrase of FORBIDDEN_PHRASES) {
-        const offenders = lines.filter((l) => l.includes(phrase) && !BANNING_LINE.test(l));
+        const offenders = lines.filter((l) => sayablePart(l).includes(phrase));
         expect(offenders, `${trade} still offers "${phrase}": ${offenders[0]?.trim()}`).toEqual([]);
       }
     });
   }
+
+  // The exemption itself, tested. Without this, narrowing it is unverifiable —
+  // and the old whole-line version passed every test above while being blind to
+  // the one line the whole file exists for.
+  it("exempts the ban and not the template beside it", () => {
+    const real =
+      `- PAYMENT QUESTIONS: "Pricing and accounts are something the team handles with you directly." ` +
+      `Then back to what they need — and note that "I don't have those details on hand" is the one phrasing to avoid.`;
+    expect(sayablePart(real)).not.toContain("I don't have those details on hand");
+
+    // Same line, with the banned phrase moved INTO the spoken template. This is
+    // the regression the whole-line exemption could not see.
+    const broken = real.replace(
+      `"Pricing and accounts are something the team handles with you directly."`,
+      `"I don't have those details on hand — the team handles it."`
+    );
+    expect(sayablePart(broken)).toContain("I don't have those details on hand");
+
+    // A pure ban line stays fully exempt, including the list form the prompt
+    // actually uses.
+    expect(sayablePart(`- Do NOT say "I don't have that information".`))
+      .not.toContain("I don't have that information");
+    const list = `- Do NOT say "I don't have that information", "I don't have pricing on hand", or "I can't access their rates". Those sound like a lookup you failed.`;
+    for (const p of ["I don't have that information", "I don't have pricing on hand", "I can't access their rates"]) {
+      expect(sayablePart(list), `list ban should exempt "${p}"`).not.toContain(p);
+    }
+  });
 });
 
 describe("rules that reverse each other are visibly scoped", () => {
