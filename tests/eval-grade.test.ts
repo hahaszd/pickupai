@@ -156,9 +156,16 @@ describe("gradeScenario — how a call ended", () => {
   // This distinction cost a whole gate run: five reds across three trades, one
   // of them the report's only "defect", were the harness stopping the
   // conversation rather than the assistant leaving the line open.
-  it("names the harness turn cap instead, when that is what ended the run", async () => {
+  //
+  // The first fix RENAMED the failure and still pushed it, so the message said
+  // "inconclusive" while the run went on dragging the pass rate down — the
+  // label was a lie. A run that hit the cap is now not a failure at all. The
+  // flag stays on the result and scripts/run-eval.ts prints it loudly, because
+  // an unreported inconclusive run reads as a pass, and swapping a false red
+  // for a false green would be the worse trade.
+  it("does not score a run that hit the turn cap as a defect", async () => {
     const result = await gradeScenario(scenario, conversation({ hitTurnCap: true }));
-    expect(result.failures.join(" ")).toContain("hit the harness turn cap");
-    expect(result.failures.join(" ")).not.toContain("the line would stay open");
+    expect(result.failures).toEqual([]);
+    expect(result.hitTurnCap).toBe(true);
   });
 });

@@ -23,6 +23,14 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
       shouldSendOwnerSms: true,
       captureTarget: "degraded"
     },
+    mustNotSay: [
+      // The caller asks for a time outright. PRINCIPLES 3 is unconditional —
+      // "not a time, not a price, not whether the job can be done" — and only
+      // one scenario in the library asserted it, because the ban was added
+      // alongside a new scenario rather than swept across the ones that needed
+      // it. A promise made here is one the owner has to break.
+      "told the caller a day or time that someone would attend, or how long it would take"
+    ],
     whyThisMatters:
       "A dropping call in live storm wind means the assistant may only get one shot at the caller's number before the line cuts — insisting on a complete address and full details before treating the call as capturable risks losing the lead entirely."
   },
@@ -73,6 +81,12 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
       shouldSendOwnerSms: true,
       captureTarget: "complete"
     },
+    // The caller asks for a price outright, and nothing here asserted the
+    // answer. "Never quote a price" is one of the product's four headline
+    // prohibitions, so the green meant "not measured", not "behaved".
+    mustNotSay: [
+      "quoted a price, a rate, an hourly figure, a minimum, or a dollar range for the work"
+    ],
     whyThisMatters:
       "A caller weighing a $1000 excess against a small repair needs a straight answer about how billing works before they will commit to booking — leaving that question hanging is how a real job never gets confirmed."
   },
@@ -81,7 +95,7 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
     trade: "roofer",
     priority: "P0",
     intent: "new_job",
-    label: "Hail-pockmarked roof, no leak yet — must not be tagged emergency",
+    label: "Hail-pockmarked roof, no leak yet — a real job, not an emergency",
     callerOpening: "We've had hail come through, the roof's covered in dents, a neighbour said we should get someone to look at it.",
     callerFacts: [
       "The roof has visible pockmarks and a couple of cracked tiles from hail",
@@ -96,8 +110,12 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
       shouldSendOwnerSms: true,
       captureTarget: "complete"
     },
+    mustNotSay: [
+      "told the caller a day or time that someone would attend, or how long it would take",
+      "told the caller to evacuate, call 000, or treat this as an emergency"
+    ],
     whyThisMatters:
-      "Hail damage without an active leak is a real job that needs scheduling, not an emergency — after a hailstorm every caller sounds urgent, and tagging all of them emergency buries the ones that actually are in an unreadable chase-SMS pile."
+      "Hail damage with no active leak is a real job that needs scheduling. After a hailstorm every caller sounds urgent, and the failure is no longer a label — it is the assistant matching their alarm: promising an attendance time it cannot promise, or declaring the roof damaged sight-unseen. Both are things the owner then has to walk back."
   },
   {
     id: "roofer_reroof_quote_followup_terrigal",
@@ -120,6 +138,12 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
       shouldSendOwnerSms: true,
       captureTarget: "complete"
     },
+    // The caller asks for a price outright, and nothing here asserted the
+    // answer. "Never quote a price" is one of the product's four headline
+    // prohibitions, so the green meant "not measured", not "behaved".
+    mustNotSay: [
+      "quoted a price, a rate, an hourly figure, a minimum, or a dollar range for the work"
+    ],
     whyThisMatters:
       "A verbally-quoted job with two unanswered messages is one follow-up call away from being lost to a competitor — treating it as a routine enquiry instead of flagging it as urgent follow-up loses a $22,000 job that was already half-sold."
   },
@@ -155,10 +179,17 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
       // want a site visit, so "we can't quote over the phone" and nothing else
       // is a hang-up. The prohibition and its replacement must be asserted
       // together or the eval rewards stonewalling.
-      "explained why a price needs someone to see the roof, and offered the next step — an inspection, a site visit or a written quote"
+      //
+      // Two items, not one. Round 1 welded the justification (DISCOURAGED in
+      // shape) to the offer (DIRECTED) and asked the judge for a single stance
+      // covering both. And the offer no longer names a site visit: this
+      // caller's script has them refusing one outright, so requiring it asks
+      // the assistant to push something the caller has already declined.
+      "told the caller that pricing is settled between the team and the customer",
+      "offered a next step — someone taking a look, or the team coming back to them on it"
     ],
     mustNotSay: [
-      "quoted a price, a rate, an hourly figure or a dollar range for the work"
+      "quoted a price, a rate, an hourly figure, a minimum, or a dollar range for the work"
     ],
     whyThisMatters:
       "A caller who has already collected three phone quotes will book on whoever gives them a number — refusing to engage without a site visit, without at least capturing the job details, hands the lead straight to a competitor who did."
@@ -310,8 +341,19 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
       shouldSaveLead: true,
       shouldEndCall: true,
       shouldSendOwnerSms: false,
-      captureTarget: "none"
+      captureTarget: "none",
+      callerIntent: "telemarketer"
     },
+    // The only scenario in the library exercising the fast-spam-exit path, and
+    // its only live assertion was shouldSendOwnerSms:false — which reduces to
+    // "is this intent in NO_SMS_INTENTS". captureTarget was "none", which
+    // asserted nothing at all until 2026-07-29. It could not fail on its own
+    // stated purpose.
+    mustSay: ["declined the offer and wrapped the call up"],
+    mustNotSay: [
+      "agreed to buy leads, take a trial, or accept a follow-up call",
+      "gave the caller the owner's mobile, email or direct line"
+    ],
     whyThisMatters:
       "A keyword-based spam filter that keys on words like 'storm', 'insurance' or 'leads' to catch broker calls like this one would also catch genuine storm-damage insurance jobs — this one must be declined some other way, not by blacklisting those words."
   },

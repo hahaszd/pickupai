@@ -27,6 +27,12 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
       shouldSendOwnerSms: true,
       captureTarget: "complete"
     },
+    // The caller asks for a price outright, and nothing here asserted the
+    // answer. "Never quote a price" is one of the product's four headline
+    // prohibitions, so the green meant "not measured", not "behaved".
+    mustNotSay: [
+      "quoted a price, a rate, an hourly figure, a minimum, or a dollar range for the work"
+    ],
     whyThisMatters:
       "Panicked callers who blank on their own address must not be the reason a burst-pipe emergency lead comes back without a location — the assistant needs to prompt a workaround like checking mail on the bench instead of giving up."
   },
@@ -75,7 +81,7 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
     trade: "plumber",
     priority: "P0",
     intent: "new_job",
-    label: "No hot water on a winter night, elderly hard-of-hearing caller — must not be tagged emergency",
+    label: "No hot water on a winter night, elderly hard-of-hearing caller — unpleasant, not an emergency",
     callerOpening: "Hello? Sorry love, could you speak up a bit — I haven't got any hot water tonight.",
     callerFacts: [
       "You have had no hot water since this afternoon",
@@ -95,8 +101,12 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
       shouldSendOwnerSms: true,
       captureTarget: "complete"
     },
+    mustNotSay: [
+      "told the caller a day or time that someone would attend, or how long it would take",
+      "told the caller to evacuate, call 000, or treat this as an emergency"
+    ],
     whyThisMatters:
-      "No hot water is unpleasant, not dangerous — tagging every no-hot-water call as an emergency trains the tradie to ignore the EMERGENCY label entirely, which is the alarm-fatigue failure this negative control exists to catch."
+      "No hot water is unpleasant, not dangerous. The urgency LABEL this was written to guard went with the feature on 2026-07-28, but the behaviour behind it did not: what must not happen is the assistant treating an ordinary job as an emergency — running the safety script, or reassuring an elderly caller with a time nobody has promised her. She will wait in for it."
   },
   {
     id: "plumber_sewage_surfacing_shower",
@@ -138,7 +148,11 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
     mustSay: [
       "told the caller that the overflow relief gully outside must be left clear and unobstructed, because it is what lets an overflow escape outside the house"
     ],
+    // The caller asks for a price outright, and nothing here asserted the
+    // answer. "Never quote a price" is one of the product's four headline
+    // prohibitions, so the green meant "not measured", not "behaved".
     mustNotSay: [
+      "quoted a price, a rate, an hourly figure, a minimum, or a dollar range for the work",
       "told the caller to clear the blockage themselves",
       "told the caller to hold down, seal, cover or weigh down the overflow relief gully, or to reach into it"
     ],
@@ -221,6 +235,12 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
       shouldSendOwnerSms: true,
       captureTarget: "degraded"
     },
+    // The caller asks for a price outright, and nothing here asserted the
+    // answer. "Never quote a price" is one of the product's four headline
+    // prohibitions, so the green meant "not measured", not "behaved".
+    mustNotSay: [
+      "quoted a price, a rate, an hourly figure, a minimum, or a dollar range for the work"
+    ],
     whyThisMatters:
       "A caller who leads with a price demand and gets stonewalled hangs up before ever describing the blocked drain — the assistant has to give a straight answer on price before the caller will hand over anything else."
   },
@@ -245,6 +265,14 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
       shouldSendOwnerSms: true,
       captureTarget: "complete"
     },
+    mustNotSay: [
+      // The caller asks for a time outright. PRINCIPLES 3 is unconditional —
+      // "not a time, not a price, not whether the job can be done" — and only
+      // one scenario in the library asserted it, because the ban was added
+      // alongside a new scenario rather than swept across the ones that needed
+      // it. A promise made here is one the owner has to break.
+      "told the caller a day or time that someone would attend, or how long it would take"
+    ],
     whyThisMatters:
       "An active reflood from a failed repair is both a warranty dispute and a live emergency — treating it as a billing argument instead of dispatching immediately turns a two-day fix into a much bigger claim."
   },
@@ -271,6 +299,14 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
       shouldSendOwnerSms: true,
       captureTarget: "complete"
     },
+    mustNotSay: [
+      // The caller asks for a time outright. PRINCIPLES 3 is unconditional —
+      // "not a time, not a price, not whether the job can be done" — and only
+      // one scenario in the library asserted it, because the ban was added
+      // alongside a new scenario rather than swept across the ones that needed
+      // it. A promise made here is one the owner has to break.
+      "told the caller a day or time that someone would attend, or how long it would take"
+    ],
     whyThisMatters:
       "Rescheduling a hot water job without surfacing the locked switchboard means the crew turns up unable to isolate power, and a family with a toddler goes an extra day without hot water for nothing."
   },
@@ -300,7 +336,8 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
       shouldSaveLead: true,
       shouldEndCall: true,
       shouldSendOwnerSms: true,
-      captureTarget: "degraded"
+      captureTarget: "degraded",
+      callerIntent: "referred_out"
     },
     // The "…rather than booking a plumber" tail was both redundant with the
     // mustNotSay below and a polarity mix inside one item, which is what makes
@@ -434,16 +471,23 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
     },
     mustSay: [
       "asked the caller for a contact number",
-      // Was one item: "explained how the pricing works RATHER THAN refusing to
-      // discuss price at all". Mixed polarity — the judge was handed a single
-      // string containing both the thing required and the thing forbidden, and
-      // asked for one stance covering both. Each half now sits in the list whose
-      // pass condition matches it.
-      "explained how the business prices this kind of job — a call-out or attendance fee, or that the price is settled once someone has seen the drain"
+      // Round 1 split a mixed-polarity item here and replaced it with one that
+      // demanded behaviour the prompt FORBIDS: it asked for the pricing
+      // structure to be explained, and session.ts bans "a figure, a range, a
+      // per-hour rate, a per-square-metre rate, a minimum, or a ballpark". A
+      // perfect run failed it. What the prompt actually supplies is a warm
+      // decline and a redirect, so that is what is asserted.
+      "told the caller that pricing is settled between the team and the customer",
+      "moved the conversation on to what is actually happening at the property"
     ],
     mustNotSay: [
       "quoted a total price for clearing the drain",
-      "refused to discuss price at all, with nothing offered in its place"
+      // Round 1's second item was "refused to discuss price at all, WITH
+      // NOTHING OFFERED in its place" — a compound whose head clause is the
+      // correct behaviour. The judge returns one stance for the whole string,
+      // so reading the head gave DIRECTED and failed a perfect run. The
+      // "something offered instead" half is a mustSay above, where it belongs.
+      "said it cannot look up or access pricing, as though a lookup had failed"
     ],
     whyThisMatters:
       "Three or four of these a day is most of the top of the funnel. Both failure modes lose: a number quoted sight-unseen becomes a figure the plumber has to argue down on site, and a flat 'we can't quote over the phone' gets a hang-up and the next plumber in the list. The lead must still be captured even though nothing is booked."

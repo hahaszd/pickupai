@@ -112,3 +112,27 @@ describe("eval scenario library", () => {
   // covered are still in the library and still assert a full capture, which is
   // now the whole of what they test.
 });
+
+describe("the caller brief does not contradict the scenario", () => {
+  // callerIdentity assigned a suburb from a hash while callerFacts said
+  // somewhere else, and the same prompt then told the caller model not to
+  // invent anything. Nine scenarios were in that position — including the one
+  // whose correct answer turns on the Victorian $10,000 licence threshold.
+  it("uses the scenario's own location wherever it names one", async () => {
+    const { ALL_EVAL_SCENARIOS } = await import("../src/testing/eval/scenarios/index.js");
+    const { buildCallerBriefForTest } = await import("../src/testing/eval/runner.js");
+
+    let checked = 0;
+    for (const s of ALL_EVAL_SCENARIOS) {
+      const stated = s.callerFacts.find((f) => /\bYou (?:are|live) in\b/i.test(f));
+      if (!stated) continue;
+      const place = stated.replace(/^.*?\bYou (?:are|live) in\b\s*/i, "").replace(/[.,]\s*$/, "").trim();
+      const brief = buildCallerBriefForTest(s);
+      expect(brief, `${s.id} should say the caller lives in ${place}`)
+        .toContain(`You live in ${place}`);
+      checked++;
+    }
+    // If this drops to zero the assertion has quietly stopped testing anything.
+    expect(checked).toBeGreaterThan(5);
+  });
+});

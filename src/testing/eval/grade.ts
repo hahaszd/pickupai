@@ -50,13 +50,16 @@ export async function gradeScenario(
   // read as a product defect for a whole gate run — five reds across three
   // trades, one of them the only "defect" in the report — when the assistant had
   // simply never been given the turn in which it would have ended the call.
-  if (scenario.expected.shouldEndCall && !run.endedCall && !run.callerHungUp) {
-    failures.push(
-      run.hitTurnCap
-        ? `hit the harness turn cap (${run.turnCount} turns) before anyone ended the call — inconclusive, not a line left open`
-        : "neither end_call nor a caller hangup — the line would stay open"
-    );
+  if (scenario.expected.shouldEndCall && !run.endedCall && !run.callerHungUp && !run.hitTurnCap) {
+    failures.push("neither end_call nor a caller hangup — the line would stay open");
   }
+  // A run that ran out of turns is INCONCLUSIVE and must not be scored as a
+  // defect. The message here used to say "inconclusive" and then push it into
+  // failures anyway, so the label was a lie and the run still dragged the
+  // pass-rate down. hitTurnCap is on the result and the report prints it, which
+  // is where an inconclusive run belongs — visible, and not counted as a
+  // product problem. This was read as a defect for a whole gate run once: five
+  // reds across three trades, one of them the only "defect" in the report.
 
   // ── Field capture ─────────────────────────────────────────────────────────
   for (const field of scenario.mustCapture) {
@@ -86,11 +89,30 @@ export async function gradeScenario(
   if (scenario.expected.captureTarget === "degraded" && quality.level === "fail") {
     failures.push(`capture quality failed entirely, wanted at least ${wanted}`);
   }
+  // "none" used to assert NOTHING. The grader mapped it to "fail" and then
+  // never read the mapping, so a scenario declaring "this call must not produce
+  // a usable lead" was graded on nothing at all — and the only scenario
+  // exercising the fast-spam-exit path rests entirely on it.
+  if (scenario.expected.captureTarget === "none" && quality.level !== "fail") {
+    failures.push(
+      `captured a usable lead (${quality.level}) on a call that should not produce one`
+    );
+  }
 
   // ── Notification policy ───────────────────────────────────────────────────
   // The urgency assertion that used to sit here went with the product feature
   // on 2026-07-28. The eval graded a label the owner no longer receives.
   const intent = (c.caller_intent as string | undefined) ?? scenario.intent;
+  // Until 2026-07-29 the only intent-sensitive check below was "is this intent
+  // in NO_SMS_INTENTS", which new_job and referred_out both answer the same
+  // way — so an assistant filing a street-wide outage as a job passed, and the
+  // whole referred_out taxonomy had zero coverage. A scenario can now name the
+  // value it expects.
+  if (scenario.expected.callerIntent && intent !== scenario.expected.callerIntent) {
+    failures.push(
+      `caller_intent "${intent ?? "unset"}", expected "${scenario.expected.callerIntent}"`
+    );
+  }
   const smsWouldSend = run.savedLead && expectedSmsForIntent(intent as never);
   if (smsWouldSend !== scenario.expected.shouldSendOwnerSms) {
     failures.push(

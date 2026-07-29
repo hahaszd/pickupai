@@ -161,18 +161,48 @@ const AU_SUBURBS = [
   "Coorparoo 4151", "Morley 6062", "Prospect 5082", "Glenorchy 7010"
 ];
 
-function callerIdentity(scenarioId: string): { name: string; suburb: string; phone: string } {
+/**
+ * A stable name, suburb and mobile per scenario, so a caller has details to
+ * give and the same run twice gives the same ones.
+ *
+ * `scenario` is passed so the suburb can defer to the scenario's own facts. It
+ * used to be assigned purely from the hash, which handed the caller model two
+ * contradicting briefs — "You live in Morley 6062" from here and "You are in
+ * Bendigo" from callerFacts — and then told it at the bottom of the same prompt
+ * not to invent anything. Nine scenarios were in that position, including the
+ * one whose whole point is the Victorian $10,000 builder's-licence threshold,
+ * where which state the caller is in decides the correct answer.
+ */
+function callerIdentity(scenario: EvalScenario): { name: string; suburb: string; phone: string } {
   let h = 0;
-  for (const c of scenarioId) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  for (const c of scenario.id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+
+  // If the scenario names a place, that wins — it is load-bearing for the
+  // scenario and the generic suburb is not.
+  const stated = scenario.callerFacts.find((f) => /\bYou (?:are|live) in\b/i.test(f));
+  const suburb = stated
+    ? stated.replace(/^.*?\bYou (?:are|live) in\b\s*/i, "").replace(/[.,]\s*$/, "").trim()
+    : AU_SUBURBS[(h >>> 5) % AU_SUBURBS.length];
+
   return {
     name: CALLER_NAMES[h % CALLER_NAMES.length],
-    suburb: AU_SUBURBS[(h >>> 5) % AU_SUBURBS.length],
+    suburb: suburb || AU_SUBURBS[(h >>> 5) % AU_SUBURBS.length],
     phone: `04${String(10_000_000 + (h % 89_999_999)).slice(0, 8)}`
   };
 }
 
+/**
+ * The caller's brief, exposed for tests. It is the half of the harness nothing
+ * could see: a contradiction between this and the scenario's own facts made
+ * the caller model choose between two briefs, and which it chose was invisible
+ * in the result.
+ */
+export function buildCallerBriefForTest(scenario: EvalScenario): string {
+  return callerSystemPrompt(scenario);
+}
+
 function callerSystemPrompt(scenario: EvalScenario): string {
-  const who = callerIdentity(scenario.id);
+  const who = callerIdentity(scenario);
   return [
     `You are a member of the Australian public phoning a ${scenario.trade}'s business. Speak naturally, in Australian English, the way someone actually talks on the phone — short, sometimes messy, never like a written summary.`,
     ``,

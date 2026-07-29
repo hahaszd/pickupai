@@ -157,6 +157,25 @@ async function main() {
     console.log(`  ${marginal.length} marginal — passed some runs, failed others`);
   }
 
+  // A run that hit the turn cap is INCONCLUSIVE: the assistant was never given
+  // the turn in which it would have ended the call. It stopped being scored as
+  // a defect on 2026-07-29 — and that alone would have turned a false red into
+  // a false green, because an unreported inconclusive run reads as a pass.
+  // So it is counted here, loudly, and the scenario is named.
+  const cappedRuns = results.filter((r) => r.hitTurnCap);
+  if (cappedRuns.length > 0) {
+    const ids = [...new Set(cappedRuns.map((r) => r.scenarioId))];
+    console.log(
+      `\n  ⚠ ${cappedRuns.length} run(s) hit the ${"turn cap"} and are INCONCLUSIVE, not passes: ${ids.join(", ")}`
+    );
+    console.log(
+      "    The assistant never got the turn in which it would have ended the call."
+    );
+    console.log(
+      "    A scenario capping repeatedly needs its caller script shortened, not its assertions loosened."
+    );
+  }
+
   // Per trade, counted on the scenario's verdict rather than on individual
   // runs: a scenario that flapped is not two-thirds of a pass.
   const byTrade = new Map<string, { pass: number; total: number }>();

@@ -67,6 +67,14 @@ export type EvalScenario = {
     shouldEndCall: boolean;
     shouldSendOwnerSms: boolean;
     captureTarget: CaptureTarget;
+    /**
+     * The exact caller_intent the assistant must file. Optional, because most
+     * scenarios do not turn on it — but where the intent IS the point (a
+     * referral is not a job; a telemarketer is not a customer) the value has to
+     * be named, or the only thing graded is whether the owner gets an SMS, and
+     * several intents answer that identically.
+     */
+    callerIntent?: string;
   };
 
   /**

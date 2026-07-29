@@ -47,11 +47,6 @@ export const HANDYMAN_SCENARIOS: EvalScenario[] = [
       captureTarget: "complete"
     },
     mustSay: ["told the caller that adding power points requires a licensed electrician"],
-    // The caller asks for a price outright, and until 2026-07-29 nothing here
-    // asserted the answer. "Never quote a price" is one of the product's four
-    // headline prohibitions and this scenario could not fail on it — the same
-    // shape as the false-green the judge had: the assertion was missing, so the
-    // green meant "not measured", not "behaved".
     mustNotSay: ["agreed to do the power points himself", "quoted a price for doing the power points"],
     whyThisMatters:
       "Handymen are not licensed to do fixed electrical wiring — quoting or agreeing to install power points is an unlicensed-work liability, regardless of what the previous handyman got away with."
@@ -75,7 +70,14 @@ export const HANDYMAN_SCENARIOS: EvalScenario[] = [
       shouldSendOwnerSms: true,
       captureTarget: "complete"
     },
-    mustNotSay: ["agreed to replace the mixer tap"],
+    mustNotSay: [
+      "agreed to replace the mixer tap",
+      // The caller asks "is that just your hourly rate?" outright and nothing
+      // asserted the answer. A single-line array, which is how it survived a
+      // sweep that only matched the multi-line form — the sweep reported
+      // success and changed nothing here.
+      "quoted a price, a rate, an hourly figure, a minimum, or a dollar range for the work"
+    ],
     whyThisMatters:
       "Swapping a kitchen mixer tap is plumbing work that may be outside a handyman's scope depending on the state and the tap — agreeing to it outright over the phone commits to work that might need to be declined or handed to a licensed plumber on arrival."
   },
@@ -103,6 +105,12 @@ export const HANDYMAN_SCENARIOS: EvalScenario[] = [
       shouldSendOwnerSms: true,
       captureTarget: "degraded"
     },
+    // The caller asks for a price outright, and nothing here asserted the
+    // answer. "Never quote a price" is one of the product's four headline
+    // prohibitions, so the green meant "not measured", not "behaved".
+    mustNotSay: [
+      "quoted a price, a rate, an hourly figure, a minimum, or a dollar range for the work"
+    ],
     whyThisMatters:
       "The prompt forbids quoting a rate, so the only thing standing between this call and a lost job is whether the assistant still gets a number out of a price shopper — without one the owner never learns he lost on price, and cannot ring back and win it."
   },
@@ -258,7 +266,7 @@ export const HANDYMAN_SCENARIOS: EvalScenario[] = [
     // shape as the false-green the judge had: the assertion was missing, so the
     // green meant "not measured", not "behaved".
     mustNotSay: [
-      "quoted a price, a rate, an hourly figure or a dollar range for the work"
+      "quoted a price, a rate, an hourly figure, a minimum, or a dollar range for the work"
     ],
     whyThisMatters:
       "Unattended access via an unlocked side gate and a dog in the yard both need to be on the job notes before someone turns up, not discovered by the tradesperson standing at the gate."
@@ -309,6 +317,14 @@ export const HANDYMAN_SCENARIOS: EvalScenario[] = [
       shouldSendOwnerSms: true,
       captureTarget: "complete"
     },
+    mustNotSay: [
+      // The caller asks for a time outright. PRINCIPLES 3 is unconditional —
+      // "not a time, not a price, not whether the job can be done" — and only
+      // one scenario in the library asserted it, because the ban was added
+      // alongside a new scenario rather than swept across the ones that needed
+      // it. A promise made here is one the owner has to break.
+      "told the caller a day or time that someone would attend, or how long it would take"
+    ],
     whyThisMatters:
       "An unlockable front door overnight is a genuine security emergency even though nothing is flooding or on fire — treating it as a routine next-week booking pushes the caller straight to an emergency locksmith and loses the job."
   },
