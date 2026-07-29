@@ -1763,9 +1763,27 @@ async function main() {
     }
 
     const state = getOrInitCallState(callSid);
-    state.lead.phone = typeof from === "string" ? from : state.lead.phone;
 
-    if (typeof from === "string" && from.trim()) {
+    // Seed the callback number from the caller ID only when it IS one. A
+    // withheld caller arrives as a placeholder, and this single assignment was
+    // the source for six places that print or dial lead.phone: the owner SMS,
+    // the dashboard's tel: link, the owner email, both CSV exports, the CRM
+    // export, and the confirmation SMS sent back to the caller. The last of
+    // those is the worst — for the NUMERIC placeholder toE164Au returns it
+    // unchanged, so a stranger on a real +7 number receives an unsolicited SMS
+    // naming an Australian business, billed to the tenant.
+    const callbackFrom = typeof from === "string" && !isUnreachableNumber(from) ? from : null;
+    state.lead.phone = callbackFrom ?? state.lead.phone;
+
+    // Returning-caller history is keyed on this number and gets read aloud —
+    // the prompt says «Hey ${lastKnownName}, great to hear from you again!» and
+    // «Is this for the same place in ${lastKnownAddress}?». calls.from_number
+    // stores the placeholder verbatim, so matching on it would make EVERY
+    // withheld caller to a tenant match every previous withheld caller's leads,
+    // and greet a stranger by another customer's name and address. Round 1
+    // closed the cross-tenant version of this and left the within-tenant one.
+    if (callbackFrom && callbackFrom.trim()) {
+      const from = callbackFrom;
       const history = getLeadHistoryByPhone(db, from.trim(), tenant.tenant_id);
       if (history.length > 0) {
         state.callerHistory = history;
@@ -4626,10 +4644,16 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
                   log.warn({ err }, "owner sms on end_call failed")
                 );
 
+                // Belt and braces on top of the seeding guard: the model can
+                // also put anything it likes in phone via save_lead, and
+                // sanitizeSaveLeadArgs does no validation on it. Texting a
+                // stranger is the one failure here with a victim outside this
+                // system, so it gets checked at the point of sending too.
                 const callerPhone = s.lead.phone ?? null;
                 const shouldConfirmCaller = callerPhone
                   && callerPhone.trim()
                   && !callerPhone.startsWith("+PENDING_")
+                  && !isUnreachableNumber(callerPhone)
                   && s.callerIntent
                   && !NO_SMS_INTENTS.has(s.callerIntent);
                 if (shouldConfirmCaller && callerPhone) {

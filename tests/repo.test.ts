@@ -660,3 +660,44 @@ describe("the funnel's 'complete capture' definition", () => {
     await rm(sqlitePath, { force: true });
   });
 });
+
+describe("listLeadsForTenant ordering", () => {
+  // The list sorted by urgency_level before created_at. That column stopped
+  // being written on 2026-07-28, so every lead since is NULL and lands in the
+  // last bucket — pinning historical "emergency" rows above everything new,
+  // permanently, on the page the tradie actually looks at.
+  it("returns newest first even when old leads carry a historical urgency", async () => {
+    const { openDb } = await import("../src/db/db.js");
+    const { createTenant, upsertCall, upsertLead, listLeadsForTenant } =
+      await import("../src/db/repo.js");
+
+    const sqlitePath = `.tmp/test-lead-order-${Date.now()}.sqlite`;
+    const db = await openDb(sqlitePath);
+    const tenant = createTenant(db, {
+      name: "Order Test", trade_type: "plumber", twilio_number: "+61400000777",
+      owner_phone: "+61477777777", owner_email: "order@test.local", password: "order-pass"
+    });
+
+    const mk = (id: string, created: string, urgency: string | null) => {
+      upsertCall(db, { call_id: `c-${id}`, tenant_id: tenant.tenant_id, status: "completed" });
+      upsertLead(db, {
+        lead_id: id, tenant_id: tenant.tenant_id, call_id: `c-${id}`,
+        name: id, phone: "+61412345678", address: null, issue_type: null,
+        issue_summary: "x", urgency_level: urgency, preferred_time: null,
+        notes: null, confidence: null, next_action: null, lead_status: "new",
+        created_at: created
+      });
+    };
+
+    mk("old-emergency", "2026-06-01T00:00:00.000Z", "emergency");
+    mk("old-urgent", "2026-06-02T00:00:00.000Z", "urgent");
+    mk("new-today", "2026-07-29T00:00:00.000Z", null);
+    mk("new-yesterday", "2026-07-28T00:00:00.000Z", null);
+
+    expect(listLeadsForTenant(db, tenant.tenant_id).map((l) => l.lead_id))
+      .toEqual(["new-today", "new-yesterday", "old-urgent", "old-emergency"]);
+
+    await db.flush();
+    await rm(sqlitePath, { force: true });
+  });
+});

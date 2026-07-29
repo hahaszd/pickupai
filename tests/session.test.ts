@@ -665,6 +665,24 @@ describe("the prompt does not promise a withheld number reaches the owner", () =
     expect(prompt).toContain("never raise it again");
   });
 
+  // The first pass at this branched one line and left two others untouched, so
+  // the same prompt said there is no number AND offered "use their caller ID"
+  // and "the caller's number on file is …". A rule the model can satisfy two
+  // opposite ways is the failure mode CODING_STANDARDS names first.
+  it("offers no caller ID anywhere in the prompt when there is none", () => {
+    const prompt = buildSystemPrompt(makeTenant(), [], "+7378742833");
+    expect(prompt).not.toContain("use their caller ID");
+    expect(prompt).not.toContain("The caller's number on file is");
+    expect(prompt).toContain("There is NO number on file for this caller");
+  });
+
+  it("keeps both caller-ID lines when the number is real", () => {
+    const prompt = buildSystemPrompt(makeTenant(), [], "+61412345678");
+    expect(prompt).toContain("use their caller ID");
+    expect(prompt).toContain("The caller's number on file is +61412345678");
+    expect(prompt).not.toContain("There is NO number on file");
+  });
+
   it("keeps the ordinary wording, and the number, for a real caller ID", () => {
     const prompt = buildSystemPrompt(makeTenant(), [], "+61412345678");
     expect(prompt).toContain("+61412345678");

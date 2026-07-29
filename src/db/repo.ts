@@ -389,9 +389,13 @@ export function listLeadsForTenant(
      FROM leads l
      LEFT JOIN calls c ON l.call_id = c.call_id
      WHERE ${conditions.join(" AND ")}
-     ORDER BY
-       CASE l.urgency_level WHEN 'emergency' THEN 0 WHEN 'urgent' THEN 1 ELSE 2 END,
-       l.created_at DESC
+     -- Newest first, full stop. This used to sort by urgency_level before
+     -- created_at, and that column stopped being written on 2026-07-28 when the
+     -- urgency feature was deleted. Every lead since is NULL, so it falls in
+     -- the last bucket — which pinned every pre-2026-07-28 "emergency" and
+     -- "urgent" lead permanently above every job that has come in since. The
+     -- tradie opens his own leads page and sees months-old work on top.
+     ORDER BY l.created_at DESC
      LIMIT ?`,
     params
   );
