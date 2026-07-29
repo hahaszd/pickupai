@@ -41,6 +41,19 @@ const envSchema = z.object({
     .transform((v) => v === "true"),
 
   ADMIN_TOKEN: z.string().optional(),
+  /**
+   * Shared secret for the Mobile Message inbound/status webhooks, which have no
+   * signature scheme of their own. Sent as ?s=<secret> on the webhook URL
+   * configured in the Mobile Message dashboard.
+   *
+   * Optional so setting it cannot take a live deployment down, but leaving it
+   * unset means /mobilemsg/* is open: an unauthenticated POST can unsubscribe
+   * any prospect, flip prospect status, and write forged rows into
+   * outreach_log — which is the ACMA consent and record-keeping trail LISTS.md
+   * depends on and the dataset docs/channel-evidence.md measures from. The
+   * server logs a warning on every unauthenticated hit while it is unset.
+   */
+  MOBILEMSG_WEBHOOK_SECRET: z.string().optional(),
   STORE_FULL_TRANSCRIPT: z
     .enum(["true", "false"])
     .default("true")

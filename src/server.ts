@@ -2098,7 +2098,42 @@ async function main() {
     res.type("text/xml").send("<Response/>");
   });
 
-  app.post("/mobilemsg/sms/status", express.json(), (req, res) => {
+  /**
+   * Mobile Message publishes no signature scheme, so the webhooks are
+   * authenticated with a shared secret on the query string — the same shape
+   * their dashboard already accepts for a callback URL.
+   *
+   * This exists because /mobilemsg/* was completely open. An unauthenticated
+   * POST with an arbitrary `from` could unsubscribe any prospect, flip prospect
+   * status, and write forged `sms_reply` rows into outreach_log. That table is
+   * the consent and record-keeping trail LISTS.md depends on for the Spam Act,
+   * and it is the dataset docs/channel-evidence.md measures reply rates from —
+   * so forged rows are both a compliance record nobody can stand behind and a
+   * corrupted evidence base for acquisition decisions.
+   *
+   * Fails OPEN while MOBILEMSG_WEBHOOK_SECRET is unset, and says so loudly on
+   * every request, rather than silently dropping live inbound SMS the moment
+   * this deploys. Set the var and update the callback URL in the Mobile Message
+   * dashboard to close it — both, or neither is any use.
+   */
+  const mobileMsgGuard = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const expected = env.MOBILEMSG_WEBHOOK_SECRET;
+    if (!expected) {
+      log.warn(
+        { path: req.path },
+        "MOBILEMSG_WEBHOOK_SECRET is unset — /mobilemsg/* is accepting unauthenticated writes to the prospect and outreach records"
+      );
+      return next();
+    }
+    const given = typeof req.query.s === "string" ? req.query.s : "";
+    if (!safeTokenCompare(given, expected)) {
+      log.warn({ path: req.path, ip: req.ip }, "rejected an unsigned /mobilemsg webhook");
+      return res.sendStatus(403);
+    }
+    return next();
+  };
+
+  app.post("/mobilemsg/sms/status", mobileMsgGuard, express.json(), (req, res) => {
     const messageId = typeof req.body?.message_id === "string" ? req.body.message_id : null;
     const status = typeof req.body?.status === "string" ? req.body.status : null;
     const customRef = typeof req.body?.custom_ref === "string" ? req.body.custom_ref : null;
@@ -2121,7 +2156,7 @@ async function main() {
    * Configure on the Mobile Message side to POST to:
    *   ${PUBLIC_BASE_URL}/mobilemsg/sms/incoming
    */
-  app.post("/mobilemsg/sms/incoming", express.json(), (req, res) => {
+  app.post("/mobilemsg/sms/incoming", mobileMsgGuard, express.json(), (req, res) => {
     const b = req.body ?? {};
     const from =
       typeof b.from === "string" ? b.from
