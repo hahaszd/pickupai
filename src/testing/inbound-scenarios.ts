@@ -40,7 +40,30 @@ export type ScenarioPriority = "P0" | "P1" | "P2";
  * what the receptionist controls instead: `mustCapture` for what it must record
  * from what it heard, and a mustSay for having ASKED.
  */
-export type CaptureTarget = "complete" | "degraded" | "none" | "caller_choice";
+export type CaptureTarget =
+  | "complete"
+  | "degraded"
+  /**
+   * Nothing is REQUIRED. A floor of zero, not a ceiling — asserts nothing about
+   * capture, and `mustCapture` carries whatever the scenario does need.
+   *
+   * Used where the product deliberately chooses the caller over the lead: a
+   * family being told to get out of a house with a smoking switchboard should
+   * not be held on the line to finish a form.
+   */
+  | "none"
+  /**
+   * This call must NOT produce a usable lead. A ceiling — a spam or
+   * lead-broker call that ends with a captured job is a defect.
+   *
+   * Split out from "none" on 2026-07-29. One word was carrying both meanings,
+   * and making it assert the ceiling failed a P0 life-safety scenario for
+   * obeying the prompt: the eval demanded that a hot-switchboard call capture
+   * nothing, while session.ts says "on an emergency, ask for the phone number
+   * FIRST".
+   */
+  | "not_a_lead"
+  | "caller_choice";
 
 export type InboundScenario = {
   id: string;

@@ -80,7 +80,8 @@ export async function gradeScenario(
     address: c.address ?? null
   });
   const targetToLevel = {
-    complete: "pass_complete", degraded: "pass_degraded", none: "fail", caller_choice: "any"
+    complete: "pass_complete", degraded: "pass_degraded",
+    none: "any", not_a_lead: "fail", caller_choice: "any"
   } as const;
   const wanted = targetToLevel[scenario.expected.captureTarget];
   if (scenario.expected.captureTarget === "complete" && quality.level !== "pass_complete") {
@@ -89,11 +90,14 @@ export async function gradeScenario(
   if (scenario.expected.captureTarget === "degraded" && quality.level === "fail") {
     failures.push(`capture quality failed entirely, wanted at least ${wanted}`);
   }
-  // "none" used to assert NOTHING. The grader mapped it to "fail" and then
-  // never read the mapping, so a scenario declaring "this call must not produce
-  // a usable lead" was graded on nothing at all — and the only scenario
-  // exercising the fast-spam-exit path rests entirely on it.
-  if (scenario.expected.captureTarget === "none" && quality.level !== "fail") {
+  // "not_a_lead" is the ceiling: this call must not end with a usable job.
+  //
+  // It was briefly spelled "none", and "none" is used by two scenarios meaning
+  // OPPOSITE things — a floor for the hot-switchboard call where the product
+  // chooses the family's safety over the lead, and a ceiling for the
+  // lead-broker call. Asserting the ceiling on both failed a P0 life-safety
+  // scenario for doing exactly what the prompt instructs.
+  if (scenario.expected.captureTarget === "not_a_lead" && quality.level !== "fail") {
     failures.push(
       `captured a usable lead (${quality.level}) on a call that should not produce one`
     );
@@ -129,7 +133,12 @@ export async function gradeScenario(
     scenarioId: scenario.id,
     trade: scenario.trade,
     priority: scenario.priority,
-    passed: failures.length === 0,
+    // A capped run is INCONCLUSIVE, and inconclusive is not passed. Removing
+    // the turn-cap failure without this made every capped run count in `passes`
+    // — the headline X/Y, the per-trade table, the P0 defect list and the exit
+    // code — which is precisely the false red for false green trade the change
+    // claimed to be avoiding. aggregate() treats it as neither.
+    passed: failures.length === 0 && !run.hitTurnCap,
     failures,
     captured: run.captured,
     savedLead: run.savedLead,

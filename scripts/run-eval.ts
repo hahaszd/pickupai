@@ -159,6 +159,10 @@ async function main() {
   const defects = reports.filter((r) => r.verdict === "fail");
   const marginal = reports.filter((r) => r.verdict === "marginal");
   const passed = reports.filter((r) => r.verdict === "pass");
+  // Never measured at all — every run hit the turn cap. Reported separately
+  // from both passes and defects, and it blocks, because an unmeasured P0 is
+  // not a P0 that behaved.
+  const inconclusive = reports.filter((r) => r.verdict === "inconclusive");
 
   console.log(`\n${"─".repeat(60)}`);
   console.log(
@@ -180,7 +184,7 @@ async function main() {
   if (cappedRuns.length > 0) {
     const ids = [...new Set(cappedRuns.map((r) => r.scenarioId))];
     console.log(
-      `\n  ⚠ ${cappedRuns.length} run(s) hit the ${"turn cap"} and are INCONCLUSIVE, not passes: ${ids.join(", ")}`
+      `\n  ⚠ ${cappedRuns.length} run(s) hit the turn cap and are INCONCLUSIVE, not passes: ${ids.join(", ")}`
     );
     console.log(
       "    The assistant never got the turn in which it would have ended the call."
@@ -235,6 +239,16 @@ async function main() {
   // The gate is the rate. A P0 that fails every run is a defect and blocks; a
   // P0 that flaps is not a release blocker, but it is not a pass either and
   // must not be able to hide inside a headline number.
+  // An unmeasured P0 is not a P0 that behaved. This blocks alongside defects,
+  // because the alternative is a gate that goes green by never running.
+  const p0Inconclusive = inconclusive.filter((r) => r.priority === "P0");
+  if (inconclusive.length > 0) {
+    console.log(
+      `\n${inconclusive.length} scenario(s) NEVER MEASURED — every run hit the turn cap: ` +
+      inconclusive.map((r) => r.scenarioId).join(", ")
+    );
+  }
+
   const p0Defects = defects.filter((r) => r.priority === "P0");
   const p0Marginal = marginal.filter((r) => r.priority === "P0");
 
@@ -244,8 +258,16 @@ async function main() {
         `Read the transcripts before treating this run as green.`
     );
   }
-  if (p0Defects.length > 0) {
-    console.log(`\n${p0Defects.length} P0 defect(s) — these block release.`);
+  if (p0Defects.length > 0 || p0Inconclusive.length > 0) {
+    if (p0Defects.length > 0) {
+      console.log(`\n${p0Defects.length} P0 defect(s) — these block release.`);
+    }
+    if (p0Inconclusive.length > 0) {
+      console.log(
+        `\n${p0Inconclusive.length} P0 scenario(s) were never measured — these block too. ` +
+        `Shorten the caller script or raise the turn cap; do not loosen the assertions.`
+      );
+    }
     process.exit(1);
   }
   const nonP0 = defects.length + marginal.length - p0Defects.length - p0Marginal.length;

@@ -48,7 +48,11 @@ describe("eval scenario library", () => {
     // co-operates, or that the assistant ASKED, which is the half we control.
     // Asserting neither would let a silent regression through.
     for (const s of ALL_EVAL_SCENARIOS) {
-      if (!s.expected.shouldSaveLead || s.expected.captureTarget === "none") continue;
+      // "not_a_lead" exempt for the opposite reason to "none": that call must
+      // not produce a usable lead at all, so requiring issue_summary and a
+      // number would assert the thing the scenario forbids.
+      if (!s.expected.shouldSaveLead) continue;
+      if (s.expected.captureTarget === "none" || s.expected.captureTarget === "not_a_lead") continue;
       expect(s.mustCapture, s.id).toContain("issue_summary");
       const asksForANumber = (s.mustSay ?? []).some((m) => /number/i.test(m));
       expect(

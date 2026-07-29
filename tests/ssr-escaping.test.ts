@@ -101,11 +101,14 @@ describe("admin SSR escaping", () => {
   // escaped value closes the confirm('…') literal and everything after it runs
   // with the admin's session — which can delete tenants, read every tenant's
   // leads, and send SMS to prospect lists.
-  it("a tenant name cannot break out of the delete confirm() handler", async () => {
+  // Both confirm() handlers on the page, not just the first. The second carries
+  // owner_phone, and a phone-shaped fixture cannot express the attack — so
+  // swapping escJsInAttr back to esc() there stayed green.
+  it("neither confirm() handler can be broken out of", async () => {
     const { adminUserDetailPage } = await import("../src/admin/pages.js");
     const html = adminUserDetailPage(
       {
-        ...makeTenant({ name: PAYLOADS.attrJs }),
+        ...makeTenant({ name: PAYLOADS.attrJs, owner_phone: PAYLOADS.attrJs }),
         lead_count: 0, call_count: 0, sms_count: 0,
         recent_leads: [], recent_calls: []
       } as unknown as TenantDetail,
@@ -116,10 +119,12 @@ describe("admin SSR escaping", () => {
     // in ordinary HTML text elsewhere on the page, where `&#39;` is correct and
     // harmless — it is only inside the attribute that it decodes back into a
     // literal apostrophe and closes the string.
-    const handler = /onsubmit="return confirm\((.*?)\)"/.exec(html);
-    expect(handler, "the delete confirm() handler should be on the page").not.toBeNull();
-    const js = handler![1];
+    const handlers = [...html.matchAll(/on(?:submit|click)="return confirm\((.*?)\)"/g)]
+      .map((m) => m[1]);
+    expect(handlers.length, "both confirm() handlers should be on the page")
+      .toBeGreaterThanOrEqual(2);
 
+    for (const js of handlers) {
     // What the JS engine actually receives, after the HTML parser has decoded
     // the attribute value. This is the step esc() alone does not survive.
     const decoded = js
@@ -135,6 +140,7 @@ describe("admin SSR escaping", () => {
     expect(inner.match(/(^|[^\\])'/g) ?? [], `unescaped quote inside: ${inner}`).toHaveLength(0);
     // And the payload survived as text rather than being dropped.
     expect(inner).toContain("fetch");
+    }
   });
 
   it("escapes a tenant name in ordinary HTML text too", async () => {
@@ -154,5 +160,79 @@ describe("admin SSR escaping", () => {
       expect(html).not.toContain("<script>alert(1)</script>");
       expect(html).toContain("&lt;script&gt;");
     }
+  });
+});
+
+/**
+ * The escapers themselves, directly.
+ *
+ * The tests above go through the pages, and a round-3 review proved that leaves
+ * 11 of 18 mutations green — including dropping `encodeURIComponent` from the
+ * pagination link, and the SECOND of the two confirm() handlers. Page-level
+ * tests only ever cover the sites they happen to render, and every
+ * `value="${esc(x)}"` on both panels would become exploitable with the suite
+ * green if esc() stopped escaping quotes.
+ */
+describe("the escapers themselves", () => {
+  it("esc() neutralises every character that can leave an HTML context", async () => {
+    const { escForTest } = await import("../src/admin/pages.js");
+    for (const [raw, must] of [
+      ["<", "&lt;"], [">", "&gt;"], ['"', "&quot;"], ["'", "&#39;"], ["&", "&amp;"]
+    ] as const) {
+      expect(escForTest(raw), `esc() must escape ${raw}`).toBe(must);
+    }
+    // Ampersand first, or the other escapes get double-encoded.
+    expect(escForTest("&lt;")).toBe("&amp;lt;");
+    // The attribute breakout, end to end.
+    expect(escForTest('" onmouseover="alert(1)')).not.toContain('"');
+  });
+
+  it("escJsInAttr() survives every way out of a JS string in an attribute", async () => {
+    const { escJsInAttrForTest } = await import("../src/admin/pages.js");
+    // A backslash must be doubled FIRST, or the escapes it precedes are undone:
+    // a lone backslash before the escaped quote makes JS read an escaped
+    // BACKSLASH, and the quote then CLOSES the string. Assert the doubling
+    // outright — "the output contains a double backslash" passes even without
+    // doubling, because the quote escape puts one there.
+    expect(escJsInAttrForTest("\\")).toBe("\\\\");
+    // And end to end: after HTML-decoding, the quote must sit behind an ODD
+    // number of backslashes, which is what keeps it inside the literal.
+    const decoded = escJsInAttrForTest("a\\'b").replace(/&#39;/g, "'");
+    const run = /(\\*)'/.exec(decoded);
+    expect(run, decoded).not.toBeNull();
+    expect(run![1].length % 2, `quote in ${decoded} is not escaped`).toBe(1);
+    expect(escJsInAttrForTest("it's")).toContain("\\&#39;");
+    expect(escJsInAttrForTest('say "hi"')).toContain("\\&quot;");
+    // A bare CR counts: HTML attribute preprocessing turns a lone \r into a
+    // newline, which makes the JS string literal unterminated — and then the
+    // whole handler is skipped, so the delete confirmation silently stops
+    // asking. Reachable with %0D in a business name.
+    for (const nl of ["\r", "\n", "\r\n", "\u2028", "\u2029"]) {
+      const out = escJsInAttrForTest(`a${nl}b`);
+      expect(out, `raw ${JSON.stringify(nl)} must not survive`).not.toMatch(/[\r\n\u2028\u2029]/);
+    }
+  });
+
+  it("jsonForScriptTag() cannot close the script element", async () => {
+    const { jsonForScriptTag } = await import("../src/dashboard/pages.js");
+    expect(jsonForScriptTag({ x: "</script>" })).not.toContain("</script>");
+    expect(jsonForScriptTag({ x: "<!--" })).not.toContain("<");
+    // Valid in JSON, line terminators in JavaScript — an unescaped one is a
+    // syntax error that blanks the page.
+    for (const ch of ["\u2028", "\u2029"]) {
+      expect(jsonForScriptTag({ x: ch }), `U+${ch.codePointAt(0)!.toString(16)}`)
+        .not.toContain(ch);
+    }
+  });
+});
+
+describe("admin pagination links", () => {
+  // Reflected XSS: ?type= interpolated into an href with no escaping. It only
+  // renders past 50 rows, which is why nothing had ever seen it.
+  it("encodes a hostile ?type= filter into the pagination href", async () => {
+    const { buildTypeQueryForTest } = await import("../src/admin/pages.js");
+    const out = buildTypeQueryForTest('" onmouseover="alert(1)');
+    expect(out).not.toContain('"');
+    expect(out).not.toContain("<");
   });
 });

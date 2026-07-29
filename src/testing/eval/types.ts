@@ -156,15 +156,18 @@ export type EvalSummary = {
  * rate, and the middle of that rate is information rather than noise.
  */
 export type ScenarioVerdict =
-  /** Passed every run. */
   | "pass"
-  /** Failed every run — a defect, and the only kind of red worth chasing. */
   | "fail"
+  | "marginal"
   /**
-   * Passed some runs and failed others. Not a defect and not a pass: the
-   * prompt is ambiguous at this point, which is worth knowing on its own.
+   * Every run hit the harness turn cap, so the scenario was never measured.
+   *
+   * Not a pass and not a defect. It exists because removing the turn-cap
+   * FAILURE without it silently promoted capped runs into `passes` — headline
+   * count, per-trade table, P0 list and exit code — so a scenario whose caller
+   * script grew too long dropped out of the gate looking green.
    */
-  | "marginal";
+  | "inconclusive";
 
 export type ScenarioReport = {
   scenarioId: string;
@@ -173,6 +176,8 @@ export type ScenarioReport = {
   runs: number;
   passes: number;
   verdict: ScenarioVerdict;
+  /** Runs that hit the harness turn cap and were therefore not measured. */
+  inconclusiveRuns: number;
   /**
    * Each distinct failure and how many runs it appeared in. A failure that
    * shows up in 1 of 3 runs is a different animal from one that shows up in 3.

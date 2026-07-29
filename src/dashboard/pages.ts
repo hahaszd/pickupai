@@ -217,7 +217,7 @@ ${extraHeadScripts ?? ""}
  * terminators in JavaScript, so an unescaped one is a syntax error that blanks
  * the page.
  */
-function jsonForScriptTag(value: unknown): string {
+export function jsonForScriptTag(value: unknown): string {
   return JSON.stringify(value)
     .replace(/</g, "\\u003c")
     .replace(/\u2028/g, "\\u2028")

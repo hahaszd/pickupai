@@ -194,6 +194,7 @@ import {
   setGaMeasurementId
 } from "./dashboard/pages.js";
 import { gaHeadSnippet } from "./analytics/ga.js";
+import { jsonForScriptTag } from "./dashboard/pages.js";
 import Stripe from "stripe";
 import { isMobileMessageConfigured, sendMarketingSms, sendMarketingSmsBatch, configureMobileMessageWebhooks, smsProviderConfig, summariseActualProvider, type BatchMessage } from "./sms/mobile-message.js";
 
@@ -2149,9 +2150,17 @@ async function main() {
   const mobileMsgGuard = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const expected = env.MOBILEMSG_WEBHOOK_SECRET;
     if (!expected) {
+      // Fail CLOSED unless Mobile Message is actually the provider. The
+      // fail-open was justified by "do not silently drop live inbound SMS the
+      // moment this deploys" — and switching SMS_PROVIDER to twilio removed the
+      // live inbound SMS while leaving the fail-open behind, so the ACMA
+      // consent trail became an unauthenticated write endpoint BY DEFAULT.
+      // These routes are mounted unconditionally, so being off the provider is
+      // not the same as being unreachable.
+      if (env.SMS_PROVIDER !== "mobilemessage") return res.sendStatus(403);
       log.warn(
         { path: req.path },
-        "MOBILEMSG_WEBHOOK_SECRET is unset — /mobilemsg/* is accepting unauthenticated writes to the prospect and outreach records"
+        "MOBILEMSG_WEBHOOK_SECRET is unset while SMS_PROVIDER=mobilemessage — /mobilemsg/* is accepting unauthenticated writes to the prospect and outreach records"
       );
       return next();
     }
@@ -2804,7 +2813,17 @@ async function main() {
    * address, "opt out" / "optout" / "unsubscribe" counts.
    */
   function appendOptOutLine(body: string): string {
-    const link = env.MOBILE_MSG_OPT_OUT_LINK;
+    // The link ONLY works while Mobile Message is the sender: the opt-out it
+    // records lives on their side and suppresses their sends. Sent over Twilio
+    // it is a non-functional unsubscribe facility on the message actually
+    // being delivered — Spam Act s.18, penalties scaling to the company.
+    //
+    // LISTS.md wrote this down in advance: "if a campaign were ever switched
+    // back to Twilio, those people would be messaged again because our DB still
+    // considers them contactable." Turning SMS_PROVIDER to twilio performed
+    // exactly that switch. The email fallback below is functional on any
+    // provider, which is why it is the safe default rather than a degradation.
+    const link = isMobileMessageConfigured() ? env.MOBILE_MSG_OPT_OUT_LINK : null;
     const optOutLine = link
       ? `\nOptOut ${link}`
       : `\nTo opt out, email hello@getpickupai.com.au`;
@@ -4264,7 +4283,7 @@ async function main() {
       const gaSnip = gaHeadSnippet(env.GA_MEASUREMENT_ID);
       res.type("html").send(`<!DOCTYPE html><html><head><meta charset="UTF-8"/>${gaSnip}
 <script>
-gtag('event','purchase',{transaction_id:${JSON.stringify(sessionId)},currency:'AUD',value:149,items:[{item_name:'PickupAI Subscription',price:149,quantity:1}]});
+gtag('event','purchase',{transaction_id:${jsonForScriptTag(sessionId)},currency:'AUD',value:149,items:[{item_name:'PickupAI Subscription',price:149,quantity:1}]});
 setTimeout(function(){window.location.href='/dashboard/welcome';},500);
 </script></head><body><p>Redirecting…</p></body></html>`);
     } else {

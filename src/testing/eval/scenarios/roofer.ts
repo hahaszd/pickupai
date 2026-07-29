@@ -341,7 +341,7 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
       shouldSaveLead: true,
       shouldEndCall: true,
       shouldSendOwnerSms: false,
-      captureTarget: "none",
+      captureTarget: "not_a_lead",
       callerIntent: "telemarketer"
     },
     // The only scenario in the library exercising the fast-spam-exit path, and

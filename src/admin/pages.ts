@@ -100,7 +100,12 @@ function escJsInAttr(s: string | null | undefined): string {
       .replace(/\\/g, "\\\\")
       .replace(/'/g, "\\'")
       .replace(/"/g, '\\"')
-      .replace(/\r?\n/g, "\\n")
+      // Bare CR too, not just CRLF/LF: HTML attribute preprocessing normalises a
+      // lone \r into a newline, which then sits raw inside the JS string and
+      // makes it an unterminated literal — the whole handler is skipped, so the
+      // delete-account confirm() silently stops asking. Reachable with %0D in a
+      // business name, which is validated for non-emptiness only.
+      .replace(/[\r\n\u2028\u2029]/g, "\\n")
   );
 }
 
@@ -111,6 +116,19 @@ function esc(s: string | null | undefined): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+/**
+ * Test seams. esc(), escJsInAttr() and the pagination query builder are
+ * module-private and are the three escapes every page depends on — a round-3
+ * review proved that testing them only through rendered pages leaves 11 of 18
+ * mutations green, because a page test covers the sites it happens to render
+ * and nothing else.
+ */
+export const escForTest = esc;
+export const escJsInAttrForTest = escJsInAttr;
+export function buildTypeQueryForTest(typeFilter: string | null | undefined): string {
+  return typeFilter ? `&type=${encodeURIComponent(typeFilter)}` : "";
 }
 
 function fmtDate(iso: string | null | undefined): string {
@@ -1781,7 +1799,7 @@ export function adminServiceRequestsPage(
   const pagination = totalPages > 1
     ? Array.from({ length: totalPages }, (_, i) => {
         const p = i + 1;
-        const qType = typeFilter ? `&type=${encodeURIComponent(typeFilter)}` : "";
+        const qType = buildTypeQueryForTest(typeFilter);
         return p === page
           ? `<span style="padding:.3rem .6rem;background:var(--brand);color:#fff;border-radius:4px;font-size:.8rem">${p}</span>`
           : `<a href="/admin/service-requests?page=${p}${qType}" style="padding:.3rem .6rem;color:var(--brand);font-size:.8rem">${p}</a>`;

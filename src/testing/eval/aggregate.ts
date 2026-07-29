@@ -7,7 +7,10 @@ import type { EvalResult, ScenarioReport, ScenarioVerdict } from "./types.js";
  * without spending a cent on conversations.
  */
 export function classify(passes: number, runs: number): ScenarioVerdict {
-  if (runs <= 0) throw new Error("classify() needs at least one run");
+  // runs here is the CONCLUSIVE count. Zero means every run hit the turn cap
+  // and the scenario has no measurement at all — which must not read as a pass
+  // (nothing was verified) or as a defect (nothing misbehaved).
+  if (runs <= 0) return "inconclusive";
   if (passes === runs) return "pass";
   if (passes === 0) return "fail";
   return "marginal";
@@ -35,7 +38,12 @@ export function aggregate(results: EvalResult[]): ScenarioReport[] {
   }
 
   return [...byScenario.values()].map((runs) => {
-    const passes = runs.filter((r) => r.passed).length;
+    // Capped runs come out of the denominator as well as the numerator. Leaving
+    // them in the denominator turns "we could not measure it" into a pass rate
+    // of 2/3, which reads as flakiness in the product rather than in the
+    // harness — and that is a wrong diagnosis someone then acts on.
+    const conclusive = runs.filter((r) => !r.hitTurnCap);
+    const passes = conclusive.filter((r) => r.passed).length;
 
     const counts = new Map<string, number>();
     for (const run of runs) {
@@ -50,9 +58,10 @@ export function aggregate(results: EvalResult[]): ScenarioReport[] {
       scenarioId: runs[0].scenarioId,
       trade: runs[0].trade,
       priority: runs[0].priority,
-      runs: runs.length,
+      runs: conclusive.length,
       passes,
-      verdict: classify(passes, runs.length),
+      inconclusiveRuns: runs.length - conclusive.length,
+      verdict: classify(passes, conclusive.length),
       failureCounts: [...counts]
         .map(([failure, n]) => ({ failure, runs: n }))
         .sort((a, b) => b.runs - a.runs || a.failure.localeCompare(b.failure)),

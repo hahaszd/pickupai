@@ -34,8 +34,38 @@ describe("classify", () => {
     expect(classify(1, 3)).toBe("marginal");
   });
 
-  it("refuses to grade zero runs rather than reporting a pass", () => {
-    expect(() => classify(0, 0)).toThrow();
+  // Was `expect(() => classify(0,0)).toThrow()`. Zero CONCLUSIVE runs is now a
+  // real state rather than a programming error: every run hit the turn cap, so
+  // the scenario was never measured. It must not read as a pass — nothing was
+  // verified — nor as a defect, since nothing misbehaved.
+  it("reports zero conclusive runs as inconclusive, never as a pass", () => {
+    expect(classify(0, 0)).toBe("inconclusive");
+  });
+
+  it("keeps a capped run out of both the numerator and the denominator", () => {
+    const runs = [
+      { scenarioId: "s", trade: "plumber", priority: "P0", passed: true, failures: [], hitTurnCap: false },
+      { scenarioId: "s", trade: "plumber", priority: "P0", passed: true, failures: [], hitTurnCap: false },
+      { scenarioId: "s", trade: "plumber", priority: "P0", passed: false, failures: [], hitTurnCap: true }
+    ] as never[];
+    const [report] = aggregate(runs);
+    // 2/2, not 2/3 — "we could not measure it" is not two-thirds of a pass, and
+    // reading it that way diagnoses flakiness in the product instead of the
+    // harness.
+    expect(report.runs).toBe(2);
+    expect(report.passes).toBe(2);
+    expect(report.inconclusiveRuns).toBe(1);
+    expect(report.verdict).toBe("pass");
+  });
+
+  it("calls a scenario inconclusive when every run hit the cap", () => {
+    const runs = [
+      { scenarioId: "s", trade: "plumber", priority: "P0", passed: false, failures: [], hitTurnCap: true },
+      { scenarioId: "s", trade: "plumber", priority: "P0", passed: false, failures: [], hitTurnCap: true }
+    ] as never[];
+    const [report] = aggregate(runs);
+    expect(report.verdict).toBe("inconclusive");
+    expect(report.runs).toBe(0);
   });
 });
 
