@@ -280,6 +280,7 @@ export const HANDYMAN_SCENARIOS: EvalScenario[] = [
     priority: "P1",
     intent: "new_job",
     label: "Front deadlock has failed at night, caller can't lock the house, must leave at 6am",
+    atLocalTime: "21:30",
     callerOpening: "It's nine o'clock and our front deadlock's just stopped working, the key turns but nothing happens — I can't lock up!",
     callerFacts: [
       "The front door deadlock has failed, the key turns but the bolt doesn't move",

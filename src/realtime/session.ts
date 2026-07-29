@@ -487,9 +487,16 @@ Then IMMEDIATELY call save_lead() with all details followed by end_call(reason="
  * lands on a phone in a van and there is no knowing when it is read, let alone
  * acted on. Removed 2026-07-29 with the rest of the promises.
  */
-export function buildTimeContext(tenant: TenantRow): { section: string; isOpen: boolean; timeOfDay: string } {
+export function buildTimeContext(
+  tenant: TenantRow,
+  /**
+   * Injectable so a test can state the time instead of inheriting whenever it
+   * happened to run. Defaults to the real clock, so no production call site
+   * passes it and production behaviour is unchanged by inspection.
+   */
+  now: Date = new Date()
+): { section: string; isOpen: boolean; timeOfDay: string } {
   const tz = tenant.timezone || "Australia/Sydney";
-  const now = new Date();
   // No initialisers: the catch block below assigns all three on every failure
   // path, so seeding them here would be dead code.
   let localTime: string;
@@ -552,7 +559,9 @@ export function buildSystemPrompt(
   tenant: TenantRow,
   callerHistory: LeadRow[],
   fromNumber: string | null,
-  isDemo = false
+  isDemo = false,
+  /** See buildTimeContext. Never passed in production. */
+  now: Date = new Date()
 ): string {
   const aiName = tenant.ai_name || "Olivia";
   const businessName = tenant.name;
@@ -571,7 +580,7 @@ export function buildSystemPrompt(
 
   const serviceAreaSection = buildServiceAreaSection(tenant.service_area ?? null);
 
-  const { section: timeContextSection, timeOfDay } = buildTimeContext(tenant);
+  const { section: timeContextSection, timeOfDay } = buildTimeContext(tenant, now);
 
   const truncate = (s: string, max: number) => s.length > max ? s.slice(0, max) + "…" : s;
 

@@ -229,10 +229,52 @@ function evalTenant(scenario: EvalScenario): TenantRow {
  * Drive one scenario to completion and return everything the graders need.
  * Grading lives in grade.ts — this function makes no judgements.
  */
+/**
+ * A Date whose local time in `tz` is `hh:mm` on a fixed Wednesday.
+ *
+ * Fixed weekday as well as fixed hour: the prompt branches on weekend and on
+ * Friday-after-hours, so a scenario run on a Saturday would otherwise get a
+ * different prompt from the same scenario run on a Tuesday. Wednesday is an
+ * ordinary weekday in every branch.
+ *
+ * The offset trick rather than a hardcoded +10:00 because Sydney observes DST
+ * and a fixed offset would be an hour out for half the year.
+ */
+function atLocalWednesday(hhmm: string, tz: string): Date {
+  const [h, m] = hhmm.split(":").map(Number);
+  // 2026-07-29 is a Wednesday.
+  const wall = Date.UTC(2026, 6, 29, h, m);
+
+  // Ask Intl what a known instant looks like in tz, and read the offset off the
+  // difference. The `new Date(d.toLocaleString(...))` trick that usually appears
+  // here is wrong whenever the MACHINE is already in tz — it computes a zero
+  // offset and silently returns the wrong hour. Found by checking the rendered
+  // time rather than trusting the arithmetic.
+  const ref = Date.UTC(2026, 6, 29, 12, 0);
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hour12: false
+    }).formatToParts(new Date(ref)).map((p) => [p.type, p.value])
+  ) as Record<string, string>;
+  const refAsWall = Date.UTC(
+    +parts.year, +parts.month - 1, +parts.day, +parts.hour % 24, +parts.minute
+  );
+  const offsetMs = refAsWall - ref;
+
+  // 29 July is outside AU daylight saving, so the offset at the reference
+  // instant is the offset at the target. A scenario time near a DST boundary
+  // would need the offset recomputed at the target.
+  return new Date(wall - offsetMs);
+}
+
 export async function runScenario(
   scenario: EvalScenario
 ): Promise<Pick<EvalResult, "captured" | "savedLead" | "endedCall" | "callerHungUp" | "turnCount" | "hitTurnCap" | "transcript">> {
-  const systemPrompt = buildSystemPrompt(evalTenant(scenario), [], "+61411222333");
+  const systemPrompt = buildSystemPrompt(
+    evalTenant(scenario), [], "+61411222333", false,
+    scenario.atLocalTime ? atLocalWednesday(scenario.atLocalTime, "Australia/Sydney") : undefined
+  );
 
   const assistantMessages: ChatMessage[] = [
     { role: "system", content: systemPrompt },

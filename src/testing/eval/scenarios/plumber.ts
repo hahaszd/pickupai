@@ -197,6 +197,7 @@ mustCapture: ["issue_summary"],
     priority: "P0",
     intent: "quote_only",
     label: "10pm blocked drain — caller demands the callout price before giving any details",
+    atLocalTime: "22:00",
     callerOpening: "Before I say anything else, what's your callout fee? I'm not giving details until I know that.",
     callerFacts: [
       "It is 10pm and you have a blocked drain",

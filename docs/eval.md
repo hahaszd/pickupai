@@ -147,7 +147,7 @@ Two lessons worth keeping:
   harness until the transcript says otherwise — and treat an early green as
   suspect in the assertions.
 
-## Scenarios cannot set the time, and three of them think they can
+## Scenarios can now set the time — and for a while, three wrongly assumed they could
 
 `buildTimeContext()` reads the **real wall clock** (`session.ts:492`,
 `new Date()`), and the runner has no way to override it — it passes a fixed
@@ -168,15 +168,27 @@ while the caller apologises for ringing so late. **Those three scenarios grade
 differently depending on the time of day the suite is run**, and every result
 recorded for them carries an unstated variable.
 
-Nothing has been observed failing because of it — it is listed here because it
-is unfalsifiable in the current harness, not because it is harmless. The fix is
-an injectable clock: an optional `now` on `buildTimeContext`/`buildSystemPrompt`
-defaulting to `new Date()`, plus a scenario field for the hour. Recorded in
-`BACKLOG.md`; not done, because threading a parameter through the prompt builder
-for the eval's benefit is a production change and deserves the staged process.
+**Fixed 2026-07-29.** `buildTimeContext` and `buildSystemPrompt` take an
+optional `now`, defaulting to `new Date()`, and a scenario can declare
+`atLocalTime: "22:00"`. Production is unchanged **by inspection, not by test** —
+neither production call site passes the parameter, so both still get the real
+clock.
 
-**Until then, do not add a scenario whose correct answer depends on the business
-being open or closed.** The three above predate the finding.
+The day is pinned to a Wednesday as well as the hour. The prompt branches on
+weekend and on Friday-after-hours, so pinning only the time would have left the
+same scenario grading differently on a Saturday.
+
+**The implementation was wrong the first time, and only checking the rendered
+time caught it.** The usual `new Date(d.toLocaleString("en-US", {timeZone}))`
+offset trick computes a **zero** offset when the machine is already in the
+target zone — which this one is — so "10:00" silently produced 20:00. Arithmetic
+that looks right and is off by the whole offset is exactly the shape of a defect
+that ships. Read the offset from `Intl.DateTimeFormat` parts instead, and assert
+on the rendered string.
+
+The three scenarios above now declare 22:00, 02:00 and 21:30. They are the first
+runs in this suite's history where those calls were graded at the hour they
+claim to happen at.
 
 ## The false green: mustNotSay could not see a forbidden STATEMENT
 

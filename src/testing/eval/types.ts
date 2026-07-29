@@ -25,6 +25,19 @@ export type EvalScenario = {
   intent: InboundIntent;
   label: string;
 
+  /**
+   * Local time at the tenant, "HH:MM", when this call comes in.
+   *
+   * Without it the prompt inherits the real wall clock, so a scenario whose
+   * caller says "sorry to ring so late, it's 2am" was graded against a prompt
+   * that might be telling the model the business is open. Three scenarios had
+   * that contradiction baked in and their results carried an unstated variable.
+   *
+   * The day is pinned to a Wednesday as well, so weekday-vs-weekend cannot
+   * drift either. Omit it for calls where open-vs-closed does not matter.
+   */
+  atLocalTime?: string;
+
   /** The caller's first line, verbatim. */
   callerOpening: string;
 

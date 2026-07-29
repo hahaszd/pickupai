@@ -297,6 +297,7 @@ mustCapture: ["issue_summary"],
     priority: "P2",
     intent: "new_job",
     label: "Hardwired smoke alarm chirping at 2am, no smoke — must not be tagged emergency",
+    atLocalTime: "02:00",
     callerOpening: "Sorry to ring so late, one of our smoke alarms has been chirping since about 2am and I can't get it to stop.",
     callerFacts: [
       "A hardwired smoke alarm has been chirping intermittently since 2am",
