@@ -15,6 +15,15 @@ is the check for what neither of them thought of. Recorded in `BACKLOG.md` as
 the one version of the "fresh agents" proposal worth running — at generation
 time, once, not at run time forever.
 
+**The source material was nearly lost.** These 100 entries lived only in a chat
+transcript; what survives of them is
+[`tradie-call-failures-raw-2026-07.md`](tradie-call-failures-raw-2026-07.md),
+written on 2026-07-29 after a reviewer caught a proposal citing *this* file for
+figures it does not contain. The figures were real and came from the agents; the
+citation was to the wrong document, because the right one did not exist. **Write
+raw agent output to disk in the turn it arrives** — a summary that discards its
+source cannot be checked, and its numbers get read back as measurements.
+
 **Status:** this is the diff, not a set of scenarios. Nothing here has been
 translated into the harness or measured against the product. Translating a
 survivor into `EvalScenario` form is a separate piece of work and must not
