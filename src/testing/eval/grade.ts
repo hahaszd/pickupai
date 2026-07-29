@@ -76,7 +76,9 @@ export async function gradeScenario(
     caller_intent: c.caller_intent ?? null,
     address: c.address ?? null
   });
-  const targetToLevel = { complete: "pass_complete", degraded: "pass_degraded", none: "fail" } as const;
+  const targetToLevel = {
+    complete: "pass_complete", degraded: "pass_degraded", none: "fail", caller_choice: "any"
+  } as const;
   const wanted = targetToLevel[scenario.expected.captureTarget];
   if (scenario.expected.captureTarget === "complete" && quality.level !== "pass_complete") {
     failures.push(`capture quality ${quality.level}, wanted ${wanted} (missing: ${quality.missingCoreFields.join(", ") || "none"})`);

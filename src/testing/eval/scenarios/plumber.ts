@@ -44,16 +44,21 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
       "You are standing near the unit right now",
       "You want to know if this is dangerous and what it will cost to fix"
     ],
-        // The caller here may leave or decline mid-intake, and from 2026-07-29 that
+    // The caller here may leave or decline mid-intake, and from 2026-07-29 that
     // is an allowed outcome: nothing is compulsory, the AI asks and lets it go.
     // So this asserts that it ASKED, which is the behaviour we control, rather
     // than what the caller chose to hand over, which we do not.
+    //
+    // Which is why captureTarget is "caller_choice". It said all of the above
+    // and then set "degraded", and "degraded" requires a phone number — so a
+    // run where the caller declined exactly as scripted was graded a defect.
+    // The comment was true and the assertion under it was not.
 mustCapture: ["issue_summary"],
     expected: {
       shouldSaveLead: true,
       shouldEndCall: true,
       shouldSendOwnerSms: true,
-      captureTarget: "degraded"
+      captureTarget: "caller_choice"
     },
     mustSay: [
       "asked the caller for a contact number",
@@ -413,24 +418,34 @@ mustCapture: ["issue_summary"],
       "You do not commit to a booking at any point",
       "If given a structure rather than a flat number, you accept it without argument"
     ],
-        // The caller here may leave or decline mid-intake, and from 2026-07-29 that
+    // The caller here may leave or decline mid-intake, and from 2026-07-29 that
     // is an allowed outcome: nothing is compulsory, the AI asks and lets it go.
     // So this asserts that it ASKED, which is the behaviour we control, rather
     // than what the caller chose to hand over, which we do not.
+    //
+    // Which is why captureTarget is "caller_choice". It said all of the above
+    // and then set "degraded", and "degraded" requires a phone number — so a
+    // run where the caller declined exactly as scripted was graded a defect.
+    // The comment was true and the assertion under it was not.
 mustCapture: ["issue_summary"],
     expected: {
       shouldSaveLead: true,
       shouldEndCall: true,
       shouldSendOwnerSms: true,
-      captureTarget: "degraded"
+      captureTarget: "caller_choice"
     },
     mustSay: [
       "asked the caller for a contact number",
-
-      "explained how the pricing works rather than refusing to discuss price at all"
+      // Was one item: "explained how the pricing works RATHER THAN refusing to
+      // discuss price at all". Mixed polarity — the judge was handed a single
+      // string containing both the thing required and the thing forbidden, and
+      // asked for one stance covering both. Each half now sits in the list whose
+      // pass condition matches it.
+      "explained how the business prices this kind of job — a call-out or attendance fee, or that the price is settled once someone has seen the drain"
     ],
     mustNotSay: [
-      "quoted a total price for clearing the drain"
+      "quoted a total price for clearing the drain",
+      "refused to discuss price at all, with nothing offered in its place"
     ],
     whyThisMatters:
       "Three or four of these a day is most of the top of the funnel. Both failure modes lose: a number quoted sight-unseen becomes a figure the plumber has to argue down on site, and a flat 'we can't quote over the phone' gets a hang-up and the next plumber in the list. The lead must still be captured even though nothing is booked."

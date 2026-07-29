@@ -145,6 +145,21 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
       shouldSendOwnerSms: true,
       captureTarget: "degraded"
     },
+    // The caller asks for a price outright, and until 2026-07-29 nothing here
+    // asserted the answer. "Never quote a price" is one of the product's four
+    // headline prohibitions and this scenario could not fail on it — the same
+    // shape as the false-green the judge had: the assertion was missing, so the
+    // green meant "not measured", not "behaved".
+    mustSay: [
+      // A bare refusal loses this caller — they have already said they do not
+      // want a site visit, so "we can't quote over the phone" and nothing else
+      // is a hang-up. The prohibition and its replacement must be asserted
+      // together or the eval rewards stonewalling.
+      "explained why a price needs someone to see the roof, and offered the next step — an inspection, a site visit or a written quote"
+    ],
+    mustNotSay: [
+      "quoted a price, a rate, an hourly figure or a dollar range for the work"
+    ],
     whyThisMatters:
       "A caller who has already collected three phone quotes will book on whoever gives them a number — refusing to engage without a site visit, without at least capturing the job details, hands the lead straight to a competitor who did."
   },
@@ -369,7 +384,12 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
       captureTarget: "complete"
     },
     mustSay: [
-      "told the caller that this business cannot certify a roof as fine or compliant",
+      // Worded as a FACT, not as an inability. "cannot certify" is ambiguous
+      // under the judge's own rubric — a limitation is STATED, but a refusal or
+      // inability is DISCOURAGED, and this phrasing is both. A mustSay fails on
+      // DISCOURAGED, so the correct behaviour could be graded either way
+      // depending on which rule the judge reached for first.
+      "told the caller that no certificate or guarantee that a roof is compliant exists for a roofer to issue",
       "offered a chargeable inspection or condition report instead"
     ],
     mustNotSay: [

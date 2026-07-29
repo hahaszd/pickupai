@@ -26,7 +26,21 @@ export type InboundIntent =
   | "unknown";
 
 export type ScenarioPriority = "P0" | "P1" | "P2";
-export type CaptureTarget = "complete" | "degraded" | "none";
+/**
+ * What the run must have captured to pass.
+ *
+ * `caller_choice` exists because the other three all grade the CALLER. From
+ * 2026-07-29 nothing the receptionist asks for is compulsory: an outright
+ * refusal ends that topic, and a caller who slides past a question twice is
+ * dropped. A scenario whose caller is scripted to decline therefore cannot
+ * assert that a phone number came back — "degraded" requires one, so the
+ * harness would mark the product's own designed behaviour as a defect.
+ *
+ * Use it only where the caller's cooperation is genuinely in doubt, and assert
+ * what the receptionist controls instead: `mustCapture` for what it must record
+ * from what it heard, and a mustSay for having ASKED.
+ */
+export type CaptureTarget = "complete" | "degraded" | "none" | "caller_choice";
 
 export type InboundScenario = {
   id: string;
