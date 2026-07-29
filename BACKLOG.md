@@ -28,6 +28,41 @@ Last updated: **2026-07-29**
 
 *Nothing open.*
 
+### FIXED: three review agents found nine defects nothing could have failed on
+Round 1 of an independent review loop, 2026-07-29 — one agent on the eval
+content, one on the test library, one on the code. Commits `7db9379`,
+`d9a8aae`, `9ec693d`, `44aca55`, `46046dc`.
+
+**What was found, and what each one would have cost:**
+
+| | Finding | Cost if it had fired |
+|---|---|---|
+| 1 | `getLeadHistoryByPhone` took an **optional** `tenantId` with an unfiltered fallback branch, and it feeds returning-caller history into the live system prompt | One tenant's receptionist greeting a caller by another tenant's customer name, address and previous job — **out loud, on a live call** |
+| 2 | `updateLeadStatus` had no `tenantId` at all | Any tenant's lead row rewritable from the wrong session |
+| 3 | The daily funnel's "complete captures" filtered on `urgency_level`, which stopped being written when that feature was deleted | A permanent zero read as a real metric. The admin page's **label** had been corrected and the query under it had not |
+| 4 | `caller_intent` — one of the four `CORE_FIELDS` the eval grades on — was collected on every call, used to route the owner SMS, and then **discarded**; the leads table had no column for it | Every completeness metric unbuildable; the eval and the product measuring different things |
+| 5 | `usableCallerId` guarded one withheld-caller placeholder (`+266696687`) and not `+7378742833` | A withheld caller printed to the owner as a number to ring. He rings it, gets nothing, never learns a job went past |
+| 6 | The prompt told **every** caller "the number they rang from reaches the owner anyway" | False for exactly the callers most likely to decline giving a number — reassured into leaving no way to be contacted |
+| 7 | Six price-push scenarios asserted **nothing** about price | "Never quote a price" is one of four headline prohibitions and those scenarios could not fail on it |
+| 8 | Five scenarios carried a comment saying refusal is an allowed outcome, then set `captureTarget: "degraded"` — which requires a phone | A caller declining exactly as scripted graded as a product defect |
+| 9 | Three tests asserted against their own copy of the code, and one never induced the failure it claimed to test | `localiseDemo`, both `/api/stats` queries, and flush recovery could all change freely and stay green |
+
+**The pattern, and it is the same one as the eight measurement defects before
+it:** every single one of these was green. Not one was found by something
+failing. Six were unfalsifiable — the assertion, the column, or the filter was
+missing, so "pass" meant *not measured*, and nobody investigates a pass.
+
+**Method note that earned its place:** the mutation check on
+`tests/db-flush.test.ts` corrected the fix itself. `flushNow()` guards the chain
+twice over — `.then(writeOut, writeOut)` **and** `inFlight = run.catch(() => {})`
+— and either alone is sufficient. Removing either leaves the test green;
+removing both fails it. A line-by-line mutation check would have called that
+code untested. **Mutation-check the behaviour, not the line.**
+
+**Not yet measured.** The eval changes tighten assertions on six scenarios and
+loosen five. Next step is a slice under `staged-change`, not the full gate.
+
+
 ### The eval cannot set the clock, so three scenarios carry a hidden variable
 Found by review 2026-07-29, verified: `buildTimeContext()` reads `new Date()`
 (`session.ts:492`) and the runner cannot override it (`runner.ts:211-217`).
