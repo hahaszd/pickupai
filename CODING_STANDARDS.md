@@ -125,6 +125,15 @@ rather than by review.
   follows whatever is closest to the words it is about to say. If a rule and a
   template disagree, the template wins — so edit the template, do not add
   another rule.
+- **An item with a quoted line gets said. An item with only a description gets
+  skipped.** Four independent measurements now: the price boundary produced an
+  evasive improvised sentence until it was given one; the gas template kept its
+  "ring us back" line until the number request was written into it; the
+  pre-close check was a rule and stayed unfired; and of three things to capture
+  on an agency call, the two with quoted lines were asked and the one described
+  as "ask what it is" was skipped a third of the time — **6/9 → 9/9 from adding
+  eleven words in quotation marks**. If an instruction matters, write the
+  sentence.
 - **Scope a limit explicitly: per what, for how long, when it resets.** "Ask
   twice then stop" did not say per detail or per call, and was read as "stop
   asking" — the assistant abandoned an entire intake after two deflections on
