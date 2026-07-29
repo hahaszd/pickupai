@@ -61,8 +61,22 @@ async function pooled<T, R>(items: T[], limit: number, fn: (item: T) => Promise<
 
 function select(): EvalScenario[] {
   let list = ALL_EVAL_SCENARIOS;
+  // Comma-separated, because a staged slice is several scenarios and running
+  // them one --id at a time gives several separate cost reports and several
+  // separate pass rates — which is exactly what the slice is trying to avoid.
   const id = arg("id");
-  if (id) return list.filter((s) => s.id === id);
+  if (id) {
+    const wanted = new Set(id.split(",").map((x) => x.trim()).filter(Boolean));
+    const picked = list.filter((s) => wanted.has(s.id));
+    // A typo in a scenario id would otherwise silently shrink the slice, and a
+    // slice that ran three of the four things you changed reads as a pass.
+    const missing = [...wanted].filter((w) => !picked.some((s) => s.id === w));
+    if (missing.length) {
+      console.error(`No such scenario(s): ${missing.join(", ")}`);
+      process.exit(1);
+    }
+    return picked;
+  }
   const trade = arg("trade");
   if (trade) list = list.filter((s) => s.trade === trade);
   const priority = arg("priority") ?? (has("p0") ? "P0" : undefined);
