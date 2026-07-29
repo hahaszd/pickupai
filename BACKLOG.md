@@ -28,6 +28,51 @@ Last updated: **2026-07-29**
 
 *Nothing open.*
 
+### MEASURED at n=9: four of five marginals were never product problems
+Ran the five marginals from the 29/34 gate at `--repeat 9`, 45 conversations,
+**$1.34** — against $9.80 to take the whole suite to n=9. Slicing by what the
+question was about, not by percentage.
+
+| Scenario | n=3 | n=9 | Verdict |
+|---|---|---|---|
+| `electrician_whole_street_blackout` | 2/3 | **9/9** | sampling |
+| `roofer_certify_roof_before_settlement` | 2/3 | **9/9** | sampling |
+| `plumber_asks_for_new_hot_water_unit_but_it_is_the_element` | 2/3 | 8/9 | tail |
+| `plumber_sewage_surfacing_shower` | 2/3 | 7/9 → **5/5** | the harness, see below |
+| `plumber_agency_job_no_work_order_no_limit` | 2/3 | **6/9** | the only real behaviour |
+
+**The fifth judge-format defect, same family as the first four.** The sewage
+scenario asserted *"told the caller to keep away from the wastewater"* as a
+`mustSay`. The assistant said **"don't touch the wastewater"** — correct, and
+scored `DISCOURAGED`, which `mustSay` does not accept. `mustDiscourage` was
+built for exactly this earlier the same day and **this assertion was missed when
+the others were migrated**. Moved; 5/5 after.
+
+**The uncomfortable part, recorded because it is the more useful half.**
+`electrician_whole_street_blackout` is **9/9**, and two prompt changes were made
+for it today. The first, 0/3 → stable, was real and has a mechanism. The second
+reading — "2/3, so there is still a third missing" — **was me interpreting
+noise**, and it nearly justified a guard on the hangup path that an adversarial
+review then killed on three separate grounds.
+
+**0/3 → 9/9 is a result. "2/3" → "not quite there" was not.** Second time in one
+day that sampling got read as signal. The rule that would have caught it is
+already written down: at n=3 a single failing run is indistinguishable from the
+tail. Measure before interpreting, not after.
+
+### The agency spend limit is asked for only two calls in three
+`plumber_agency_job_no_work_order_no_limit` at **6/9** — the only genuine
+behaviour among the five. In a third of runs the assistant takes the work order
+and the access details but never asks what the agency's approved spend limit is.
+
+Recorded, **not fixed**. Three separate prompt edits made on a single number
+today each introduced a neighbouring problem, and this one is a missing field
+rather than a safety or promise defect — the invoice risk it carries is real but
+it is the owner's to price. Fix it, if at all, through `staged-change`: the
+`# When the Caller Is Not the Customer` section lists three things to capture
+and the model reliably gets two, which suggests the third is being lost to list
+position rather than to disagreement.
+
 ### REJECTED: a guard that refuses end_call() when no number was captured
 Designed 2026-07-29 to close the last third of
 `electrician_whole_street_blackout` (2/3 after two prompt fixes took it from
