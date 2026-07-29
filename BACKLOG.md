@@ -28,6 +28,56 @@ Last updated: **2026-07-29**
 
 *Nothing open.*
 
+### REJECTED: a guard that refuses end_call() when no number was captured
+Designed 2026-07-29 to close the last third of
+`electrician_whole_street_blackout` (2/3 after two prompt fixes took it from
+0/3). Sent for adversarial review before implementation, per the
+`staged-change` skill. **Rejected, and the review is worth reading in full
+before anyone proposes it again** — three independent reasons, any one fatal:
+
+**1. The eval cannot see it.** `runner.ts:297` hardcodes `{ok: true}` for every
+tool result and terminates the conversation on `end_call`. Shipping the guard
+would leave the scenario at 2/3. **A change justified by an eval number, which
+cannot move that eval number, is not justified.** Duplicating the guard into the
+runner is explicitly warned against at `session.ts:25` — a drifted copy means
+the eval stops testing production.
+
+**2. It trades a 15-second end-guarantee for a five-minute one.** The fallback
+timer at `session.ts:1391` is armed *because* `endCallPending` is set. The draft
+returned without setting it, so four failure paths — model says nothing, model
+loops, `response.create` rejected, socket drops — would end at
+`MAX_CALL_DURATION_MS` (300s) instead of 15s, on live billed calls. One of them
+routes the caller to **voicemail after they have already heard the farewell**.
+
+**3. The silent-caller hole.** `session.ts:917` tells the model to end a silent
+call with no `save_lead` first, so no intent is known, so the exemption set does
+not match. **The guard would interrogate a dead line and hold it open for the
+full cap** — silent calls would go from the cheapest to the most expensive.
+
+**And the framing that settles it:** the guard is the prompt's own pre-close
+rule (`session.ts:711`) **with the ask-budget clause deleted** — a third ask
+sourced from code, where it is harder to see and harder to reverse than the
+prose was. `PRINCIPLES.md`: one refusal is the whole answer.
+
+**Principle 1's own test fails it.** *What would the tradie do differently?*
+Nothing — `sms.ts` already puts `Rang from <number>` on the message whenever no
+phone was given, and treats caller ID as reachability. A *captured* number adds
+value only when the caller ID is withheld, or when they rang from a landline and
+want the callback elsewhere. Both real, both second-order, neither worth the
+hangup path.
+
+**What was built instead — the measurement.** `end_call_invoked` now carries
+`phoneCaptured` and `intent` (`session.ts`, telemetry only, no path change,
+zero caller impact). Nobody knows whether a real call that ends without a number
+was **never asked** or **asked and refused**, and those want opposite fixes.
+Until that is known, 2/3 is accepted as the tail of sampling — the failing run
+was good service, and the scenario has gone 3/3 → 0/3 → 1/3 → 3/3 → 2/3 across
+gates mostly without any change aimed at it.
+
+**If the telemetry shows a real omission rate**, spend the fix on the *ask*, not
+the *hangup*: `session.ts:711` currently gives the model a rule, and this
+codebase's own history is that a concrete script beats an abstract rule.
+
 ## Decided: the receptionist records, it does not grade
 
 **Decision taken 2026-07-28 by the owner, after an audit of what the eval was

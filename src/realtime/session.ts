@@ -958,6 +958,9 @@ export class RealtimeSession {
   private callbacks: SessionCallbacks;
   private callSid: string;
   private ended = false;
+  /** Observed for the end_call telemetry below. Never read to change behaviour. */
+  private sawPhone = false;
+  private lastIntent: string | undefined;
   private endCallPending = false;
   private voicemailFallbackTriggered = false;
   /** Which response this is. Turn 1 is the greeting — the one that cannot hit a warm cache. */
@@ -1359,6 +1362,10 @@ export class RealtimeSession {
 
     if (name === "save_lead") {
       const patch = sanitizeSaveLeadArgs(args);
+      // Observed only, never acted on. See the end_call handler below for why
+      // these exist and what they must not be used for.
+      if (typeof patch.phone === "string" && patch.phone.trim()) this.sawPhone = true;
+      if (typeof patch.caller_intent === "string") this.lastIntent = patch.caller_intent;
       try { this.callbacks.onLeadUpdate(patch); } catch (e) { log.error({ callSid: this.callSid, err: e }, "onLeadUpdate callback threw"); }
       this.callbacks.onLifecycleEvent?.("save_lead_invoked", { callSid: this.callSid });
       this.send({
@@ -1375,7 +1382,32 @@ export class RealtimeSession {
     } else if (name === "end_call") {
       if (this.ended || this.endCallPending) return;
       this.endCallPending = true;
-      this.callbacks.onLifecycleEvent?.("end_call_invoked", { callSid: this.callSid });
+      // Telemetry only — this MUST NOT become a guard that refuses end_call.
+      //
+      // Refusing it was designed and rejected on 2026-07-29 for three separate
+      // reasons, any one of which is fatal:
+      //   1. Setting endCallPending is what arms the 15-second end-guarantee
+      //      below. A path that returns without it falls back to
+      //      MAX_CALL_DURATION_MS — 15 seconds becomes 5 minutes of billed
+      //      call, and one failure path drops the caller into voicemail after
+      //      they have already heard the farewell.
+      //   2. The prompt tells the model to end a silent call WITHOUT a
+      //      save_lead first, so no intent would be known — the guard would
+      //      interrogate a dead line and hold it open for the full cap. Silent
+      //      calls would go from the cheapest to the most expensive.
+      //   3. It is the prompt's own pre-close rule with the ask budget deleted,
+      //      which is a third ask sourced from code. PRINCIPLES.md: one refusal
+      //      is the whole answer.
+      //
+      // What is left is the measurement, because nobody knows whether a real
+      // call that ends without a number was never asked or asked and refused.
+      // The owner SMS falls back to the caller ID either way (sms.ts), so this
+      // is a quality question, not a lost lead.
+      this.callbacks.onLifecycleEvent?.("end_call_invoked", {
+        callSid: this.callSid,
+        phoneCaptured: this.sawPhone,
+        intent: this.lastIntent ?? "unset"
+      });
       this.send({
         type: "conversation.item.create",
         item: {
