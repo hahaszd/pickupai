@@ -956,6 +956,9 @@ export class RealtimeSession {
   private ended = false;
   private endCallPending = false;
   private voicemailFallbackTriggered = false;
+  /** Which response this is. Turn 1 is the greeting — the one that cannot hit a warm cache. */
+  private responseCount = 0;
+
   /** Set when end_call fires; consumed by the response.done handler. */
   private pendingEndReason: string | null = null;
   private maxCallTimer: NodeJS.Timeout | null = null;
@@ -1175,14 +1178,37 @@ export class RealtimeSession {
         if (event.item?.id) this.lastAssistantItemId = event.item.id;
         break;
 
-      case "response.done":
+      case "response.done": {
+        // OpenAI re-prepends `instructions` to EVERY response, not once per
+        // session — the docs are explicit that the whole conversation is sent
+        // each time — so what keeps a 10k-token prompt from costing on every
+        // turn is prompt caching, and this is where it says whether it worked.
+        //
+        // Two things the docs do NOT answer and this does:
+        //   1. Whether a cached prefix survives BETWEEN calls. Turn 1 is the
+        //      greeting, and an uncached 10k prompt is where it would be
+        //      audible to a caller.
+        //   2. What the real per-call token cost is, rather than an estimate.
+        // See docs/research/realtime-instruction-length-latency-2026-07.md.
+        const usage = event?.response?.usage;
+        const cachedText = usage?.input_token_details?.cached_tokens_details?.text_tokens;
         log.info({
           callSid: this.callSid,
           response_id: event?.response?.id,
           status: event?.response?.status,
           status_details: event?.response?.status_details,
-          firstAlreadyComplete: this.firstResponseComplete
-        }, "[diag] response.done received");
+          firstAlreadyComplete: this.firstResponseComplete,
+          // Turn number matters: turn 1 is the one that cannot be warm.
+          turn: this.responseCount + 1,
+          input_tokens: usage?.input_tokens,
+          output_tokens: usage?.output_tokens,
+          cached_tokens: usage?.input_token_details?.cached_tokens,
+          cached_text_tokens: cachedText,
+          text_in: usage?.input_token_details?.text_tokens,
+          audio_in: usage?.input_token_details?.audio_tokens,
+          audio_out: usage?.output_token_details?.audio_tokens
+        }, "[usage] response.done");
+        this.responseCount++;
         if (!this.firstResponseComplete) {
           this.firstResponseComplete = true;
           this.enableNormalTurnTaking();
@@ -1195,6 +1221,7 @@ export class RealtimeSession {
           this.waitForMarksDrained(reason);
         }
         break;
+      }
 
       case "input_audio_buffer.speech_started":
         log.info({

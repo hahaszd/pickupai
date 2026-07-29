@@ -480,6 +480,33 @@ Owner action, Railway logs. Look for `shutdown: draining` and
 shutdown path in `src/server.ts` is dead code — deploys still lose writes.
 See [ADR-0001](docs/adr/0001-whole-blob-persistence-and-deferred-migration.md).
 
+### Log the `response.done` usage payload — we are throwing away the only cache/cost data we have
+
+`src/realtime/session.ts:1178` logs `response.id`/`status` and discards
+`response.usage`. Two lines would give us, per turn:
+`input_token_details.cached_tokens` and `cached_tokens_details.text_tokens`
+(does the 10.1k-token prompt actually hit the cache?), `input_tokens`,
+`output_tokens`. Documented fields — see
+`docs/research/realtime-instruction-length-latency-2026-07.md`.
+
+Why it matters: instructions are re-sent to the model on **every** Response, not
+once per session (OpenAI: *"The entire conversation is sent to the model for each
+Response"*). At 10.1k tokens that is $0.0404/response uncached vs $0.0040 cached
+— roughly **$0.72 per 5-minute call** riding on whether the cache hits. We
+currently cannot tell. The same change gives us per-call cost, which we also do
+not have.
+
+Follow-on, same file: stamp `Date.now()` at `input_audio_buffer.speech_stopped`,
+`response.created` and the first `response.output_audio.delta` (line 1170). The
+split at `response.created` separates the `semantic_vad` wait from model
+inference — they have completely different fixes. Open question the logging
+answers: does a cached instruction prefix survive **between** calls? Turn 1 is
+the greeting, the moment dead air is most audible, and it is the one turn the
+cache probably does not help.
+
+Not a reason to trim the prompt: OpenAI's only published figure is that
+*"cutting 50% of your prompt may only result in a 1-5% latency improvement"*.
+
 ## P1
 
 ### BUILT: the eval reports a pass RATE, not a single pass/fail
