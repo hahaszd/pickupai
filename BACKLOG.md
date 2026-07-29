@@ -28,6 +28,26 @@ Last updated: **2026-07-29**
 
 *Nothing open.*
 
+### The eval cannot set the clock, so three scenarios carry a hidden variable
+Found by review 2026-07-29, verified: `buildTimeContext()` reads `new Date()`
+(`session.ts:492`) and the runner cannot override it (`runner.ts:211-217`).
+Three scenarios state a time in the caller's words — 10pm, 2am, overnight — that
+the prompt never sees, so the model may be told the business is OPEN while the
+caller apologises for ringing late. **Those three grade differently depending on
+what time of day the gate is run.**
+
+Nothing has been observed failing because of it. It is recorded because it is
+currently unfalsifiable, which is the same shape as the seven measurement
+defects already found here — every one of which looked harmless until it was
+probed.
+
+**The fix** is an optional `now` on `buildTimeContext`/`buildSystemPrompt`
+defaulting to `new Date()`, plus a scenario field for the hour. Small, but it
+threads a parameter through the production prompt builder for the eval's
+benefit, so it goes through `staged-change` rather than being slipped in.
+Meanwhile: **do not add a scenario whose correct answer depends on open vs
+closed.**
+
 ### MEASURED at n=9: four of five marginals were never product problems
 Ran the five marginals from the 29/34 gate at `--repeat 9`, 45 conversations,
 **$1.34** — against $9.80 to take the whole suite to n=9. Slicing by what the

@@ -147,6 +147,37 @@ Two lessons worth keeping:
   harness until the transcript says otherwise — and treat an early green as
   suspect in the assertions.
 
+## Scenarios cannot set the time, and three of them think they can
+
+`buildTimeContext()` reads the **real wall clock** (`session.ts:492`,
+`new Date()`), and the runner has no way to override it — it passes a fixed
+tenant with 08:00–17:00 Australia/Sydney (`runner.ts:211-217`) and nothing else.
+
+So the prompt tells the model whether the business is **OPEN** or **AFTER
+HOURS** based on *when you happen to run the eval*, while three scenarios put a
+contradicting time in the caller's own words:
+
+| Scenario | The caller says |
+|---|---|
+| `plumber_blocked_drain_price_first_late_night` | "it's 10pm" |
+| `electrician_smoke_alarm_chirping_night_negative_control` | "chirping since about 2am" |
+| `handyman_deadlock_failed_security_emergency` | at night, must leave at 6am |
+
+Run the gate at 2pm on a Tuesday and the model is told the business is open
+while the caller apologises for ringing so late. **Those three scenarios grade
+differently depending on the time of day the suite is run**, and every result
+recorded for them carries an unstated variable.
+
+Nothing has been observed failing because of it — it is listed here because it
+is unfalsifiable in the current harness, not because it is harmless. The fix is
+an injectable clock: an optional `now` on `buildTimeContext`/`buildSystemPrompt`
+defaulting to `new Date()`, plus a scenario field for the hour. Recorded in
+`BACKLOG.md`; not done, because threading a parameter through the prompt builder
+for the eval's benefit is a production change and deserves the staged process.
+
+**Until then, do not add a scenario whose correct answer depends on the business
+being open or closed.** The three above predate the finding.
+
 ## The false green: mustNotSay could not see a forbidden STATEMENT
 
 The most expensive measurement defect this harness has had, found 2026-07-29,

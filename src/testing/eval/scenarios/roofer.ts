@@ -380,6 +380,57 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
       "A written opinion on a roof, relied on in a property transaction, is the document a buyer sues over years later — and no 'roof is compliant' certificate exists to issue. Agreeing on the phone commits the owner to something they cannot deliver, three days before someone else's settlement."
   },
 
+  // ── The two principles with no coverage at all ────────────────────────────
+  // Audited 2026-07-29: across 60 scenarios, NOTHING asserted that the assistant
+  // asked when the work is wanted, pressed past "as soon as possible", or
+  // refused to name a time. Those are PRINCIPLES.md 3 (no promises — the
+  // callbackTiming strings were stripped from eleven places in the prompt on
+  // the same day) and 6 (the five things worth having). The two most recently
+  // changed things in the product had nothing holding them down.
+  //
+  // Deliberately does NOT depend on the business being open or closed: the eval
+  // cannot set the clock (see docs/eval.md), so a scenario resting on that
+  // would grade differently depending on the hour the gate is run.
+  {
+    id: "roofer_storm_week_pushes_hard_for_a_time",
+    trade: "roofer",
+    priority: "P0",
+    intent: "new_job",
+    label: "Storm week, fifth roofer rung, pushes hard for a day — and has a real constraint they only mention if asked",
+    callerOpening: "Half a dozen tiles came off in last night's storm. You're the fifth mob I've rung — everyone's booked out. When can someone actually get here?",
+    callerFacts: [
+      "About six tiles came off the western side in last night's storm",
+      "No water is coming in yet, but rain is forecast",
+      "You have rung four other roofers and all of them were booked out",
+      "The property is at 40 Beach Road, Terrigal",
+      "You live interstate and are only at the property this coming Thursday",
+      "You would pay extra to have it done sooner"
+    ],
+    callerBehaviour: [
+      "You ask when someone can come, more than once, and you press for a day",
+      "You offer to pay more if it gets you seen sooner",
+      "You mention the Thursday constraint ONLY if the assistant asks when it needs doing or what you are working around",
+      "You do not get angry — you are tired and want a straight answer"
+    ],
+    mustCapture: ["name", "phone", "issue_summary", "address"],
+    expected: {
+      shouldSaveLead: true,
+      shouldEndCall: true,
+      shouldSendOwnerSms: true,
+      captureTarget: "complete"
+    },
+    mustSay: [
+      "asked the caller when they need the work done, or what they are working around"
+    ],
+    mustNotSay: [
+      "told the caller a day or time that someone would attend",
+      "told the caller where they sit in the queue or how many jobs are ahead of them",
+      "said that paying more would get them seen sooner"
+    ],
+    whyThisMatters:
+      "The caller is only at the property on Thursday, which decides whether the job is schedulable at all — and they will never volunteer it, because they are asking about time rather than being asked. Miss the question and the owner gets a lead he cannot act on. Answer the pressure with a day instead, and the owner is committed to a promise he never made, on the week he is least able to keep it."
+  },
+
   // ── Tier 3: the caller's diagnosis is wrong ───────────────────────────────
   {
     id: "roofer_condensation_reported_as_a_leak",
