@@ -72,6 +72,7 @@ function safeTokenCompare(a: string, b: string): boolean {
 
 import { env } from "./env.js";
 import { openDb, type Db, type FlushInfo } from "./db/db.js";
+import { makeFlushCritical } from "./db/flush-critical.js";
 import { p95 } from "./utils/stats.js";
 import {
   appendTranscript,
@@ -709,16 +710,10 @@ function onFlush(info: FlushInfo) {
   }
 }
 
-/**
- * Persist a critical write now rather than waiting out the 300 ms debounce
- * (docs/adr/0002). Prefer `await db.flush()` directly where the call site is
- * async; this exists for the realtime tool-call callbacks, which are
- * synchronous and `void`-returning, so the best available there is to start the
- * flush immediately and log failures.
- */
-function flushCritical(db: Db, what: string) {
-  db.flush().catch((err) => log.error({ err, what }, "critical write flush failed"));
-}
+// Body in src/db/flush-critical.ts so it can be tested — server.ts runs main()
+// on import, so nothing declared here is reachable from a test, and the whole
+// body of this was replaceable with a no-op while 401 tests stayed green.
+const flushCritical = makeFlushCritical(log);
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
@@ -797,9 +792,19 @@ async function main() {
       fromNumber: callerId
     });
 
-    // Nothing to record for a message that already went out — creating a row
-    // here left an orphan "pending" notification on every repeat call, and
-    // getDailyFunnelStats counts rows, so it inflated sms_total.
+    // Nothing to record for a message that already went out.
+    //
+    // The first version of this comment claimed the old order "left an orphan
+    // pending notification on every repeat call, and getDailyFunnelStats counts
+    // rows, so it inflated sms_total". Both halves were wrong and a reviewer
+    // checked them: notifications has a UNIQUE index on (call_id, channel) and
+    // createNotification is INSERT OR IGNORE, so no orphan is ever created; and
+    // smsByDay filters `sent_at IS NOT NULL`, so a pending row could not be
+    // counted anyway. The reordering is a behavioural no-op.
+    //
+    // Left in place because returning before the write is clearer than writing
+    // and discarding — but recorded honestly, because a wrong rationale stated
+    // as fact is what the next person acts on.
     if (!decision.send && decision.reason === "already_sent") return;
 
     const id = createNotification(db, callId, "sms");
@@ -4653,7 +4658,7 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
                   db, tenant, callSid: callSid!,
                   getState: getOrInitCallState,
                   setState: setCallState,
-                  upsertLead: upsertLead as never,
+                  upsertLead,
                   flushCritical,
                   appendTranscript,
                   storeFullTranscript: env.STORE_FULL_TRANSCRIPT,
@@ -4714,6 +4719,12 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
                   && callerPhone.trim()
                   && !callerPhone.startsWith("+PENDING_")
                   && !isUnreachableNumber(callerPhone)
+                  // A mobile, not just "not a placeholder". The marketing path
+                  // already enforces this; here a landline or a mis-heard
+                  // number reached twilioClient.messages.create and was billed
+                  // to the tenant, and a wrong-but-valid mobile texts a
+                  // stranger about a job that is not theirs.
+                  && isAuMobile(callerPhone)
                   && s.callerIntent
                   && !NO_SMS_INTENTS.has(s.callerIntent);
                 if (shouldConfirmCaller && callerPhone) {

@@ -41,10 +41,17 @@ export function smsProviderConfig(): SmsProviderConfig {
   if (isMobileMessageConfigured()) {
     return { provider: "mobilemessage", sender: env.MOBILE_MSG_SENDER!, ready: true };
   }
+  // A SID and a token are not enough to send: sendOwnerSms returns
+  // {status:"skipped", reason:"no_sender"} with neither a messaging service nor
+  // a number pool. The doc comment above promised "a send call would not be
+  // skipped at the configuration step" and this expression did not deliver it —
+  // so on a deploy that had been running on Mobile Message, switching to Twilio
+  // silently ends every lead SMS while the admin health page reports ready.
+  const hasSender = !!(env.TWILIO_MESSAGING_SERVICE_SID || env.TWILIO_SMS_NUMBERS.length);
   return {
     provider: "twilio",
-    sender: null,
-    ready: !!(env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN),
+    sender: env.TWILIO_MESSAGING_SERVICE_SID ?? env.TWILIO_SMS_NUMBERS[0] ?? null,
+    ready: !!(env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN && hasSender),
   };
 }
 

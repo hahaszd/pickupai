@@ -112,10 +112,17 @@ export async function gradeScenario(
   // way — so an assistant filing a street-wide outage as a job passed, and the
   // whole referred_out taxonomy had zero coverage. A scenario can now name the
   // value it expects.
-  if (scenario.expected.callerIntent && intent !== scenario.expected.callerIntent) {
-    failures.push(
-      `caller_intent "${intent ?? "unset"}", expected "${scenario.expected.callerIntent}"`
-    );
+  // Compare the CAPTURED value, not `intent` — `intent` falls back to
+  // scenario.intent, so an assistant that filed nothing would silently be
+  // credited with the expected answer and the assertion could never fail on the
+  // one case it most needs to catch.
+  if (scenario.expected.callerIntent) {
+    const filed = c.caller_intent as string | undefined;
+    if (filed !== scenario.expected.callerIntent) {
+      failures.push(
+        `caller_intent "${filed ?? "not filed at all"}", expected "${scenario.expected.callerIntent}"`
+      );
+    }
   }
   const smsWouldSend = run.savedLead && expectedSmsForIntent(intent as never);
   if (smsWouldSend !== scenario.expected.shouldSendOwnerSms) {

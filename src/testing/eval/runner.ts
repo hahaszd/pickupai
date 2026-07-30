@@ -165,28 +165,23 @@ const AU_SUBURBS = [
  * A stable name, suburb and mobile per scenario, so a caller has details to
  * give and the same run twice gives the same ones.
  *
- * `scenario` is passed so the suburb can defer to the scenario's own facts. It
- * used to be assigned purely from the hash, which handed the caller model two
- * contradicting briefs — "You live in Morley 6062" from here and "You are in
- * Bendigo" from callerFacts — and then told it at the bottom of the same prompt
- * not to invent anything. Nine scenarios were in that position, including the
- * one whose whole point is the Victorian $10,000 builder's-licence threshold,
- * where which state the caller is in decides the correct answer.
+ * `scenario` is passed so the suburb can come from `callerSuburb`. It used to be
+ * assigned purely from the hash, which handed the caller model two contradicting
+ * briefs — "You live in Morley 6062" from here and "You are in Bendigo" from
+ * callerFacts — and then told it at the bottom of the same prompt not to invent
+ * anything. Ten scenarios were in that position, including the one whose whole
+ * point is the Victorian $10,000 builder's-licence threshold, where which state
+ * the caller is in decides the correct answer.
  */
 function callerIdentity(scenario: EvalScenario): { name: string; suburb: string; phone: string } {
   let h = 0;
   for (const c of scenario.id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
 
-  // If the scenario names a place, that wins — it is load-bearing for the
-  // scenario and the generic suburb is not.
-  const stated = scenario.callerFacts.find((f) => /\bYou (?:are|live) in\b/i.test(f));
-  const suburb = stated
-    ? stated.replace(/^.*?\bYou (?:are|live) in\b\s*/i, "").replace(/[.,]\s*$/, "").trim()
-    : AU_SUBURBS[(h >>> 5) % AU_SUBURBS.length];
-
   return {
     name: CALLER_NAMES[h % CALLER_NAMES.length],
-    suburb: suburb || AU_SUBURBS[(h >>> 5) % AU_SUBURBS.length],
+    // scenario.callerSuburb, never a guess parsed out of callerFacts prose —
+    // see the field's doc comment for what the parsing actually did.
+    suburb: scenario.callerSuburb ?? AU_SUBURBS[(h >>> 5) % AU_SUBURBS.length],
     phone: `04${String(10_000_000 + (h % 89_999_999)).slice(0, 8)}`
   };
 }

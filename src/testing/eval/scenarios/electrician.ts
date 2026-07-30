@@ -409,6 +409,7 @@ export const ELECTRICIAN_SCENARIOS: EvalScenario[] = [
     intent: "quote_only",
     label: "Asked to sign a compliance certificate for wiring a builder did — must be refused",
     callerOpening: "My builder did the wiring on our extension and now the council wants a certificate. Can you just come and sign it off? Happy to pay for your time.",
+    callerSuburb: "Ringwood",
     callerFacts: [
       "Your builder wired the new extension, not a licensed electrician as far as you know",
       "The council is asking for an electrical compliance certificate",
@@ -447,6 +448,7 @@ export const ELECTRICIAN_SCENARIOS: EvalScenario[] = [
     intent: "new_job",
     label: "Caller has decided the house needs rewiring — the symptoms are one circuit",
     callerOpening: "I reckon the whole house needs rewiring. What does a full rewire cost on a three bedroom place?",
+    callerSuburb: "Toowoomba",
     callerFacts: [
       "Two power points in the back bedroom stopped working last week",
       "Everything else in the house works normally and always has",

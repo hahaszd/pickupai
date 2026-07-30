@@ -97,6 +97,7 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
     intent: "new_job",
     label: "Hail-pockmarked roof, no leak yet — a real job, not an emergency",
     callerOpening: "We've had hail come through, the roof's covered in dents, a neighbour said we should get someone to look at it.",
+    callerSuburb: "Kellyville",
     callerFacts: [
       "The roof has visible pockmarks and a couple of cracked tiles from hail",
       "No water is coming through yet",
@@ -281,6 +282,7 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
     intent: "complaint",
     label: "Re-bedded ridge capping cracked again after a year, warranty question",
     callerOpening: "The ridge capping you re-bedded about a year ago has cracked and it's letting water in again.",
+    callerSuburb: "Wentworthville",
     callerFacts: [
       "Ridge capping was re-bedded about a year ago",
       "It has now cracked and is letting water in",
@@ -349,7 +351,12 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
     // "is this intent in NO_SMS_INTENTS". captureTarget was "none", which
     // asserted nothing at all until 2026-07-29. It could not fail on its own
     // stated purpose.
-    mustSay: ["declined the offer and wrapped the call up"],
+    // NOT a mustSay: "declined the offer" is a refusal, and the judge returns
+    // DISCOURAGED for a refusal while mustSay passes only on DIRECTED or STATED.
+    // types.ts documents this exact trap and round 2 added a fresh instance of
+    // it. mustDiscourage is the list whose pass condition matches.
+    mustDiscourage: ["buying leads or taking the caller up on the offer"],
+    mustSay: ["wrapped the call up politely"],
     mustNotSay: [
       "agreed to buy leads, take a trial, or accept a follow-up call",
       "gave the caller the owner's mobile, email or direct line"
@@ -407,6 +414,7 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
     intent: "quote_only",
     label: "Wants a written statement that the roof is fine, three days before settlement",
     callerOpening: "We're settling Friday and the building inspector's flagged the roof. Can you write us something saying it's fine? Happy to pay for it.",
+    callerSuburb: "Blacktown",
     callerFacts: [
       "Settlement is this Friday, three days away",
       "A building inspector's report flagged 'deterioration to roof covering and flashings'",
@@ -501,6 +509,7 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
     intent: "new_job",
     label: "Droplets and black mould in a bedroom corner, worst on cold mornings — condensation, not a leak",
     callerOpening: "The roof's leaking into our back bedroom — there's droplets on the ceiling and black marks in the corner. Can you come and fix the leak?",
+    callerSuburb: "Ballarat",
     callerFacts: [
       "There are water droplets on the bedroom ceiling and black marks in one corner",
       "It happens on cold mornings, and it happens whether or not it has rained",

@@ -442,6 +442,7 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
     intent: "quote_only",
     label: "Ringing around for a drain-clearing price and nothing else — three or four of these a day",
     callerOpening: "Yeah, just after a price to unblock a drain. How much?",
+    callerSuburb: "Reservoir",
     callerFacts: [
       "The laundry floor drain is backing up when the washing machine empties",
       "It has been getting slower for a couple of weeks",
@@ -504,6 +505,7 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
     intent: "new_job",
     label: "Caller has decided they need a new hot water system — the symptoms say element or tariff",
     callerOpening: "Our hot water system's carked it, I need a new one put in. What do you charge to supply and install a 250 litre?",
+    callerSuburb: "Bendigo",
     callerFacts: [
       "There is no hot water at all, since yesterday morning",
       "It is an electric storage unit on the side of the house, about eight years old",

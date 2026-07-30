@@ -53,6 +53,23 @@ export type EvalScenario = {
   callerFacts: string[];
 
   /**
+   * Where the caller lives, when the scenario depends on it. Explicit, because
+   * the alternative was parsing it out of `callerFacts` prose and that produced
+   * exactly the corruption you would expect: the pattern matched 6 of 61
+   * scenarios, MISSED the four that say "The property is in …" — including the
+   * one whose correct answer turns on the Victorian $10,000 builder's-licence
+   * threshold — and where it did fire it extracted whole clauses, briefing two
+   * callers as "You live in Bendigo and you have already decided it needs
+   * replacing". That hoists the caller's own diagnosis out of the
+   * reveal-on-request list and into the always-volunteered identity line, which
+   * changes what the scenario tests.
+   *
+   * Without it the caller gets a suburb from a stable hash, which is fine
+   * wherever location is not load-bearing.
+   */
+  callerSuburb?: string;
+
+  /**
    * How this caller is difficult. Fed to the caller model as behaviour, e.g.
    * "you are panicking and talk over the assistant", "you do not know your
    * street address", "you keep pushing for a price".

@@ -701,3 +701,46 @@ describe("listLeadsForTenant ordering", () => {
     await rm(sqlitePath, { force: true });
   });
 });
+
+describe("getLeadWithCall sanitises the caller ID", () => {
+  // The dashboard renders `lead.phone ?? lead.from_number` as
+  // <a href="tel:…">, and calls.from_number stores whatever Twilio sent,
+  // placeholder and all. Guarding lead.phone alone just moved the render onto
+  // the fallback branch — the tradie taps it and dials an international number.
+  // Sanitised at the query so the CSV export and the duplicate detector inherit
+  // it too.
+  it("returns null rather than a placeholder the tradie could tap", async () => {
+    const { openDb } = await import("../src/db/db.js");
+    const { createTenant, upsertCall, upsertLead, getLeadWithCall } =
+      await import("../src/db/repo.js");
+
+    const sqlitePath = `.tmp/test-callerid-${Date.now()}.sqlite`;
+    const db = await openDb(sqlitePath);
+    const tenant = createTenant(db, {
+      name: "CallerID Test", trade_type: "plumber", twilio_number: "+61400000666",
+      owner_phone: "+61466666660", owner_email: "cid@test.local", password: "cid-pass"
+    });
+
+    const mk = (id: string, from: string | null) => {
+      upsertCall(db, { call_id: `c-${id}`, tenant_id: tenant.tenant_id, from_number: from, status: "completed" });
+      upsertLead(db, {
+        lead_id: id, tenant_id: tenant.tenant_id, call_id: `c-${id}`,
+        name: "Sam", phone: null, address: null, issue_type: null,
+        issue_summary: "x", urgency_level: null, preferred_time: null,
+        notes: null, confidence: null, next_action: null, lead_status: "new"
+      });
+    };
+
+    mk("withheld-digits", "+7378742833");
+    mk("withheld-alpha", "Unknown Caller");
+    mk("real", "+61412345678");
+
+    expect(getLeadWithCall(db, "withheld-digits", tenant.tenant_id)?.from_number).toBeNull();
+    expect(getLeadWithCall(db, "withheld-alpha", tenant.tenant_id)?.from_number).toBeNull();
+    // A real number must survive — a false positive here loses a customer.
+    expect(getLeadWithCall(db, "real", tenant.tenant_id)?.from_number).toBe("+61412345678");
+
+    await db.flush();
+    await rm(sqlitePath, { force: true });
+  });
+});

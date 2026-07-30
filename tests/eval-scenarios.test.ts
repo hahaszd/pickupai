@@ -118,25 +118,53 @@ describe("eval scenario library", () => {
 });
 
 describe("the caller brief does not contradict the scenario", () => {
-  // callerIdentity assigned a suburb from a hash while callerFacts said
-  // somewhere else, and the same prompt then told the caller model not to
-  // invent anything. Nine scenarios were in that position — including the one
-  // whose correct answer turns on the Victorian $10,000 licence threshold.
-  it("uses the scenario's own location wherever it names one", async () => {
+  // The first version of this test re-derived its expectation with a COPY of
+  // the same regex the production code used — so when that regex extracted
+  // "Bendigo and you have already decided it needs replacing", the test
+  // certified it. Two things share a bug and agree with each other.
+  //
+  // So the detection here is deliberately DIFFERENT from the mechanism: the
+  // code reads an explicit `callerSuburb` field and never parses prose, and
+  // this scans prose broadly and demands the field be set. Neither can quietly
+  // adopt the other's mistake.
+  const NAMES_A_PLACE =
+    /\b(?:You (?:are|live) in|The (?:property|house|place|unit|premises) is in|It is a[^"]{0,60}? in)\s+[A-Z]/;
+
+  it("sets callerSuburb wherever the facts name a place", async () => {
+    const { ALL_EVAL_SCENARIOS } = await import("../src/testing/eval/scenarios/index.js");
+
+    const unset = ALL_EVAL_SCENARIOS
+      .filter((s) => s.callerFacts.some((f) => NAMES_A_PLACE.test(f)) && !s.callerSuburb)
+      .map((s) => s.id);
+    expect(unset, "these name a place in callerFacts but leave callerSuburb unset — " +
+      "the caller model gets a hashed suburb AND the scenario's place, and picks one")
+      .toEqual([]);
+  });
+
+  it("puts callerSuburb in the brief, and nothing else where it is unset", async () => {
     const { ALL_EVAL_SCENARIOS } = await import("../src/testing/eval/scenarios/index.js");
     const { buildCallerBriefForTest } = await import("../src/testing/eval/runner.js");
 
     let checked = 0;
     for (const s of ALL_EVAL_SCENARIOS) {
-      const stated = s.callerFacts.find((f) => /\bYou (?:are|live) in\b/i.test(f));
-      if (!stated) continue;
-      const place = stated.replace(/^.*?\bYou (?:are|live) in\b\s*/i, "").replace(/[.,]\s*$/, "").trim();
-      const brief = buildCallerBriefForTest(s);
-      expect(brief, `${s.id} should say the caller lives in ${place}`)
-        .toContain(`You live in ${place}`);
+      if (!s.callerSuburb) continue;
+      expect(buildCallerBriefForTest(s), `${s.id}`).toContain(`You live in ${s.callerSuburb}`);
       checked++;
     }
-    // If this drops to zero the assertion has quietly stopped testing anything.
-    expect(checked).toBeGreaterThan(5);
+    // If this drops the assertion has quietly stopped testing anything.
+    expect(checked).toBeGreaterThan(8);
+  });
+
+  // The corruption that made this necessary: a whole clause hoisted into the
+  // identity line, which the caller volunteers immediately, rather than staying
+  // in callerFacts where it is revealed only when asked.
+  it("never puts a caller's own diagnosis into the identity line", async () => {
+    const { ALL_EVAL_SCENARIOS } = await import("../src/testing/eval/scenarios/index.js");
+    for (const s of ALL_EVAL_SCENARIOS) {
+      if (!s.callerSuburb) continue;
+      expect(s.callerSuburb.length, `${s.id}: callerSuburb "${s.callerSuburb}" is a sentence, not a place`)
+        .toBeLessThan(40);
+      expect(s.callerSuburb, `${s.id}`).not.toMatch(/\b(?:and|you|because|already|told)\b/i);
+    }
   });
 });

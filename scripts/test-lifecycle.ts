@@ -73,18 +73,34 @@ const BASE =
   TARGET === "dev"   ? "https://pickupai-dev.ai-builders.space" :
                        "https://getpickupai.com.au";
 
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN
-  ?? (TARGET === "local" ? "local-admin-token-2026" : "");
+// No inlined credentials, not even for the local target. CODING_STANDARDS:
+// "Secrets are read from process.env and hard-fail when missing. Never inline a
+// credential, not even in scripts/."
+//
+// These used to default to owner@example.com / changeme123 — matching a seed
+// fallback in src/server.ts that was removed on 2026-07-29 for being a working
+// credential written in the source. The commit removing it claimed "the e2e
+// lifecycle suite creates its own tenant". It does not: it logs in as exactly
+// those credentials, so T12 and everything downstream of the session cookie
+// broke, silently, because CI does not run this suite. Failing loudly at
+// startup is the point.
+function required(name: string): string {
+  const v = process.env[name];
+  if (!v) {
+    console.error(
+      `\n${name} is not set.\n` +
+      `This suite drives a real server with real credentials and will not guess them.\n` +
+      `Set ADMIN_TOKEN, SEED_EMAIL and SEED_PASSWORD to match the target you are pointing at ` +
+      `(${TARGET}), e.g. in .env, then run with: node --env-file=.env …\n`
+    );
+    process.exit(2);
+  }
+  return v;
+}
 
-const SEED_EMAIL =
-  TARGET === "local" ? "owner@example.com" :
-  TARGET === "dev"   ? "dev@pickupai.app" :
-                       "owner@pickupai.app";
-
-const SEED_PASSWORD =
-  TARGET === "local" ? "changeme123" :
-  TARGET === "dev"   ? "dev-changeme-2026" :
-                       "changeme-set-a-real-password";
+const ADMIN_TOKEN = required("ADMIN_TOKEN");
+const SEED_EMAIL = required("SEED_EMAIL");
+const SEED_PASSWORD = required("SEED_PASSWORD");
 
 // Seed tenant's Twilio number (TWILIO_DEFAULT_VOICE_NUMBER in the deployed env)
 // +61280000796 is the landline used for both inbound voice AND demo pool.

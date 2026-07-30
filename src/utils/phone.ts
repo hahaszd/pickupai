@@ -1,3 +1,62 @@
+/**
+ * Values that turn up in a phone field and cannot be rung.
+ *
+ * Twilio documents only the alpha forms: since 2023-05-17 a withheld caller ID
+ * arrives as the string `anonymous`, and it persists whatever alpha string the
+ * carrier sent (`ANONYMOUS`, `RESTRICTED`).
+ * https://www.twilio.com/en-us/changelog/changes-to-withheld-caller-id-behavior
+ *
+ * The NUMERIC forms below are what carriers hand over and Twilio does not
+ * document them anywhere, so they are listed by the word each one spells on a
+ * phone keypad rather than as magic numbers — otherwise the next person reads
+ * them as a typo and deletes them. Only `266696687` was caught before; a
+ * withheld caller arriving as `+7378742833` was printed to the owner as a
+ * number to ring back.
+ *
+ * Matching is on the EXACT digit string, so a real number that merely contains
+ * one of these runs (+61266696687) is unaffected.
+ */
+const PLACEHOLDER_DIGITS = new Set([
+  "266696687",  // ANONYMOUS
+  "7378742833", // RESTRICTED
+  "8656696",    // UNKNOWN
+  "862825",     // UNAVAIL
+  "7748433"     // PRIVATE
+]);
+const PLACEHOLDER_WORDS = new Set([
+  "anonymous", "restricted", "unavailable", "unknown", "private", "withheld", "blocked",
+  // Multi-word and abbreviated carrier strings, letters-only after stripping.
+  // Kept even though the no-digits rule above already catches them: a value
+  // like "Caller ID 2 withheld" has a digit and still is not a number.
+  "unavail", "nocallerid", "outofarea", "unknowncaller", "blockedcall", "callerunknown"
+]);
+
+/**
+ * True for anything the owner could not ring back. Deliberately narrow: it only
+ * rejects the exact known placeholders, because a false positive here silently
+ * drops a real customer's number, which is the worse of the two failures.
+ */
+export function isUnreachableNumber(value?: string | null): boolean {
+  const raw = (value ?? "").trim();
+  if (!raw) return false;
+
+  // The general rule, which the word list was a poor proxy for: a value with no
+  // digits in it is not a number and can never be rung. Matching an exact
+  // concatenated word missed every multi-word and abbreviated carrier string —
+  // "Unknown Caller", "No Caller ID", "Out of Area", "Blocked Call", and
+  // "UNAVAIL", which is doubly damning because the DIGIT list already carries
+  // 862825 precisely because it spells UNAVAIL.
+  //
+  // Every one of those was printed to the owner as a callback number, and
+  // buildSystemPrompt read it out: "The caller's number on file is Unknown
+  // Caller — use this only if they confirm it as their best contact number."
+  if (!/\d/.test(raw)) return true;
+
+  const letters = raw.toLowerCase().replace(/[^a-z]/g, "");
+  if (letters && PLACEHOLDER_WORDS.has(letters)) return true;
+  return PLACEHOLDER_DIGITS.has(raw.replace(/\D/g, ""));
+}
+
 /** Format an E.164 Australian number (+61...) into local readable style. */
 export function formatAuPhone(e164: string): string {
   if (!e164.startsWith("+61")) return e164;

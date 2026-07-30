@@ -702,7 +702,20 @@ describe("withheld caller ID never reaches the owner as something to ring", () =
 
     for (const v of [
       "anonymous", "ANONYMOUS", "Restricted", "unavailable", "unknown", "private",
-      "+266696687", "266696687", "+7378742833", "7378742833", "+8656696"
+      "+266696687", "266696687", "+7378742833", "7378742833", "+8656696",
+      // Multi-word and abbreviated carrier strings. Every one of these was
+      // printed to the owner as a callback number, and buildSystemPrompt read
+      // it out: "The caller's number on file is Unknown Caller — use this only
+      // if they confirm it as their best contact number." UNAVAIL is the worst
+      // of them: the DIGIT list already carried 862825 because it spells
+      // UNAVAIL, and the word form was missing.
+      "UNAVAIL", "Unknown Caller", "No Caller ID", "Out of Area", "Blocked Call",
+      "CALLER UNKNOWN", "  withheld  ",
+      // These are why the rule is "no digits means not a number" and not just a
+      // longer word list. Nobody can enumerate what every carrier sends, and a
+      // list is only ever as good as the last string somebody saw in a log.
+      "Private Number", "CALLER-ID BLOCKED", "n/a", "—", "Number Withheld",
+      "Payphone", "International", "TOLL FREE"
     ]) {
       expect(isUnreachableNumber(v), `${v} should be unreachable`).toBe(true);
     }

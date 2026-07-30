@@ -1,7 +1,7 @@
 import { randomUUID, timingSafeEqual, randomInt } from "node:crypto";
 import { pbkdf2Sync, randomBytes } from "node:crypto";
 import type { Db } from "./db.js";
-import { toE164Au, isAuMobile } from "../utils/phone.js";
+import { toE164Au, isAuMobile, isUnreachableNumber } from "../utils/phone.js";
 
 // ─── Row types ───────────────────────────────────────────────────────────────
 
@@ -406,15 +406,24 @@ export function getLeadWithCall(
   leadId: string,
   tenantId: string
 ): (LeadRow & { recording_url: string | null; transcript: string | null; from_number: string | null }) | null {
-  return (
-    db.get<LeadRow & { recording_url: string | null; transcript: string | null; from_number: string | null }>(
-      `SELECT l.*, c.recording_url, c.transcript, c.from_number
-       FROM leads l
-       LEFT JOIN calls c ON l.call_id = c.call_id
-       WHERE l.lead_id = ? AND l.tenant_id = ?`,
-      [leadId, tenantId]
-    ) ?? null
+  const row = db.get<LeadRow & { recording_url: string | null; transcript: string | null; from_number: string | null }>(
+    `SELECT l.*, c.recording_url, c.transcript, c.from_number
+     FROM leads l
+     LEFT JOIN calls c ON l.call_id = c.call_id
+     WHERE l.lead_id = ? AND l.tenant_id = ?`,
+    [leadId, tenantId]
   );
+  if (!row) return null;
+
+  // calls.from_number stores whatever Twilio sent, placeholder and all. The
+  // dashboard falls back to it — `lead.phone ?? lead.from_number` — and renders
+  // it as <a href="tel:…">, so guarding lead.phone alone just moved the render
+  // onto this branch. The tradie taps it and dials an international number.
+  //
+  // Sanitised here rather than at the page, so the CSV export, the duplicate
+  // detector and anything added later inherit it. Nothing may present an
+  // unringable string as a number to ring.
+  return { ...row, from_number: isUnreachableNumber(row.from_number) ? null : row.from_number };
 }
 
 // ─── Notification helpers ─────────────────────────────────────────────────────

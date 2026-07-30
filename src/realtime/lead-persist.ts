@@ -1,5 +1,5 @@
 import type { Db } from "../db/db.js";
-import type { TenantRow } from "../db/repo.js";
+import type { TenantRow, upsertLead as upsertLeadFn } from "../db/repo.js";
 import type { CallState, LeadDraft } from "../twilio/state.js";
 
 /**
@@ -23,7 +23,16 @@ export type LeadPersistDeps = {
   callSid: string;
   getState: (callSid: string) => CallState;
   setState: (callSid: string, state: CallState) => void;
-  upsertLead: (db: Db, lead: Record<string, unknown>) => void;
+  /**
+   * Typed as the real function, not as `(db, Record<string, unknown>) => void`.
+   * The loose signature plus an `as never` at the call site meant tsc no longer
+   * checked the 17-field row built below against what upsertLead accepts —
+   * renaming `name` to `nme` or dropping `call_id` compiled clean, where before
+   * the extraction both were errors. On the one write ADR-0002 calls
+   * unrecoverable, losing the compiler is a worse trade than the testability
+   * was worth, and there is no need to choose.
+   */
+  upsertLead: typeof upsertLeadFn;
   /** Blocking flush. ADR-0002 — deliberately not fire-and-forget. */
   flushCritical: (db: Db, reason: string) => void;
   appendTranscript?: (db: Db, callSid: string, line: string) => void;

@@ -83,14 +83,20 @@ export function sayablePart(line: string): string {
 }
 
 describe("the prompt does not hand the model a phrase it also bans", () => {
+  // Both caller-ID branches. The withheld branch is longer and carries two
+  // extra spoken scripts, and until 2026-07-30 this scanned only the reachable
+  // one — so the cheap CI gate could not fail on conditional prompt content,
+  // which is where the newest scripts live.
   for (const trade of TRADES) {
-    it(`${trade}`, () => {
-      const lines = buildSystemPrompt(tenant(trade), [], "+61411222333").split("\n");
-      for (const phrase of FORBIDDEN_PHRASES) {
-        const offenders = lines.filter((l) => sayablePart(l).includes(phrase));
-        expect(offenders, `${trade} still offers "${phrase}": ${offenders[0]?.trim()}`).toEqual([]);
-      }
-    });
+    for (const [label, from] of [["reachable caller ID", "+61411222333"], ["withheld", null]] as const) {
+      it(`${trade} — ${label}`, () => {
+        const lines = buildSystemPrompt(tenant(trade), [], from).split("\n");
+        for (const phrase of FORBIDDEN_PHRASES) {
+          const offenders = lines.filter((l) => sayablePart(l).includes(phrase));
+          expect(offenders, `${trade}/${label} still offers "${phrase}": ${offenders[0]?.trim()}`).toEqual([]);
+        }
+      });
+    }
   }
 
   // The exemption itself, tested. Without this, narrowing it is unverifiable —
