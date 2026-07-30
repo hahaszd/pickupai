@@ -172,6 +172,25 @@ rather than by review.
   and asserted against the copy, so production could change freely and stay
   green. If a helper is unreachable because `server.ts` runs `main()` on import,
   move the helper into a module; do not retype it into the test.
+- **A test must detect by a different mechanism than the code computes by.**
+  Three tests here re-derived their expectation from a copy of the thing under
+  test — `localiseDemo`, both `/api/stats` queries, and a regex that parsed a
+  suburb out of scenario prose — and each agreed with the bug it shared. The fix
+  is the same every time: have the code read an explicit value, and have the test
+  detect the situation some other way. `callerSuburb` is a field; its test scans
+  prose and demands the field exists.
+- **A mutation that does not apply is not evidence.** Verify the file actually
+  changed before running the test. A `perl -0pi -e` whose pattern misses reports
+  a confident GREEN, and a whole mutation matrix was once nearly filed that way —
+  six of eight "surviving" mutations had simply never been applied.
+- **Fixing a false red by deleting an assertion creates a false green.** When a
+  check is wrong, replace it; if it must go, make the thing it measured visible
+  somewhere that blocks. Removing the eval's turn-cap failure left capped runs
+  counting as passes, so the gate could go green by never running.
+- **One name must not carry two opposite meanings.** `captureTarget: "none"` meant
+  "nothing is required" in one scenario and "nothing may be captured" in another;
+  asserting the second failed a P0 life-safety scenario for obeying the prompt.
+  Split the name.
 - **Mutation-check a test that has never failed.** Break the line it protects
   and confirm it goes red. Three tests fixed this way on 2026-07-29 had all been
   green since they were written, and one check corrected the fix itself: the

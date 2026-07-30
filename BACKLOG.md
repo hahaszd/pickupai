@@ -26,6 +26,78 @@ Last updated: **2026-07-29**
 
 ## P0
 
+### Round 3: the same mistake three times, and what finally stopped it
+2026-07-30. Commits `0d8957a`, `bb36ab8`. Round 3 attacked rounds 1 and 2 and
+found most of round 2's fixes — mine — were defects of their own.
+
+**The pattern, stated once because it is the whole lesson of three rounds:**
+
+| Round | The mistake | Shape |
+|---|---|---|
+| 1 | Wrote one comment, pasted it into five scenarios, two of which it was false about | **A change applied N times is N changes** |
+| 2 | Removed the turn-cap failure and left capped runs counting as `passed` | **Fixing a false red by deleting an assertion creates a false green** |
+| 2 | Made `captureTarget: "none"` assert a ceiling, when one of its two users meant a floor | **One word carrying two opposite meanings** |
+| 3 | Parsed the caller's suburb out of prose, and the test re-derived it with a copy of the same regex | **A test that shares an assumption with the code agrees with it** |
+
+That last one happened **three times in three rounds** — `localiseDemo`, the
+`/api/stats` SQL, and now the suburb regex. It is not carelessness about tests.
+It is what happens when the expectation is *computed* rather than *stated*. The
+fix that works is the same every time: **make the code read an explicit value and
+make the test detect by a different mechanism.** `callerSuburb` is a field now;
+the test scans prose and demands the field exists. Neither can adopt the other's
+error.
+
+**And a fourth, from the same family, found by the paid slice rather than by
+review:** `mustSay: ["wrapped the call up politely"]` failed 3/3 with stance
+ABSENT while the assistant behaved perfectly. A mustSay grades DIRECTED (an
+action told to the caller) or STATED (a fact conveyed); a meta-summary of how a
+call *went* is neither. **An assertion must name a quotable line, not describe
+an outcome** — the fourth measurement of that rule, now from the assertion side
+as well as the prompt side.
+
+**Security found in round 3, all live:**
+
+- **A reflected XSS I walked past while writing the fix for it.** Round 2 added
+  `jsonForScriptTag()` for exactly this shape and applied it once.
+  `server.ts`'s Stripe-success page still had bare `JSON.stringify(req.query.session_id)`
+  inside a `<script>`. Plain GET, no CSRF token, executes in the tradie's
+  authenticated dashboard origin.
+- **`SMS_PROVIDER=twilio` reactivated a Spam Act exposure `LISTS.md` had
+  written down in advance:** *"if a campaign were ever switched back to Twilio,
+  those people would be messaged again."* `appendOptOutLine` still preferred the
+  Mobile Message shortlink with no provider check — a non-functional unsubscribe
+  facility on the message actually delivered, s.18.
+- **`/mobilemsg/*` still failed open, and the DEPLOY.md row I wrote said the
+  opposite.** The fail-open was justified by "do not drop live inbound SMS", and
+  then the provider switch removed the live inbound SMS and left the fail-open
+  behind — making the ACMA consent trail an unauthenticated write endpoint *by
+  default*.
+- **The escaping tests were 11/18 false greens.** Now 8/8 red. Two lessons: a
+  page-level test covers only the sites it happens to render, so the escapers
+  are tested through seams; and **my first attempt at that matrix reported six
+  GREENs that were perl patterns which never matched.** A mutation that does not
+  apply is not evidence, and I nearly filed it as one.
+
+**`flushCritical` survived all three rounds.** Round 2 claimed extracting
+`onLeadUpdate` closed it. It did not: that proves `persistLeadPatch` calls what
+it is handed, and its test hands it a `vi.fn()`. The real body was still
+replaceable with `void db; void what;` with 411 tests green. Now in
+`src/db/flush-critical.ts`, asserting the three things that had no coverage —
+the flush starts **synchronously**, a rejection is **caught** (this returns void
+into a Realtime callback; an unhandled rejection there kills the process
+mid-call), and it is still **logged**.
+
+**Two things I stated as fact and had not checked**, both corrected in the code
+rather than only here: the orphan-notification rationale was wrong in both
+halves (a UNIQUE index makes `createNotification` idempotent, and `smsByDay`
+filters `sent_at IS NOT NULL`), and "the e2e lifecycle suite creates its own
+tenant" was false — it logs in as the credentials I had just deleted, so T12
+broke silently because CI does not run it.
+
+**Also:** the `upsertLead: … as never` in round 2's extraction had removed tsc's
+check on the 17-field lead row — renaming `name` to `nme` compiled clean.
+Testability never had to cost that.
+
 ### Round 2 killed two of round 1's own fixes — and the eval still has open holes
 2026-07-29. Three agents re-reviewed round 1's diff. Commits `a3b1bc8`,
 `8b03321`, `853fa44`, `eed92eb`.
