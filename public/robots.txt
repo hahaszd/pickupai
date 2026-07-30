@@ -1,4 +1,19 @@
 # PickupAI — https://www.getpickupai.com.au
+#
+# ONE `User-agent: *` group, on purpose. Do not add per-bot groups, not even to
+# allow one — robots.txt is "first matching group wins", so a
+# `User-agent: GPTBot / Allow: /` block would make GPTBot read only that block
+# and ignore every Disallow below it. A single wildcard group is what makes the
+# Disallow rules apply to everybody.
+#
+# For the same reason, Cloudflare's managed robots.txt must stay OFF
+# (Security Settings -> Bot traffic -> Manage your robots.txt -> Disable). It
+# PREPENDS its own `User-agent: *` group to this file, which both blocks the AI
+# crawlers we want and shadows everything below. Verified live on 2026-07-31:
+# it was disallowing GPTBot, ClaudeBot, Google-Extended, CCBot, Bytespider,
+# Amazonbot, Applebot-Extended and meta-externalagent.
+#
+# Nothing here can be fixed from the repo while that setting is on.
 
 User-agent: *
 Allow: /
