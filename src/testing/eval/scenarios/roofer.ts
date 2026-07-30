@@ -356,7 +356,16 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
     // types.ts documents this exact trap and round 2 added a fresh instance of
     // it. mustDiscourage is the list whose pass condition matches.
     mustDiscourage: ["buying leads or taking the caller up on the offer"],
-    mustSay: ["wrapped the call up politely"],
+    // No mustSay here. "wrapped the call up politely" failed 3/3 with stance
+    // ABSENT while the assistant behaved correctly, because it describes the
+    // CALL rather than naming something said: a mustSay passes on DIRECTED (an
+    // action told to the caller) or STATED (a fact conveyed), and a meta-summary
+    // of how a call went is neither, so the judge has nothing to quote.
+    //
+    // Fourth measurement of the same rule, now from the assertion side as well
+    // as the prompt side: an item that names a quotable line gets graded, an
+    // item that describes an outcome does not. shouldEndCall already asserts the
+    // call ended, and mustDiscourage above carries the substance.
     mustNotSay: [
       "agreed to buy leads, take a trial, or accept a follow-up call",
       "gave the caller the owner's mobile, email or direct line"
