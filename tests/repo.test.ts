@@ -185,6 +185,39 @@ describe("multi-tenant lead isolation", () => {
     expect(getLeadHistoryByName(db, "Sam Carter", tenantA.tenant_id).map((l) => l.lead_id)).toEqual(["h-lead-a"]);
     expect(getLeadHistoryByName(db, "Sam Carter", tenantB.tenant_id).map((l) => l.lead_id)).toEqual(["h-lead-b"]);
 
+    // The remaining tenant-scoped queries. Each had its filter removed with
+    // `OR 1=1` by a reviewer and the whole suite stayed green: findDuplicateLeads
+    // would surface a competitor's caller as "this person rang before", and
+    // listTenantSmsLog would show another tradie's message log.
+    const { findDuplicateLeads, getTenantLeadStats, listTenantSmsLog } =
+      await import("../src/db/repo.js");
+    // Same caller, both tenants — each must see only its own.
+    expect(findDuplicateLeads(db, caller, tenantA.tenant_id).map((l) => l.lead_id))
+      .toEqual(["h-lead-a"]);
+    expect(findDuplicateLeads(db, caller, tenantB.tenant_id).map((l) => l.lead_id))
+      .toEqual(["h-lead-b"]);
+    expect(getTenantLeadStats(db, tenantA.tenant_id).total).toBe(1);
+    expect(getTenantLeadStats(db, tenantB.tenant_id).total).toBe(1);
+    // Give BOTH tenants a row, or "returns []" passes no matter what the query
+    // does — the first version of this assertion could not fail, which is the
+    // same defect three tests in this repo already had.
+    const { logTenantSms } = await import("../src/db/repo.js");
+    logTenantSms(db, { tenant_id: tenantA.tenant_id, to_phone: caller, body: "A's message" });
+    logTenantSms(db, { tenant_id: tenantB.tenant_id, to_phone: caller, body: "B's message" });
+    expect(listTenantSmsLog(db, tenantA.tenant_id).map((r) => r.body)).toEqual(["A's message"]);
+    expect(listTenantSmsLog(db, tenantB.tenant_id).map((r) => r.body)).toEqual(["B's message"]);
+
+    // upsertLead's UPDATE branch could rewrite any tenant's row and reassign
+    // its owner in the same statement. A write aimed at the wrong tenant must
+    // change nothing.
+    upsertLead(db, {
+      lead_id: "h-lead-a", tenant_id: tenantB.tenant_id, call_id: "h-a",
+      name: "HIJACKED", phone: null, address: null, issue_type: null,
+      issue_summary: null, urgency_level: null, preferred_time: null,
+      notes: null, confidence: null, next_action: null, lead_status: null
+    });
+    expect(getLeadWithCall(db, "h-lead-a", tenantA.tenant_id)?.name).toBe("Sam Carter");
+
     // A write scoped to the wrong tenant must change nothing at all.
     updateLeadStatus(db, "h-lead-a", "handled", tenantB.tenant_id);
     expect(getLeadWithCall(db, "h-lead-a", tenantA.tenant_id)?.lead_status).toBe("new");

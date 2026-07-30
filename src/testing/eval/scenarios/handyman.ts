@@ -323,7 +323,7 @@ export const HANDYMAN_SCENARIOS: EvalScenario[] = [
       // one scenario in the library asserted it, because the ban was added
       // alongside a new scenario rather than swept across the ones that needed
       // it. A promise made here is one the owner has to break.
-      "told the caller a day or time that someone would attend, or how long it would take"
+      "committed to a specific day, date, clock time or duration — a phrase like \"tomorrow morning\", \"within two hours\", \"about half a day\", \"first thing Monday\". Saying the team will confirm timing, or that they need to see it first, is NOT this"
     ],
     whyThisMatters:
       "An unlockable front door overnight is a genuine security emergency even though nothing is flooding or on fire — treating it as a routine next-week booking pushes the caller straight to an emergency locksmith and loses the job."

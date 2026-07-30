@@ -311,9 +311,31 @@ export function upsertLead(
     ];
     const updatableFields = allFields.filter(([, v]) => v !== undefined);
     if (updatableFields.length === 0) return;
-    const setClause = updatableFields.map(([k]) => `${k}=?`).join(", ");
-    const params = [...updatableFields.map(([, v]) => v ?? null), lead.lead_id];
-    db.run(`UPDATE leads SET ${setClause} WHERE lead_id=?`, params);
+
+    // Scoped by tenant as well as by lead_id, and the tenant_id column is not
+    // in the SET list — this branch could previously rewrite ANY tenant's row
+    // and reassign its owner in the same statement. lead_id is a callSid so a
+    // collision is not the realistic risk; a careless call site is, and the
+    // read side was made unrepresentable on 2026-07-29 while the write side was
+    // left representable.
+    //
+    // A row with no tenant (the "default" fallback path) is matched by the
+    // IS NULL arm rather than being locked out of its own updates.
+    const params = [
+      ...updatableFields.filter(([k]) => k !== "tenant_id").map(([, v]) => v ?? null),
+      lead.lead_id,
+      lead.tenant_id ?? null,
+      lead.tenant_id ?? null
+    ];
+    const setNoTenant = updatableFields
+      .filter(([k]) => k !== "tenant_id")
+      .map(([k]) => `${k}=?`)
+      .join(", ");
+    if (!setNoTenant) return;
+    db.run(
+      `UPDATE leads SET ${setNoTenant} WHERE lead_id=? AND (tenant_id = ? OR (? IS NULL AND tenant_id IS NULL))`,
+      params
+    );
     return;
   }
 
@@ -363,15 +385,14 @@ export function updateLeadStatus(db: Db, leadId: string, status: string, tenantI
 export function listLeadsForTenant(
   db: Db,
   tenantId: string,
-  opts: { limit?: number; urgency?: string; status?: string; search?: string } = {}
+  // No `urgency` filter. It matched on urgency_level, which stopped being
+  // written on 2026-07-28, so it could only ever return rows older than that —
+  // a filter guaranteed to hide every job the tradie actually has.
+  opts: { limit?: number; status?: string; search?: string } = {}
 ): (LeadRow & { recording_url: string | null })[] {
   const conditions = ["l.tenant_id = ?"];
   const params: any[] = [tenantId];
 
-  if (opts.urgency) {
-    conditions.push("l.urgency_level = ?");
-    params.push(opts.urgency);
-  }
   if (opts.status) {
     conditions.push("l.lead_status = ?");
     params.push(opts.status);
@@ -544,9 +565,12 @@ export function findDuplicateLeads(
 export type TenantLeadStats = {
   total: number;
   this_week: number;
-  emergency: number;
-  urgent: number;
-  routine: number;
+  // emergency / urgent / routine were here until 2026-07-31. urgency_level
+  // stopped being written on 2026-07-28 when the grading feature was deleted,
+  // and sanitizeSaveLeadArgs strips it from every patch — so the first two were
+  // a permanent zero for any tenant onboarded since, and "routine" was just
+  // `total` under another name. Nothing rendered them; they were three SUMs
+  // computed on every dashboard load to be discarded.
   new_status: number;
   handled: number;
   booked: number;
@@ -555,15 +579,10 @@ export type TenantLeadStats = {
 
 export function getTenantLeadStats(db: Db, tenantId: string): TenantLeadStats {
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  const totals = db.get<{ total: number; emergency: number; urgent: number; routine: number }>(
-    `SELECT
-      COUNT(*) AS total,
-      SUM(CASE WHEN urgency_level='emergency' THEN 1 ELSE 0 END) AS emergency,
-      SUM(CASE WHEN urgency_level='urgent' THEN 1 ELSE 0 END) AS urgent,
-      SUM(CASE WHEN urgency_level='routine' OR urgency_level IS NULL THEN 1 ELSE 0 END) AS routine
-    FROM leads WHERE tenant_id = ?`,
+  const totals = db.get<{ total: number }>(
+    "SELECT COUNT(*) AS total FROM leads WHERE tenant_id = ?",
     [tenantId]
-  ) ?? { total: 0, emergency: 0, urgent: 0, routine: 0 };
+  ) ?? { total: 0 };
 
   const weekCount = db.get<{ n: number }>(
     "SELECT COUNT(*) AS n FROM leads WHERE tenant_id = ? AND created_at >= ?",
@@ -579,9 +598,6 @@ export function getTenantLeadStats(db: Db, tenantId: string): TenantLeadStats {
   return {
     total: totals.total,
     this_week: weekCount,
-    emergency: totals.emergency,
-    urgent: totals.urgent,
-    routine: totals.routine,
     new_status: statusMap.get("new") ?? 0,
     handled: statusMap.get("handled") ?? 0,
     booked: statusMap.get("booked") ?? 0,

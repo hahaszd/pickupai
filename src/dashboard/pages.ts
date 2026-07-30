@@ -1,4 +1,4 @@
-import type { LeadRow, TenantRow } from "../db/repo.js";
+import type { LeadRow, TenantLeadStats, TenantRow } from "../db/repo.js";
 import { generateForwardingCode } from "../twilio/sms.js";
 import { formatAuPhone } from "../utils/phone.js";
 import { gaHeadSnippet, gaUserProperties, gaEvent } from "../analytics/ga.js";
@@ -880,8 +880,8 @@ export function welcomePage(tenant: TenantRow, opts: WelcomePageOpts = {}) {
 export function leadsPage(
   tenant: TenantRow,
   leads: (LeadRow & { recording_url: string | null })[],
-  filters: { urgency?: string; status?: string; search?: string },
-  stats?: { total: number; this_week: number; emergency: number; urgent: number; routine: number; new_status: number; handled: number; booked: number; called_back: number }
+  filters: { status?: string; search?: string },
+  stats?: TenantLeadStats
 ) {
   const statusOpts = [
     { v: "", label: "All statuses" },
@@ -891,9 +891,8 @@ export function leadsPage(
     { v: "called_back", label: "Called back" }
   ];
 
-  const qs = (u?: string, s?: string, q?: string) => {
+  const qs = (s?: string, q?: string) => {
     const p = new URLSearchParams();
-    if (u) p.set("urgency", u);
     if (s) p.set("status", s);
     if (q) p.set("search", q);
     const str = p.toString();
@@ -902,7 +901,7 @@ export function leadsPage(
 
   const statusFilters = statusOpts.map(o => {
     const active = (filters.status ?? "") === o.v ? " active" : "";
-    return `<a href="/dashboard/leads${qs(filters.urgency, o.v, filters.search)}" class="filter-chip${active}">${o.label}</a>`;
+    return `<a href="/dashboard/leads${qs(o.v, filters.search)}" class="filter-chip${active}">${o.label}</a>`;
   }).join("");
 
   const statsBar = stats ? `
@@ -934,7 +933,7 @@ export function leadsPage(
         <td style="white-space:nowrap;font-size:.8rem;color:var(--gray-600)">${formatDate(l.created_at)}</td>
       </tr>`).join("");
 
-  const csvQs = qs(filters.urgency, filters.status, filters.search);
+  const csvQs = qs(filters.status, filters.search);
   const isPending = !tenant.twilio_number || tenant.twilio_number.startsWith("+PENDING_");
   const hasLeads = leads.length > 0;
 
@@ -990,15 +989,11 @@ ${statsBar}
   <form method="GET" action="/dashboard/leads" style="margin-bottom:.75rem;">
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
       <input type="text" name="search" value="${escape(filters.search ?? "")}" placeholder="Search by name, phone, address, or issue…" style="flex:1;min-width:0;" />
-      ${filters.urgency ? `<input type="hidden" name="urgency" value="${escape(filters.urgency)}" />` : ""}
       ${filters.status ? `<input type="hidden" name="status" value="${escape(filters.status)}" />` : ""}
       <button type="submit" class="btn btn-primary btn-sm">Search</button>
-      ${filters.search ? `<a href="/dashboard/leads${qs(filters.urgency, filters.status)}" class="btn btn-ghost btn-sm">Clear</a>` : ""}
+      ${filters.search ? `<a href="/dashboard/leads${qs(filters.status)}" class="btn btn-ghost btn-sm">Clear</a>` : ""}
     </div>
   </form>
-  <div class="filters" style="margin-bottom:.5rem;">
-    <span style="font-size:.8rem;color:var(--gray-600);line-height:2;">Urgency:</span>
-  </div>
   <div class="filters">
     <span style="font-size:.8rem;color:var(--gray-600);line-height:2;">Status:</span>
     ${statusFilters}

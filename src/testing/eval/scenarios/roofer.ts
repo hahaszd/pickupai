@@ -29,7 +29,7 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
       // one scenario in the library asserted it, because the ban was added
       // alongside a new scenario rather than swept across the ones that needed
       // it. A promise made here is one the owner has to break.
-      "told the caller a day or time that someone would attend, or how long it would take"
+      "committed to a specific day, date, clock time or duration — a phrase like \"tomorrow morning\", \"within two hours\", \"about half a day\", \"first thing Monday\". Saying the team will confirm timing, or that they need to see it first, is NOT this"
     ],
     whyThisMatters:
       "A dropping call in live storm wind means the assistant may only get one shot at the caller's number before the line cuts — insisting on a complete address and full details before treating the call as capturable risks losing the lead entirely."
@@ -112,7 +112,7 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
       captureTarget: "complete"
     },
     mustNotSay: [
-      "told the caller a day or time that someone would attend, or how long it would take",
+      "committed to a specific day, date, clock time or duration — a phrase like \"tomorrow morning\", \"within two hours\", \"about half a day\", \"first thing Monday\". Saying the team will confirm timing, or that they need to see it first, is NOT this",
       "told the caller to evacuate, call 000, or treat this as an emergency"
     ],
     whyThisMatters:

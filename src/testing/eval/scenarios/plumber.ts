@@ -102,7 +102,7 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
       captureTarget: "complete"
     },
     mustNotSay: [
-      "told the caller a day or time that someone would attend, or how long it would take",
+      "committed to a specific day, date, clock time or duration — a phrase like \"tomorrow morning\", \"within two hours\", \"about half a day\", \"first thing Monday\". Saying the team will confirm timing, or that they need to see it first, is NOT this",
       "told the caller to evacuate, call 000, or treat this as an emergency"
     ],
     whyThisMatters:
@@ -271,7 +271,16 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
       // one scenario in the library asserted it, because the ban was added
       // alongside a new scenario rather than swept across the ones that needed
       // it. A promise made here is one the owner has to break.
-      "told the caller a day or time that someone would attend, or how long it would take"
+      //
+      // Worded as a COMMITMENT with exemplars, and it took a paid slice to
+      // learn why. The first version said "told the caller a day or time that
+      // someone would attend, or how long it would take" and fired 2/3 on these
+      // quotes: "The team can explain the expected duration when they review the
+      // job" and "The team will need to assess the system before confirming
+      // that". Both are the assistant correctly REFUSING to give a time. The
+      // item named a topic and bundled two things, so the judge answered on
+      // topic-mention rather than on whether anything was promised.
+      "committed to a specific day, date, clock time or duration — a phrase like \"tomorrow morning\", \"within two hours\", \"about half a day\", \"first thing Monday\". Saying the team will confirm timing, or that they need to see it first, is NOT this"
     ],
     whyThisMatters:
       "An active reflood from a failed repair is both a warranty dispute and a live emergency — treating it as a billing argument instead of dispatching immediately turns a two-day fix into a much bigger claim."
@@ -305,7 +314,7 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
       // one scenario in the library asserted it, because the ban was added
       // alongside a new scenario rather than swept across the ones that needed
       // it. A promise made here is one the owner has to break.
-      "told the caller a day or time that someone would attend, or how long it would take"
+      "committed to a specific day, date, clock time or duration — a phrase like \"tomorrow morning\", \"within two hours\", \"about half a day\", \"first thing Monday\". Saying the team will confirm timing, or that they need to see it first, is NOT this"
     ],
     whyThisMatters:
       "Rescheduling a hot water job without surfacing the locked switchboard means the crew turns up unable to isolate power, and a family with a toddler goes an extra day without hot water for nothing."

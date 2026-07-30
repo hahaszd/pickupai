@@ -4354,10 +4354,9 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
 
   app.get("/dashboard/leads/export.csv", dashAuth, trialGuard, (req, res) => {
     const tenant: TenantRow = (req as any).dashTenant;
-    const urgency = typeof req.query.urgency === "string" ? req.query.urgency : undefined;
     const status = typeof req.query.status === "string" ? req.query.status : undefined;
     const search = typeof req.query.search === "string" ? req.query.search : undefined;
-    const leads = listLeadsForTenant(db, tenant.tenant_id, { urgency, status, search, limit: 10000 });
+    const leads = listLeadsForTenant(db, tenant.tenant_id, { status, search, limit: 10000 });
     const csv = leadsToCSV(leads);
     res.setHeader("Content-Type", "text/csv");
     res.setHeader("Content-Disposition", `attachment; filename="jobs-${Date.now()}.csv"`);
@@ -4407,12 +4406,11 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
 
   app.get("/dashboard/leads", dashAuth, trialGuard, (req, res) => {
     const tenant: TenantRow = (req as any).dashTenant;
-    const urgency = typeof req.query.urgency === "string" && req.query.urgency ? req.query.urgency : undefined;
     const status = typeof req.query.status === "string" && req.query.status ? req.query.status : undefined;
     const search = typeof req.query.search === "string" && req.query.search ? req.query.search : undefined;
-    const leads = listLeadsForTenant(db, tenant.tenant_id, { urgency, status, search });
+    const leads = listLeadsForTenant(db, tenant.tenant_id, { status, search });
     const stats = getTenantLeadStats(db, tenant.tenant_id);
-    res.send(leadsPage(tenant, leads, { urgency, status, search }, stats));
+    res.send(leadsPage(tenant, leads, { status, search }, stats));
   });
 
   app.get("/dashboard/leads/:id", dashAuth, trialGuard, (req, res) => {

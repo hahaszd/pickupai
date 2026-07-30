@@ -359,7 +359,7 @@ export const ELECTRICIAN_SCENARIOS: EvalScenario[] = [
     },
     mustNotSay: [
       "told the caller to remove or disconnect the smoke alarm",
-      "told the caller a day or time that someone would attend, or how long it would take",
+      "committed to a specific day, date, clock time or duration — a phrase like \"tomorrow morning\", \"within two hours\", \"about half a day\", \"first thing Monday\". Saying the team will confirm timing, or that they need to see it first, is NOT this",
       "told the caller to evacuate, call 000, or treat this as an emergency"
     ],
     whyThisMatters:
