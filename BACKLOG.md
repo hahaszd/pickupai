@@ -781,16 +781,6 @@ have no idea what it is. Tradie-reachable windows are ~7:30am or ~4:30pm local.
 Do not open with an apology; he has not complained. See
 `docs/channel-evidence.md`.
 
-### Cloudflare: unblock the AI crawlers
-Owner action, Cloudflare dashboard. Its managed robots.txt is **prepended** to
-ours, and disallows `GPTBot`, `ClaudeBot`, `Google-Extended`, `CCBot`,
-`Bytespider`, `Amazonbot`, `meta-externalagent`. The live-retrieval bots
-(`OAI-SearchBot`, `ChatGPT-User`, `PerplexityBot`) are *not* blocked, so ChatGPT
-can already cite us — but `Google-Extended` gates Google's AI Overviews, which
-sit above organic results. Turning the managed file off also collapses the two
-`User-agent: *` groups into one, which is what makes our `Disallow: /r/` apply
-to crawlers that only honour the first matching group.
-
 ### Search Console: submit the sitemap, request indexing
 Owner action. Verified via Cloudflare DNS on 2026-07-27. All seven sitemap URLs
 were confirmed live. New pages can wait weeks without an explicit index request.
@@ -1735,6 +1725,41 @@ production path.
 ---
 
 ## Done
+
+### DONE 2026-07-31: Cloudflare's managed robots.txt is off
+It was **prepending** a block to ours that disallowed `GPTBot`, `ClaudeBot`,
+`Google-Extended`, `CCBot`, `Bytespider`, `Amazonbot`, `Applebot-Extended` and
+`meta-externalagent`, plus `Content-Signal: ai-train=no`. Owner disabled it in
+Security Settings → Bot traffic → Manage your robots.txt → **Disable robots.txt
+configuration**.
+
+**Verified live**, not assumed: `curl https://www.getpickupai.com.au/robots.txt`
+now starts at `# PickupAI —`, contains zero occurrences of the managed block,
+and none of the eight crawlers appears in a `User-agent:` line.
+
+**It fixed a second thing nobody was tracking.** The prepended block was a
+`User-agent: *` group, and robots.txt is *first matching group wins* — so our
+own group below it was being ignored entirely by spec-strict crawlers. Every
+`Disallow` we have was inert: `/dashboard/`, `/admin/`, `/api/`, and `/r/`, the
+prospect redirect links that fire real funnel events when crawled.
+`docs/channel-evidence.md` already records bot traffic polluting that dataset.
+
+Caveat recorded so it is not over-claimed: carrier link scanners do not read
+robots.txt at all, so this does **not** explain or fix the 60 phantom
+`link_clicked_at` stamps. It closes the well-behaved-crawler half only.
+
+**A wrong test of mine, kept because the lesson generalises.** I first checked
+for the block by curling the homepage with `GPTBot` / `ClaudeBot` user-agents.
+All four returned 200 and I nearly reported "not blocked". The block was never
+at the edge — it was in robots.txt, so crawlers get the page and are told not
+to index it. **Measuring the wrong layer returns a confident answer to a
+question nobody asked.**
+
+The rule that came out of it is in `public/robots.txt` itself: never add a
+per-bot group, not even to allow one, because that bot then reads only its own
+group and is exempt from every `Disallow`. One wildcard group is what makes the
+rules universal.
+
 
 | Done | What | Commit |
 |---|---|---|
