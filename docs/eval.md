@@ -20,25 +20,29 @@ The conversation is non-deterministic by construction: the assistant runs at
 temperature 0.3 and the simulated caller at 0.8, deliberately, because pinning
 either to 0 would evaluate a voice no caller ever hears. Two consecutive full
 runs of the same 47 scenarios against unchanged product code gave 38/47 and
-37/47, with only partly-overlapping failures.
+37/47, with only partly-overlapping failures. (The library is 61 scenarios as
+of 2026-07-31; that measurement is from when it was 47.)
 
 So scenarios are graded on a rate over `--repeat` runs, and land in one of
 three buckets:
 
 | Verdict | Meaning |
 |---|---|
-| **pass** | Passed every run. |
+| **pass** | Passed every conclusive run. |
 | **fail** | Failed every run. A defect, and the only kind of red worth chasing. |
 | **marginal** | Passed some, failed others. Not a defect, not a pass — the prompt is ambiguous at that point, which is a finding in itself. |
+| **inconclusive** | Every run hit the harness turn cap, so the scenario was never measured. Not a pass (nothing was verified) and not a defect (nothing misbehaved). A P0 in this state blocks release, because a gate that can go green by never running is not a gate. |
 
 The gate is the rate: a P0 that fails **every** run exits non-zero and blocks
 release. A P0 that flaps does not block, but it is reported separately and
 loudly, because rounding it either way loses the only information it carries.
 Marginal is also the shape a defect takes before anyone notices it.
 
-Repeats of a scenario get the same caller — name, suburb and mobile are derived
-from a hash of the scenario id — so what varies between runs is the sampling,
-not the test.
+Repeats of a scenario get the same caller — name and mobile are derived from a
+hash of the scenario id — so what varies between runs is the sampling, not the
+test. The suburb comes from the scenario's own `callerSuburb` when it sets one,
+and falls back to the hash otherwise; see *Where the caller lives is stated, not
+parsed* below for why that is a field rather than something inferred.
 
 ## What it covers
 
@@ -47,17 +51,22 @@ Everything that lives in the prompt and the tool definitions:
 - **Field capture** — was the lead callable? Graded by the same
   `evaluateCaptureQuality()` the product uses, so the eval and production
   cannot drift apart on what "usable lead" means.
-- **Intent and urgency** — including negative controls. Over-tagging calls as
-  emergencies is a failure, not a safe default: if everything is an emergency
-  the tenant stops reading the label before the real one arrives.
+- **Caller intent** — a scenario may name the exact `caller_intent` it expects.
+  Without that, the only intent-sensitive check is "is this in `NO_SMS_INTENTS`",
+  which `new_job` and `referred_out` answer identically — so an assistant filing
+  a street-wide outage as a job would pass.
+
+  *Urgency* used to be graded here and was deleted with the product feature on
+  2026-07-28. The receptionist records; the tradie judges. Three scenarios still
+  named "must not be tagged emergency" until 2026-07-31 — see below.
 - **Tool behaviour** — `save_lead` fired when it should, `end_call` always
   (a call that never ends bills the tenant).
 - **Notification policy** — whether the owner SMS would send, via
   `expectedSmsForIntent()`.
-- **What the assistant said** — `mustSay` / `mustNotSay`. This is the half a
-  capture-only eval structurally cannot check, and it is where every safety
-  finding lives. An assistant can save a flawless lead while having told the
-  caller to open a burning switchboard.
+- **What the assistant said** — `mustSay` / `mustNotSay` / `mustDiscourage`.
+  This is the half a capture-only eval structurally cannot check, and it is
+  where every safety finding lives. An assistant can save a flawless lead while
+  having told the caller to open a burning switchboard.
 
 ## What it does NOT cover
 
@@ -117,6 +126,103 @@ does — the eval and the thing under test share an author and a context. The
 calls that go wrong for reasons nobody wrote a prompt rule about are, by
 construction, the ones missing. Closing that needs a scenario source that has
 not read the prompt; see `BACKLOG.md`.
+
+## What a scenario asserts
+
+Four independent groups. A scenario usually uses two or three.
+
+**Deterministic — free, and never flaky.** `mustCapture` lists fields that must
+come back from `save_lead`. `expected` covers `shouldSaveLead`, `shouldEndCall`,
+`shouldSendOwnerSms`, an optional exact `callerIntent`, and `captureTarget`:
+
+| `captureTarget` | Asserts |
+|---|---|
+| `complete` | All four `CORE_FIELDS` — name, phone, issue_summary, caller_intent |
+| `degraded` | At least a phone and a summary; something the owner can act on |
+| `none` | **Nothing.** A floor of zero, not a ceiling |
+| `not_a_lead` | The run must NOT produce a usable lead |
+| `caller_choice` | Not graded — reserved, see the warning below |
+
+`none` and `not_a_lead` were one value called `none` until 2026-07-31, and the
+split was forced by a live defect. Two scenarios used it meaning **opposite**
+things: the hot-switchboard call meant *a number is not required here, the
+product chooses the family's safety over the lead*, and the lead-broker call
+meant *this must not become a job*. Making the single name assert the ceiling
+failed a P0 life-safety scenario for doing exactly what the prompt instructs —
+*"on an emergency, ask for the phone number FIRST"*. **One name must not carry
+two opposite meanings.**
+
+`caller_choice` exists and is currently used by nothing, deliberately. It was
+introduced to stop grading a caller who declines to give details, then reverted
+the same week: `runner.ts` tells every caller model *"play that for a turn or
+two — then give it. A caller who never gives their details at all is not a hard
+case, it is a dead call."* **A permanently-declining caller cannot occur in this
+harness**, so relaxing capture bought nothing and cost two P0 safety scenarios
+their assertions. Do not reach for it without changing the caller brief first.
+
+**Speech — needs the judge, costs money.** `mustSay`, `mustNotSay`,
+`mustDiscourage`; see *Three assertion shapes, not two*.
+
+## Where the caller lives is stated, not parsed
+
+`callerSuburb` is an explicit field. It briefly was not: the runner parsed a
+place out of `callerFacts` prose instead, and the parsing matched 6 of 61
+scenarios, **missed the four phrased "The property is in …"** — including the
+one whose correct answer turns on the Victorian $10,000 builder's-licence
+threshold — and where it did fire it extracted whole clauses, briefing two
+callers as *"You live in Bendigo and you have already decided it needs
+replacing"*. That hoists the caller's own diagnosis out of the reveal-on-request
+list and into the always-volunteered identity line, changing what the scenario
+tests.
+
+The test written alongside it re-derived its expectation with a **copy of the
+same regex**, so it certified the corruption. That was the third time in this
+repo a test agreed with the bug it shared — `localiseDemo` and the `/api/stats`
+queries were the others.
+
+**The rule, now in `CODING_STANDARDS.md`: have the code read an explicit value,
+and have the test detect the situation by a different mechanism.** Here the code
+reads a field and never parses; the test scans prose broadly and demands the
+field exists. Neither can quietly adopt the other's mistake.
+
+## An assertion names a quotable line, not an outcome
+
+This is the same rule as *"an item with a quoted line gets said, an item with
+only a description gets skipped"* from `CODING_STANDARDS.md`, arrived at
+independently from the assertion side, and it cost a paid slice to learn.
+
+`mustSay: ["wrapped the call up politely"]` failed 3/3 with stance `ABSENT`
+while the assistant behaved perfectly. A `mustSay` grades `DIRECTED` (an action
+told to the caller) or `STATED` (a fact conveyed) — a meta-summary of how a call
+*went* is neither, so the judge has nothing to quote.
+
+The same slice caught the mirror case. A `mustNotSay` reading *"told the caller
+a day or time that someone would attend, **or how long it would take**"* fired
+on two transcripts where the assistant had correctly REFUSED to give a time:
+
+> *"The team can explain the expected duration when they review the job"*
+> *"The team will need to assess the system before confirming that"*
+
+The item named a **topic** and bundled two things, so the judge answered on
+topic-mention rather than on whether anything was promised. Rewritten as a
+commitment with exemplars — *"committed to a specific day, date, clock time or
+duration — a phrase like 'tomorrow morning', 'within two hours'. Saying the team
+will confirm timing is NOT this"* — it went 3/3 green.
+
+**Write the assertion as the sentence you would point at in a transcript, and
+say what does not count.**
+
+## Negative controls outlive the feature they were written against
+
+Three scenarios were named *"must not be tagged emergency"* and built entirely
+on a label deleted on 2026-07-28. They were not deletable: the risk behind them
+is still real, it just stopped being a label. What must not happen is the
+assistant **matching the caller's alarm** — running the safety script on a
+routine job, or reassuring an elderly caller with an attendance time nobody
+promised, so she waits in for it.
+
+Relabelled and given assertions that can fail. **When the feature under a test
+is deleted, ask what the test was really protecting before deleting the test.**
 
 ## Relationship to `inbound-scenarios.ts`
 
@@ -241,7 +347,10 @@ even while the test was blind.
 
 ## Three assertion shapes, not two
 
-`mustSay` passes on `DIRECTED` or `STATED`. `mustNotSay` fails on `DIRECTED`.
+`mustSay` passes on `DIRECTED` or `STATED`. `mustNotSay` fails on `DIRECTED`
+**or `STATED`** — this line said `DIRECTED` alone until 2026-07-31, twelve lines
+below the section explaining why that was wrong, which is its own small lesson
+about summaries drifting from what they summarise.
 **`mustDiscourage` passes on `DISCOURAGED` or `DIRECTED`**, and it exists because
 neither of the other two can express *"the assistant must actively tell the
 caller not to do this."*
@@ -266,8 +375,11 @@ than from an assumption — only the per-million prices in `cost.ts` are assumed
     npm run eval:p0 -- --repeat 3 --estimate     # projected cost, spends nothing
     npm run eval:p0 -- --repeat 3                # runs, and prints the actual bill
 
-**Measured 2026-07-29: ~$0.032 per conversation.** So `eval:p0` at `--repeat 3`
-is 102 conversations ≈ **$3.30**, and at `--repeat 9` ≈ **$9.80**.
+**Measured 2026-07-29: ~$0.032 per conversation.** Re-measured across four runs
+on 2026-07-31: **~$0.024**, with 92-94% of assistant tokens served from cache.
+The full library at `--repeat 3` is 183 conversations ≈ **$4.40**; a 3-scenario
+slice at `--repeat 3` is ≈ **$0.22**, which is the whole argument for slicing —
+twenty slices cost less than one gate.
 
 Nearly all of it is the assistant resending the ~7k system prompt every turn.
 The 90% cache discount on `gpt-5.6-luna` is what keeps a conversation at three
@@ -294,11 +406,19 @@ trades in one gate hit exactly 14 iterations and were reported as *"the line
 would stay open"*; one of them was the report's only defect. The assistant had
 never been given the turn in which it would have called `end_call()`.
 
-A run that exhausts the budget now sets `hitTurnCap` and grades as *"hit the
-harness turn cap (N turns) … inconclusive, not a line left open"*. **Inconclusive
-is not a pass** — it still fails the run, because a call that cannot finish in
-fourteen spoken turns is worth looking at. It is simply not evidence about
-`end_call()`.
+A run that exhausts the budget sets `hitTurnCap`. **Update 2026-07-31:** it no
+longer produces a failure at all, and that took two goes to get right. The first
+fix renamed the message to say *"inconclusive"* and kept pushing it into
+`failures`, so the label was a lie and the run still dragged the pass rate down.
+Removing the push alone was worse: a capped run then ended `failures: []` →
+`passed: true` and counted in the headline, the per-trade table, the P0 list and
+the exit code — **the gate could go green by never running.**
+
+What holds now: capped runs leave both the numerator and the denominator, a
+scenario whose runs all capped gets the `inconclusive` verdict, an inconclusive
+P0 blocks release, and `run-eval.ts` prints capped runs loudly by scenario id.
+**Fixing a false red by deleting an assertion creates a false green** — if a
+check must go, make what it measured visible somewhere that still blocks.
 
 If a scenario legitimately needs more room, raise `EVAL_MAX_TURNS` for that run
 rather than trimming the scenario.
@@ -382,3 +502,36 @@ section gets applied to calls it was never about. Full account in `BACKLOG.md`.
 Every remaining marginal is now a single failing run out of three, which is
 where `--repeat 3` stops being able to tell a flaky scenario from an unlucky
 one. Going further needs a higher repeat, not more interpretation.
+
+## Staged spending — 2026-07-31
+
+Three review rounds changed 36 of 61 scenarios. The library was measured in
+three widening tiers rather than one gate, per `CODING_STANDARDS.md`, and the
+order paid for itself twice.
+
+| Tier | What | Cost | Result |
+|---|---|---|---|
+| 1 | 3 scenarios × 3 — the two rewritten P0 assertions plus the one whose target changed | $0.22 | 2/3, one red |
+| 1b | the red, re-run after fixing the assertion | $0.03 | 3/3 |
+| 2 | 11 scenarios × 3 — **one or two per change class**, not every instance | $0.77 | 0 defects, 4 marginal, one red |
+| 2b | 4 scenarios × 3 — every scenario carrying the reworded ban | $0.30 | 3/4, the miss a network error |
+
+**Both reds were the instrument, not the product**, and both were assertions
+this session had just written. Neither would have been distinguishable from a
+product regression inside a 183-conversation gate report.
+
+Two things about the method, beyond the cost:
+
+**Tier 2 covers change CLASSES, not changed scenarios.** 36 scenarios had
+changed; running all of them is 108 conversations, which is most of a gate and
+defeats the point. Eleven were picked to hit each distinct change once — the new
+price ban, the new time ban, a rewritten negative control, a `callerIntent`
+assertion, a `callerSuburb`, and the P0 safety scenario whose `captureTarget`
+semantics had changed.
+
+**The marginals need reading, not counting.** Three of the four were single runs
+missing a name or number. One — `electrician_whole_street_blackout` at 1/3 — is
+a documented pre-existing instability: `BACKLOG.md` records it oscillating
+2/3 → 1/3 → 3/3 across many gate runs, always *"gave excellent service and never
+asked for a number"*. Reading it as a regression from this session's changes
+would have been wrong, and only the backlog entry made that checkable.
