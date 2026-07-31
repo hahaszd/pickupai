@@ -16,35 +16,65 @@ function makeTenant(trade: string): TenantRow {
   } as TenantRow;
 }
 
-describe("electrical safety advice", () => {
-  const prompt = () => buildSystemPrompt(makeTenant("electrician"), [], null);
+/**
+ * These asserted per-hazard safety advice — switchboard instructions, "get seen
+ * by a doctor today", the distinction between a shock and being electrocuted.
+ * All of it was deleted on 2026-07-31 by owner decision (PRINCIPLES.md 8):
+ * people with real emergencies ring 000, not a plumber, and giving safety
+ * advice is Principle 1's judgement wearing a costume.
+ *
+ * Rewritten to assert the ABSENCE rather than deleted, per CODING_STANDARDS —
+ * three tests in this repo once spent months asserting a feature that had been
+ * intentionally removed, and nobody noticed because they still passed.
+ */
+describe("the assistant gives no safety advice at all", () => {
+  const TRADES = ["electrician", "plumber", "roofer", "handyman", "builder"];
 
-  it("never gives one blanket instruction to operate the switchboard", () => {
-    // The old tip was a single line — "If it's safe to do so, switch off the
-    // affected circuit at the switchboard" — fired for all seven emergency
-    // keywords, including a switchboard that is itself burning.
-    expect(prompt()).not.toContain("switch off the affected circuit at the switchboard and do not touch");
-    expect(prompt()).toContain("Match the advice to what they actually describe");
+  it("never tells a caller what to touch, switch off, or stay away from", () => {
+    for (const trade of TRADES) {
+      const p = buildSystemPrompt(makeTenant(trade), [], null);
+      for (const gone of [
+        "switch off the affected circuit",
+        "Don't open the switchboard",
+        "Do NOT send them to the switchboard",
+        "switch off the power at the mains",
+        "Avoid the rooms directly under the leak",
+        "avoid the affected area"
+      ]) {
+        expect(p, `${trade} still carries: ${gone}`).not.toContain(gone);
+      }
+    }
   });
 
-  it("sends callers away from a switchboard that is smoking, sparking or hot", () => {
-    const p = prompt();
-    expect(p).toContain("get everyone away from it now and call 000");
-    expect(p).toMatch(/Don't open the switchboard/i);
+  // The one the owner argued through, and the clearest case. A mains shock CAN
+  // cause a delayed arrhythmia and being able to speak is not evidence of being
+  // unharmed — but if the assistant needs to know that, it is practising
+  // medicine off a transcript, and 000 is the wrong number for "should I get
+  // this looked at" anyway.
+  it("never makes a medical judgement, or overrides a caller about their own body", () => {
+    const p = buildSystemPrompt(makeTenant("electrician"), [], null);
+    expect(p).not.toContain("should get seen by a doctor today");
+    expect(p).not.toContain("even when they insist they're fine");
+    expect(p).toMatch(/If they say they are fine, they are fine as far as you are concerned/i);
   });
 
-  it("does not send a plain power outage to the switchboard", () => {
-    expect(prompt()).toContain("Do NOT send them to the switchboard");
+  it("keeps exactly one line, for three things that cannot be misread", () => {
+    for (const trade of TRADES) {
+      const p = buildSystemPrompt(makeTenant(trade), [], null);
+      expect(p).toContain("That sounds like one for 000");
+      expect(p).toContain("on fire, smoking, or smells of burning");
+      expect(p).toContain("they can smell gas");
+      expect(p).toContain("trapped, unconscious, not breathing, or badly hurt");
+      // Said once, and Principle 4 does not stop applying because the topic is
+      // safety.
+      expect(p).toMatch(/If they say it is not that serious, accept that immediately/i);
+    }
   });
 
-  it("tells a caller who has taken a mains shock to see a doctor", () => {
-    // "shock" matched the trade keyword list but not the life-threatening rule,
-    // which said "electrocuted" — a word that means killed. A caller who is
-    // still talking therefore fell between the two and got switchboard advice.
-    const p = prompt();
-    expect(p).toContain("should get seen by a doctor today");
-    expect(p).toContain('"electrocuted" means killed');
-    expect(p).toContain("Never send someone who has just taken a shock to the switchboard");
+  it("records the hazards it must not advise on, rather than dropping them", () => {
+    const p = buildSystemPrompt(makeTenant("electrician"), [], null);
+    expect(p).toMatch(/Everything else you simply write down/i);
+    expect(p).toContain("a switchboard that feels hot");
   });
 });
 
@@ -103,10 +133,17 @@ describe("urgency classification — removed 2026-07-28", () => {
   // The safety half is a different thing entirely and must survive: a caller
   // who can be hurt during the call needs the instruction now, not from an
   // owner reading an SMS twenty minutes later.
-  it("keeps the life-safety instructions that are not a classification", () => {
+  // This asserted that the life-safety instructions survived the urgency
+  // deletion, on the reasoning that a safety instruction is not a
+  // classification. That reasoning was overturned on 2026-07-31: deciding what
+  // is dangerous and what to do about it IS the judgement, and the callers it
+  // was built for ring 000 rather than a plumber. PRINCIPLES.md 8.
+  it("no longer keeps hazard-specific instructions, and says so in one line instead", () => {
     const prompt = buildSystemPrompt(makeTenant("plumber"), [], null);
-    expect(prompt).toContain("# Life-Threatening Emergencies");
-    expect(prompt).toMatch(/leave the building right away and call 000/i);
+    expect(prompt).not.toContain("# Life-Threatening Emergencies");
+    expect(prompt).not.toMatch(/leave the building right away and call 000/i);
+    expect(prompt).toContain("# If Someone Is In Danger Right Now");
+    expect(prompt).toContain("That sounds like one for 000");
   });
 
   it("asks the assistant to describe the situation instead of grading it", () => {

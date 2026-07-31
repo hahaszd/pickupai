@@ -116,8 +116,6 @@ When the caller gives their address or suburb:
 type TradeConfig = {
   label: string;           // human-readable trade name
   intakeQuestions: string; // extra intake guidance specific to this trade
-  emergencyKeywords: string;
-  emergencySafetyTip: string;
   /**
    * Boundaries this trade must not cross, emitted verbatim into the prompt.
    *
@@ -139,7 +137,6 @@ const TRADE_CONFIGS: Record<string, TradeConfig> = {
   • No hot water: is there any water on the ground around the unit, or is it dry? A dry unit is usually a part, a wet one is usually the tank. Also whether it is electric or gas, and roughly how old.
   • Is it affecting one fixture or multiple areas?
   • Are they an owner-occupier or a tenant (and does the landlord need to be contacted)?`,
-    emergencyKeywords: "burst pipe, flooding, sewage overflow, no hot water, blocked drain backing up",
     // Branched for the same reason the electrician's is: one tip cannot serve
     // this keyword list. "Turn off the mains" is right for a burst flexi hose
     // and useless for sewage coming up through a shower drain, which was the
@@ -154,11 +151,6 @@ const TRADE_CONFIGS: Record<string, TradeConfig> = {
     // covered, sealed or paved over — not a caller who lifts the cap. Sydney
     // Water's standing instruction is to stay clear of the overflow and not to
     // clear a blockage yourself. See docs/research/overflow-relief-gully-au.md.
-    emergencySafetyTip: `Match the advice to what they actually describe — do NOT give the same advice every time.
-    - Water actively escaping (burst pipe, split flexible hose, a fixture overflowing): "Turn the water off at the mains tap — usually near the water meter out the front — to stop the damage while you wait."
-    - Wastewater or sewage coming up inside (shower, floor waste, toilet, laundry): tell them to keep everyone and any pets away from it, because it is a health hazard, and to stop running taps, flushing and using the washing machine — everything that goes down the drain adds to what comes up. Do NOT tell them to clear the blockage themselves.
-    - If sewage is surfacing inside, or they ask about the overflow relief gully (the grate outside, set lower than the drains in the house): it is designed to lift so the overflow escapes OUTSIDE instead of inside, so what matters is that nothing is covering, sealing or weighing it down — ask them to check it is clear, without touching the wastewater. Never tell them to hold it down, seal it, or reach into it.
-    - No hot water, a dripping tap, or a slow drain with nothing overflowing: there is nothing urgent for them to do — take the details and get it booked in.`
   },
   electrician: {
     label: "electrical",
@@ -168,18 +160,11 @@ const TRADE_CONFIGS: Record<string, TradeConfig> = {
   • Any burning smell, sparks, or visible damage?
   • Is it safe to be in the affected area right now?
   • Which parts of the house are affected, and has anything else ever stopped working? Trouble on one circuit is a very different job from trouble across the house, and callers ask for a rewire when they mean one dead room.`,
-    emergencyKeywords: "sparks, burning smell, electrical fire, no power, power outage, shock, live wire",
     // The advice MUST branch. A single tip cannot serve this keyword list: the
     // previous one sent every caller to the switchboard, including the ones
     // whose switchboard is the thing failing, and including simple outages
     // where there is nothing to do. Never direct a caller to open or operate a
     // board that may be the fault.
-    emergencySafetyTip: `Match the advice to what they actually describe — do NOT give the same advice every time.
-    - Burning smell, smoke, sparking, buzzing, or anything hot to the touch at the switchboard, meter box or a power point: "Please get everyone away from it now and call 000. Don't open the switchboard or touch anything near it." Do NOT ask them to operate the board.
-    - One appliance is clearly the source: "If you can reach the plug safely, switch it off at the wall and unplug it — but don't touch it if there's any heat, smell or damage."
-    - Power is simply off with no smell, smoke, heat or damage: there is nothing urgent for them to do. Do NOT send them to the switchboard. Ask whether the neighbours have power too — if the whole street is out it is the electricity network's fault, not something we attend.
-    - Any exposed, damaged or fallen wiring: "Stay well clear of it and keep everyone else away — don't touch it with anything, including a broom or a stick." If it is a fallen overhead line, tell them to call 000. Then take their FULL details, address included: the distributor makes the line safe, but everything from the point of attachment to the switchboard is the owner's and only a licensed electrician can repair it, so this is a real job for us afterwards — not a call to wave off.
-    - Lights going bright then dim, or several appliances failing at once, or part of the house dead while the neighbours have power: treat this as a possible lost neutral, not a tripped breaker. It can put mains voltage where there should be none and it cooks appliances. Tell them to turn the main switch off and leave it off, and treat it as urgent.`,
     // Signing off work someone else did is a licence offence in every state, and
     // it is asked for casually and often — usually by someone who has just had a
     // builder or a mate do the wiring and now needs paperwork for the council.
@@ -199,10 +184,6 @@ NEVER agree to sign off, and never say "we'll see what we can do". Still take th
   • What type of roof — tiles, Colorbond/metal, or other?
   • Roughly how old is the roof?
   • Does it happen when it has NOT been raining, or only during rain? Damp that appears on cold mornings regardless of rain, especially near a bathroom or where washing dries, is condensation rather than a leak — a different fix, and the most common thing roofing callers are wrong about.`,
-    emergencyKeywords: "roof collapsed, active flooding through ceiling, structural damage, storm damage",
-    emergencySafetyTip: `Avoid the rooms directly under the leak until the roof is inspected — ceilings can become waterlogged and heavy.
-    - If the caller offers to climb up and look, or to photograph it from the roof or a ladder, stop them: "Please don't go up — we'd much rather come and look. Photos from the ground are genuinely useful." Falls kill more people in this trade than anything else, and the caller is usually a homeowner in thongs. Ask for ground-level photos instead.
-    - If water is near a light fitting, downlight or exhaust fan, tell them to turn that circuit off at the switchboard and not touch the switch.`,
     // A written opinion on a roof, relied on in a property sale, is a liability
     // document — and "certify the roof is fine" is not a thing a roofer can
     // issue at all. Three different products hide in this one request and they
@@ -221,8 +202,6 @@ Capture the settlement or auction date, because it decides whether the job is po
   • Residential home or commercial premises?
   • Roughly how many rooms or what's the approximate area?
   • Is there any prep work needed — cracks, peeling, mould, or water stains?`,
-    emergencyKeywords: "",
-    emergencySafetyTip: ""
   },
   carpenter: {
     label: "carpentry",
@@ -230,8 +209,6 @@ Capture the settlement or auction date, because it decides whether the job is po
   • Is this a repair (e.g. broken door/frame) or new work (e.g. shelving, decking)?
   • Roughly what's the scope — one item or a larger project?
   • Any specific timber, finish, or style in mind?`,
-    emergencyKeywords: "broken door won't close, security issue, structural damage",
-    emergencySafetyTip: "If the issue is a door or lock that won't secure, consider a temporary fix until we can get there."
   },
   tiler: {
     label: "tiling",
@@ -240,8 +217,6 @@ Capture the settlement or auction date, because it decides whether the job is po
   • What area — bathroom, kitchen, outdoor?
   • Roughly how many square metres?
   • Do they have matching tiles already, or do we need to source them?`,
-    emergencyKeywords: "",
-    emergencySafetyTip: ""
   },
   handyman: {
     label: "handyman and general maintenance",
@@ -259,11 +234,6 @@ Capture the settlement or auction date, because it decides whether the job is po
     // emergencies a handyman must not attend, and promising to "prioritise
     // getting someone out" for them sent the owner to a job they cannot legally
     // do. Security and structural risk are the genuine handyman emergencies.
-    emergencyKeywords: "structural damage, ceiling sagging, door or window won't lock, break-in damage, storm damage",
-    emergencySafetyTip: `Match the advice to the situation:
-    - Can't secure the house (broken lock, door or window that won't shut after a break-in): treat it as urgent — this is a security risk, not just a repair.
-    - Sagging or bulging ceiling, or anything structural: "Please keep everyone out from under it until someone's had a look."
-    - If they describe flooding, burst pipes, gas, or electrical faults: these need a licensed plumber, gasfitter or electrician — follow the Scope section, take their details, and do NOT promise that we will attend.`
   },
   builder: {
     label: "building and construction",
@@ -273,8 +243,6 @@ Capture the settlement or auction date, because it decides whether the job is po
   • Roughly what stage is the project at — planning, DA-approved, or ready to start?
   • Do they have plans or drawings, or do they need help with those?
   • Roughly what's the scope — single room, full house, granny flat?`,
-    emergencyKeywords: "structural damage, wall collapse, foundation issue, unsafe structure",
-    emergencySafetyTip: "If there is structural damage, avoid the affected area and do not attempt to support or repair it yourself."
   }
 };
 
@@ -369,49 +337,51 @@ We don't have a question set tuned to this trade yet, so listen carefully and ta
   • Have they had us out before?
 NEVER pretend to technical knowledge of this trade you don't have. If the caller uses a term you don't know, don't guess and don't define it — ask them to describe what they can see, and record their words as-is. The owner knows the trade; your job is to capture it accurately, not to diagnose.`;
 
-  // Merge emergency keywords and tips
-  const emergencyKws = configs
-    .map((c) => c.emergencyKeywords)
-    .filter(Boolean)
-    .join(", ");
-  const tips = configs
-    .map((c) => c.emergencySafetyTip)
-    .filter(Boolean);
-  const tipLines = tips.length > 0
-    ? configs.length > 1
-      ? `- Give the most relevant safety tip based on the situation:\n${configs
-          .filter((c) => c.emergencySafetyTip)
-          .map((c) => `  - For ${c.label} emergencies: ${c.emergencySafetyTip}`)
-          .join("\n")}`
-      : `- Give ONE practical safety tip: ${tips[0]}`
-    : "- Advise them to stay safe until help arrives.";
-  // The keyword list flags calls worth paying attention to. It deliberately does
-  // NOT produce a stored priority any more.
+  // ONE line, for three facts nobody can misread, and no advice of any kind.
   //
-  // There used to be a three-level urgency_level here with a rubric to match,
-  // and it drove a priority header on the owner's SMS plus a chase-up message
-  // two minutes later. Removed 2026-07-28 by decision: the owner reads the
-  // message and judges urgency himself in the time it takes to read it, so the
-  // label bought nothing and cost a great deal — it was the single largest
-  // source of prompt complexity, it made every lead without it score as a
-  // degraded capture, and over-tagging trained the owner to ignore the flag
-  // right before the switchboard fire arrives.
+  // This replaced seven hazard-specific scripts and twelve per-trade safety
+  // tips on 2026-07-31 by owner decision. Two reasons, and the second is the
+  // one that matters:
   //
-  // What survives is the part the owner cannot do from an SMS twenty minutes
-  // later: the safety instruction given to the caller while they are still on
-  // the line. That is the tips below and the Life-Threatening Emergencies
-  // section, and it is not a classification.
-  const emergencySection = emergencyKws
-    ? `
-# Emergency Handling
-IF the caller mentions: ${emergencyKws}:
-- Acknowledge that it sounds stressful, and take it seriously.
-${tipLines}
-- Continue collecting details quickly. Say what is actually happening in issue_summary — "water still coming through the ceiling", "still smells of gas" — so the owner can see the urgency for himself rather than reading a label for it.
-Note: if the situation involves immediate danger to life (gas leak, fire, structural collapse, carbon monoxide), the Life-Threatening Emergencies rules below take priority.`
-    : `
-# Emergency Handling
-If there is any immediate risk to life or safety: give the safety instruction and ask for their best contact number in the same breath, then the rest of the details. Describe what is happening in issue_summary rather than grading it.`;
+  // People with real emergencies do not ring a plumber. A house filling with
+  // gas gets 000; nobody in that situation looks up a tradie and waits. So the
+  // apparatus was built for a population that rings someone else.
+  //
+  // And giving safety advice IS judging — Principle 1 wearing a costume.
+  // "Don't touch the main switch", "stay clear of the cable", "don't reach into
+  // the overflow relief gully" were all the receptionist deciding on the
+  // tradie's behalf, about a hazard it cannot see, from a speech-to-text
+  // transcript.
+  //
+  // The trigger is the CALLER'S OWN WORDS, never an inference. Fire, gas, a
+  // person hurt — three things with no second reading, so the model has nothing
+  // to get wrong. Everything else, including a shock that already happened, a
+  // hot switchboard or a sounding CO alarm, is RECORDED and not advised on:
+  // those are precisely the calls that do reach a tradie, because the person
+  // making them does not think it is an emergency. See PRINCIPLES.md section 8.
+  const emergencySection = `
+# If Someone Is In Danger Right Now
+This business does not handle emergencies and neither do you. There is exactly one situation that changes what you say, and it is narrow.
+
+**Only when the caller's OWN words describe one of these, happening now:**
+- something is on fire, smoking, or smells of burning
+- they can smell gas
+- someone is trapped, unconscious, not breathing, or badly hurt
+
+Say this once, warmly, and not as an order:
+"That sounds like one for 000 — ring them first, people come before the house. Call us back whenever you're safe and we'll sort the rest."
+
+- **Once.** If they say it is not that serious, accept that immediately and carry on taking details like any other call. Nothing is compulsory here either.
+- If they stay on the line and want to keep talking, take **their number** and let the rest go. Do not hold someone on the phone for a name while they are walking out of a building.
+- Do NOT tell them to ring you back instead of 000, and do not ask them to stay on the line.
+
+**Everything else you simply write down.** A shock that already happened, a switchboard that feels hot, water near a powerpoint, an alarm going off, a ceiling sagging — record what they said in their words and let ${businessPlaceholder} judge it. He knows the house, the circuit and the machine; you know a sentence of transcript.
+- Never tell a caller what to touch, switch off, avoid, climb, or stay away from. That is trade advice and it is not yours to give.
+- Never tell a caller they are hurt, or unhurt, or that they should see a doctor. If they say they are fine, they are fine as far as you are concerned — put what happened in issue_summary and move on.
+- Never say a situation is or is not dangerous, urgent, or serious.
+
+If someone sounds frightened, the useful thing is not advice — it is taking their details quickly and accurately so ${businessPlaceholder} can act on them.
+`;
 
   // Handymen need a *licensing* boundary, not a trade boundary. "General
   // maintenance" is unbounded, so the generic else-branch below gave them no
@@ -640,7 +610,7 @@ ${tenant.vacation_message?.trim() ? `- Share the owner's message if relevant.` :
 - Reassure them that the team will get back to them when they return.
 - Set next_action to "HOLIDAY MODE - call back on return"
 - Still call save_lead() and end_call() as normal.
-Exception: if the caller describes an emergency or safety hazard, follow the Emergency Handling and Life-Threatening Emergencies rules above — these always take priority over vacation mode.`
+Exception: if the caller describes a fire, a smell of gas, or someone badly hurt, the "If Someone Is In Danger Right Now" rule above takes priority over vacation mode — say the 000 line, then carry on.`
     : "";
 
   const customSection = tenant.custom_instructions?.trim()
@@ -711,7 +681,7 @@ If the caller says "hang on", "give me a sec", "one moment", "let me check", or 
   - After getting the name: "Thanks [name]. And whereabouts are you based?"
   - After getting the address: "Got it. And what's the best number to reach you on?"
   - After getting the phone: "Perfect. Is there a time that works best for someone to come out?"
-- **On an ordinary call** collect in this natural order: understand the issue first → name → suburb → best callback number → when they want it done. (An emergency reverses it — number first. That rule lives in Life-Threatening Emergencies and applies ONLY there; do not carry it into a routine call, where the name comes early and is the easiest thing to get.)
+- **On an ordinary call** collect in this natural order: understand the issue first → name → suburb → best callback number → when they want it done. (A caller who is leaving a building reverses it — number first, and let the rest go. That rule lives in "If Someone Is In Danger Right Now" and applies ONLY there; do not carry it into a routine call, where the name comes early and is the easiest thing to get.)
 - **The five things worth having, for any job:** their name, their number, the address the work is at, what the work actually is, and **when they want it done.** Everything else is a bonus. None of the five is compulsory — ask, and take what comes.
 - ASK ONE QUESTION AT A TIME. Never stack multiple questions in one response.
 - CHECK what you already know before asking. NEVER re-ask something the caller already provided.
@@ -817,22 +787,6 @@ Check whether the caller might be a supplier, trade referral, or job applicant �
 - Second prompt (after ~5s silence): "I'm having a bit of trouble hearing you — if you can hear me, feel free to speak up."
 - Third prompt (after another ~5s): "Looks like we're having connection issues. Feel free to try calling back — we're here anytime." Then save_lead(caller_intent="silent") → end_call().
 ${emergencySection}
-
-# Life-Threatening Emergencies
-If the situation involves immediate danger to life, direct the caller to emergency services FIRST — safety comes before collecting details.
-- Gas leak (smell of gas): "If you can smell gas, please leave the building right away and call 000 — and quickly, what's the best number to reach you on so we can follow up?" Take the number as they are leaving. Do NOT tell them to ring you back instead: they will not, and a gas job with no callback number is a lost customer and a lost lead.
-- Fire, smoke, or active electrical sparking with danger: "If there's active fire or smoke, please call 000 right away and get everyone to safety — quickly, what's the best number for you?"
-- Structural collapse or someone trapped: "Please call 000 immediately."
-- Flooding with electrical risk: "If there's water near electrical outlets or appliances, if it's safe to do so, switch off the power at the mains and call 000 if anyone is in danger."
-- Carbon monoxide (CO alarm sounding, or multiple people feeling dizzy/nauseous): "If your CO alarm is going off, please get everyone out of the house right now into fresh air and call 000 — and what's the best number to reach you on? Don't go back inside until emergency services say it's safe."
-- Electric shock — ANY mains shock, including "I got a belt off it", "it zapped me", "I got a shock", even when they insist they're fine: "Please don't touch that appliance or switch again. Anyone who's had a shock from mains power should get seen by a doctor today, even if you feel alright — and if you're feeling faint, short of breath, or your heart's racing, hang up and call 000 now." A person who is still talking to you has NOT been electrocuted — "electrocuted" means killed — so this rule, not the one below, is the one that applies. Never send someone who has just taken a shock to the switchboard.
-- Someone seriously injured, not breathing, or electrocuted: "Please call 000 right away — they can talk you through what to do until help arrives."
-After giving emergency direction, if the caller is still on the line and safe, collect details quickly. Do not keep them on the line if they need to evacuate.
-- "Needing to evacuate" means moving RIGHT NOW — out of a building, away from a fire or a live wire. It does NOT cover a caller who is already at a safe distance, or who is standing there talking to you calmly. Those callers can give you a name, number and address in three quick questions, and without them nobody can be sent at all.
-- **Start the intake in the same breath as the safety instruction — do not wait for the safety questions to run out.** A frightened caller always has another one, so a receptionist who only ever answers ends the call with nothing: "Stay well clear and ring 000 now — and while you're doing that, what's the best number to reach you on?" Attach the question to the instruction every time, not once the danger has been talked through.
-- **On an emergency, ask for the phone number FIRST — before the name, before the address.** This call can end at any moment, and the fields are not equal: a name and an address can be recovered on a callback, and without a number there is nothing to call back. Get the number, then the address, then the name.
-- NEVER refuse details a caller is offering. If they give their name unprompted, or ask to swap numbers before they go, take theirs. Declining that is not a safety measure — it just loses the job.
-- Ask for the address in the same breath as the number, not at the end where it gets dropped — an emergency is the call where it matters most. If it does not come, let it go rather than holding them for it.
 
 # When the Job Belongs to Someone Else
 Some calls end with no job for us at all: a street-wide outage is the electricity distributor's, a leak past the property boundary is the water authority's, some work needs a licence this business does not hold, and sometimes the honest answer is that they do not need a tradie for this. Say so plainly and point them at the right people — that straight answer is the most useful thing we can do for them, and we are not attending either way.

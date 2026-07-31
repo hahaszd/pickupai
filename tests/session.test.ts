@@ -239,10 +239,13 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("+61400111222");
   });
 
-  it("does not include 'gas leak' in plumber emergency keywords", () => {
+  // Emergency keywords are gone entirely: they existed to select which
+  // hazard-specific safety tip to give, and there are no tips any more.
+  // PRINCIPLES.md 8.
+  it("no longer carries per-trade emergency keywords at all", () => {
     const prompt = buildSystemPrompt(makeTenant({ trade_type: "plumber" }), [], null);
-    expect(prompt).not.toMatch(/IF the caller mentions:.*gas leak/);
-    expect(prompt).toContain("burst pipe");
+    expect(prompt).not.toContain("burst pipe, flooding");
+    expect(prompt).not.toContain("IF the caller mentions:");
   });
 
   it("produces valid prompt text when trade_type is empty", () => {
@@ -278,16 +281,21 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("JOB CANCELLED");
   });
 
-  it("includes carbon monoxide in life-threatening emergencies", () => {
-    const prompt = buildSystemPrompt(makeTenant(), [], null);
-    expect(prompt).toContain("Carbon monoxide");
-    expect(prompt).toContain("CO alarm");
+  // Carbon monoxide was one of seven hazard scripts. A sounding CO alarm is
+  // now RECORDED, not advised on — it is exactly the call that reaches a tradie
+  // rather than 000, because the person making it does not think it is an
+  // emergency.
+  it("no longer scripts carbon monoxide, or any other named hazard", () => {
+    const prompt = buildSystemPrompt(makeTenant({ trade_type: "plumber" }), [], null);
+    for (const gone of ["Carbon monoxide", "CO alarm", "Structural collapse", "Flooding with electrical risk"]) {
+      expect(prompt, gone).not.toContain(gone);
+    }
   });
 
-  it("vacation mode includes emergency exception", () => {
+  it("vacation mode still yields to someone in danger", () => {
     const prompt = buildSystemPrompt(makeTenant({ vacation_mode: 1 }), [], null);
-    expect(prompt).toContain("emergency or safety hazard");
-    expect(prompt).toContain("always take priority over vacation mode");
+    expect(prompt).toContain("takes priority over vacation mode");
+    expect(prompt).toContain("a fire, a smell of gas, or someone badly hurt");
   });
 
   it("does not include 'gas leak' in handyman emergency keywords", () => {
@@ -315,9 +323,12 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("Before Classifying as Spam");
   });
 
-  it("includes trade-to-life-threatening priority note", () => {
-    const prompt = buildSystemPrompt(makeTenant(), [], null);
-    expect(prompt).toContain("Life-Threatening Emergencies rules below take priority");
+  it("has one danger section rather than two that must be ranked", () => {
+    const prompt = buildSystemPrompt(makeTenant({ trade_type: "plumber" }), [], null);
+    expect(prompt).not.toContain("Life-Threatening Emergencies rules be");
+    expect(prompt).toContain("# If Someone Is In Danger Right Now");
+    // Exactly one — the two-section arrangement is what needed a priority note.
+    expect(prompt.match(/# If Someone Is In Danger Right Now/g)).toHaveLength(1);
   });
 
   it("complaint path promises no callback time", () => {
@@ -342,10 +353,12 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain('save_lead(caller_intent="abusive")');
   });
 
-  it("includes medical emergency guidance", () => {
-    const prompt = buildSystemPrompt(makeTenant(), [], null);
-    expect(prompt).toContain("electrocuted");
-    expect(prompt).toContain("not breathing");
+  it("gives no medical guidance of any kind", () => {
+    const prompt = buildSystemPrompt(makeTenant({ trade_type: "electrician" }), [], null);
+    for (const gone of ["electrocuted", "seen by a doctor", "not breathing until", "talk you through what to do"]) {
+      expect(prompt, gone).not.toContain(gone);
+    }
+    expect(prompt).toContain("Never tell a caller they are hurt, or unhurt");
   });
 
 
@@ -357,8 +370,12 @@ describe("buildSystemPrompt", () => {
   it("generates correct prompt for builder-only tenant", () => {
     const prompt = buildSystemPrompt(makeTenant({ trade_type: "builder" }), [], null);
     expect(prompt).toContain("building and construction");
-    expect(prompt).toContain("specialise in building");
-    expect(prompt).toContain("structural damage");
+    expect(prompt).toContain("new build, an extension, or a renovation");
+    // "structural damage" was an emergency keyword; the keywords went with the
+    // hazard scripts they selected. What must survive is the trade identity and
+    // the intake, not a hazard list.
+    expect(prompt).not.toContain("structural damage, wall collapse");
+    expect(prompt).toContain("# If Someone Is In Danger Right Now");
   });
 
   it("generates correct prompt for unknown trade type", () => {
@@ -367,13 +384,17 @@ describe("buildSystemPrompt", () => {
     expect(prompt).not.toContain("# Trade-Specific Intake Questions");
   });
 
-  it("multi-trade prompt merges emergency tips per trade", () => {
-    const prompt = buildSystemPrompt(
-      makeTenant({ trade_type: "plumber,electrician" }),
-      [], null
-    );
-    expect(prompt).toContain("For plumbing emergencies:");
-    expect(prompt).toContain("For electrical emergencies:");
+  // Was: a multi-trade tenant merges one safety tip per trade. There are no
+  // tips to merge any more — the danger section is identical for every trade,
+  // which is the point: it contains nothing trade-specific to get wrong.
+  it("gives a multi-trade tenant the same single danger section, not one per trade", () => {
+    const prompt = buildSystemPrompt(makeTenant({ trade_type: "plumber,electrician" }), [], null);
+    expect(prompt).not.toContain("For plumbing emergencies:");
+    expect(prompt).not.toContain("Give the most relevant safety tip");
+    expect(prompt.match(/# If Someone Is In Danger Right Now/g)).toHaveLength(1);
+    // Both trades still present in the parts that are trade-specific.
+    expect(prompt.toLowerCase()).toContain("plumb");
+    expect(prompt.toLowerCase()).toContain("electric");
   });
 });
 

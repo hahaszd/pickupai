@@ -146,11 +146,18 @@ describe("rules that reverse each other are visibly scoped", () => {
   // The emergency intake order is the reverse of the ordinary one. Both are
   // correct; what caused the name to become the most-dropped field across three
   // gate runs was that only one of them said when it applied.
-  it("names when the emergency field order applies, and when it does not", () => {
+  it("names when the reversed field order applies, and when it does not", () => {
     const prompt = buildSystemPrompt(tenant("electrician"), [], null);
-    expect(prompt).toContain("On an emergency, ask for the phone number FIRST");
-    expect(prompt).toContain("On an ordinary call");
-    expect(prompt).toMatch(/applies ONLY there|do not carry it into a routine call/);
+
+    // The reversal survived the 2026-07-31 deletion of the hazard scripts: on a
+    // call where someone is walking out of a building the number comes first
+    // and the rest is dropped, which is the opposite of the ordinary order.
+    // Both sides must still say when they apply — that is the whole rule, and
+    // the one time only the emergency side was scoped, the caller's name became
+    // the most-dropped field across three gate runs.
+    expect(prompt).toMatch(/take \*\*their number\*\* and let the rest go/i);
+    expect(prompt).toContain("applies ONLY there; do not carry it into a routine call");
+    expect(prompt).toContain("A caller who is leaving a building reverses it");
   });
 
   // "ALL paths must end with end_call()" sits two sections after two rules
