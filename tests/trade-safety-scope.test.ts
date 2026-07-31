@@ -61,13 +61,21 @@ describe("the assistant gives no safety advice at all", () => {
   it("keeps exactly one line, for three things that cannot be misread", () => {
     for (const trade of TRADES) {
       const p = buildSystemPrompt(makeTenant(trade), [], null);
-      expect(p).toContain("That sounds like one for 000");
+      expect(p).toContain("That sounds like one for triple zero");
+      // Spoken form, not the digits. A realtime TTS reading "000" can say
+      // "zero zero zero", which is not what an Australian says and lands badly
+      // on a frightened caller — and this line now carries 100% of the
+      // product's safety utterance instead of one of eight.
+      expect(p).not.toMatch(/one for 000/);
+      // The opening must not eat the line: "I can smell gas but it's fine" is
+      // still a caller who has told you they can smell gas.
+      expect(p).toMatch(/their opening does not count as having refused/i);
       expect(p).toContain("on fire, smoking, or smells of burning");
       expect(p).toContain("they can smell gas");
       expect(p).toContain("trapped, unconscious, not breathing, or badly hurt");
       // Said once, and Principle 4 does not stop applying because the topic is
       // safety.
-      expect(p).toMatch(/If they say it is not that serious, accept that immediately/i);
+      expect(p).toMatch(/if they tell you it is not that serious, drop it immediately/i);
     }
   });
 
@@ -143,7 +151,7 @@ describe("urgency classification — removed 2026-07-28", () => {
     expect(prompt).not.toContain("# Life-Threatening Emergencies");
     expect(prompt).not.toMatch(/leave the building right away and call 000/i);
     expect(prompt).toContain("# If Someone Is In Danger Right Now");
-    expect(prompt).toContain("That sounds like one for 000");
+    expect(prompt).toContain("That sounds like one for triple zero");
   });
 
   it("asks the assistant to describe the situation instead of grading it", () => {

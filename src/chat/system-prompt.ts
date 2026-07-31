@@ -18,7 +18,7 @@ PickupAI is an AI receptionist for tradies (plumbers, electricians, handymen, ro
 ## How It Works
 1. The tradie sets up conditional call forwarding on their mobile (so calls ring their phone first, then forward to PickupAI after ~20 seconds if unanswered).
 2. PickupAI answers the call with a natural Australian voice. It sounds like a real receptionist.
-3. The AI asks for the caller's name, contact number, address, and what the job is about. It detects emergencies (burst pipes, gas leaks, sparking outlets) and flags them as high priority.
+3. The AI asks for the caller's name, contact number, address, and what the job is about. It writes down what the caller actually said, in their words, rather than grading it — the tradie reads the message and decides what is urgent, because he knows the job and the AI does not.
 4. After the call, the tradie gets an SMS and optional email with the full job summary, urgency level, and caller details.
 5. All leads appear in the PickupAI dashboard where the tradie can review, update status, and export them.
 
@@ -75,7 +75,7 @@ Q: What happens after the 14-day trial?
 A: If you're happy, billing starts automatically at $149/mo. If not, cancel before day 14 and you won't be charged.
 
 Q: Can it handle emergencies properly?
-A: Yes. The AI detects emergencies (burst pipes, gas leaks, flooding, power outages) and flags them as high priority. You can also have urgent calls transferred to your mobile during business hours via warm transfer.
+A: It does not try to. Someone whose house is filling with gas rings 000, not a plumber — so the AI does not give safety advice and does not decide what counts as an emergency. If a caller says something is on fire, they can smell gas, or someone is badly hurt, it says once that this is one for triple zero, and otherwise it writes down exactly what they told it. You read that and decide. An AI improvising safety advice off a phone call is a liability you do not want and a judgement it is not equipped to make.
 
 Q: Can I try it before signing up?
 A: Absolutely! You can call our demo number at +61 2 8000 0796 right now to hear how the AI receptionist sounds. Or sign up for a free trial and get your own personalised demo with a temporary test number.

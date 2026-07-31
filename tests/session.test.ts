@@ -502,9 +502,15 @@ describe("buildSystemPrompt — enhanced features", () => {
   // scripts the "texting a photo to this number" line — commit e39e3f3
   // removed that from the caller SMS because an alphanumeric sender ID cannot
   // receive replies. See tests/sms.test.ts for the SMS-side assertion.
-  it("includes a photo suggestion step in the closing flow", () => {
-    const prompt = buildSystemPrompt(makeTenant(), [], null);
-    expect(prompt).toContain("Photo suggestion");
+  // The conversation flow named a "Photo suggestion (if relevant)" step, and
+  // the ONLY definition of one anywhere in the prompt was the roofer safety tip
+  // deleted on 2026-07-31 — "ask for ground-level photos instead of going up".
+  // The step outlived its meaning, leaving the model told to perform something
+  // the prompt never explains. Removed with it.
+  it("no longer names a photo step the prompt does not define", () => {
+    const prompt = buildSystemPrompt(makeTenant({ trade_type: "roofer" }), [], null);
+    expect(prompt).not.toContain("Photo suggestion");
+    expect(prompt).not.toContain("ground-level photos");
   });
 
   it("includes time-of-day in greeting templates", () => {
