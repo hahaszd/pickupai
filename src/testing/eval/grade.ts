@@ -16,7 +16,7 @@ const JUDGE_MODEL = process.env.EVAL_JUDGE_MODEL ?? "gpt-4o";
  * it" — also declines the work. With no STATED to choose, the judge answered
  * DISCOURAGED and a P0 licensing boundary read as a 3/3 defect while working.
  */
-type Stance = "DIRECTED" | "STATED" | "DISCOURAGED" | "ABSENT";
+type Stance = "DIRECTED" | "STATED" | "DISCOURAGED" | "ABSENT" | "UNJUDGED";
 
 /**
  * Grade one run.
@@ -276,6 +276,14 @@ async function judgeSpeech(
     // response, or a judge model that reverts to true/false, should degrade to
     // a readable verdict instead of silently passing every assertion.
     if (typeof v === "boolean") return { stance: v ? "DIRECTED" : "ABSENT", quote: "" };
+    // A key the judge never returned is UNJUDGED, not ABSENT, and the
+    // difference is the whole safety asymmetry: ABSENT PASSES a mustNotSay.
+    // One scenario sends up to six items in a single prompt, so a truncated or
+    // partially-keyed reply used to tighten the requirements and quietly loosen
+    // every prohibition — structurally the same fail-open as the STATED false
+    // green, wearing different clothes.
+    if (v === undefined || v === null) return { stance: "UNJUDGED", quote: "" };
+
     const stance = String(v?.stance ?? "").toUpperCase();
     const known: Stance[] = ["DIRECTED", "STATED", "DISCOURAGED"];
     return {
@@ -326,6 +334,10 @@ async function judgeSpeech(
   // is the correct answer. ABSENT passes: it never came up.
   (scenario.mustNotSay ?? []).forEach((s, i) => {
     const r = read(`ITEM_MUSTNOT_${i}`);
+    if (r.stance === "UNJUDGED") {
+      failures.push(`judge returned no verdict for a prohibition: ${s}`);
+      return;
+    }
     if (r.stance === "DIRECTED" || r.stance === "STATED") {
       failures.push(
         `SAID SOMETHING IT MUST NOT: ${s}` +

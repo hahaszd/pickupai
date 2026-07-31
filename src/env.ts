@@ -1,7 +1,19 @@
 import { z } from "zod";
 import dotenv from "dotenv";
 
-dotenv.config();
+// Never under vitest. tests/setup-env.ts builds a complete, deliberately
+// credential-free environment before any test module loads — and this line
+// silently undid it: importing anything from src/ re-read the developer's .env
+// from disk and put OPENAI_API_KEY, DATABASE_URL, STRIPE_* and the SMS
+// credentials straight back.
+//
+// So the "unit tests do not touch the network" rule in CODING_STANDARDS held
+// only for tests that imported nothing from src/. Found on 2026-07-31 by
+// writing a test that asserted the judge was unreachable offline; it made a
+// real billed gpt-4o call and came back green. The DATABASE_URL half is worse
+// than the billing: tests were one openDb() argument away from the production
+// database.
+if (!process.env.VITEST) dotenv.config();
 
 const envSchema = z.object({
   PORT: z.coerce.number().default(3000),

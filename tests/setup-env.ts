@@ -28,6 +28,33 @@ const TEST_ENV: Record<string, string> = {
   SQLITE_PATH: "./.tmp/test.sqlite"
 };
 
+/**
+ * Credentials that make a test reach the network and spend money. The comment
+ * above says these are "deliberately unset" — and until 2026-07-31 that was an
+ * intention, not a guarantee: this file only ever filled in DEFAULTS, so a
+ * developer whose shell exports OPENAI_API_KEY had every judge-touching test
+ * silently billing real gpt-4o calls.
+ *
+ * Found by writing such a test. The EVAL_JUDGE_PROBE gate added earlier the
+ * same day covered six named tests; it could not cover the seventh. Deleting
+ * the variable is what makes the rule structural instead of remembered.
+ *
+ * EVAL_JUDGE_PROBE=1 opts back in, for the frozen judge probes that exist to
+ * be run deliberately.
+ */
+const NETWORK_CREDENTIALS = [
+  "OPENAI_API_KEY",
+  "STRIPE_SECRET_KEY",
+  "STRIPE_WEBHOOK_SECRET",
+  "DATABASE_URL",
+  "SMTP_URL",
+  "MOBILE_MSG_API_USER",
+  "MOBILE_MSG_API_PASSWORD"
+];
+if (process.env.EVAL_JUDGE_PROBE !== "1") {
+  for (const key of NETWORK_CREDENTIALS) delete process.env[key];
+}
+
 for (const [key, value] of Object.entries(TEST_ENV)) {
   if (process.env[key] === undefined) process.env[key] = value;
 }

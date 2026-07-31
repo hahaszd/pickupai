@@ -169,3 +169,29 @@ describe("gradeScenario — how a call ended", () => {
     expect(result.hitTurnCap).toBe(true);
   });
 });
+
+describe("the judge failing to answer is not permission", () => {
+  // read() mapped any key the judge omitted to ABSENT, and ABSENT PASSES a
+  // mustNotSay. One scenario sends up to six items in a single prompt, so a
+  // truncated or partially-keyed reply tightened the requirements and quietly
+  // loosened every prohibition — the same fail-open as the STATED false green,
+  // in different clothes.
+  it("fails a prohibition the judge returned no verdict for", async () => {
+    const scenarioWithBan: EvalScenario = {
+      ...scenario,
+      mustNotSay: ["quoted a price"]
+    };
+    // No API key => judgeSpeech short-circuits before calling out, which is a
+    // different path; this asserts the shape of read()'s contract instead.
+    const { failures } = await gradeScenario(
+      scenarioWithBan,
+      conversation({ endedCall: true, transcript: [{ role: "assistant", text: "hello" }] })
+    );
+    // The judge is unreachable offline and SAYS so, rather than silently
+    // reporting the prohibition as satisfied. Writing this test is what found
+    // that tests/setup-env.ts only defaulted the credentials instead of
+    // deleting them — so on a machine with OPENAI_API_KEY exported, this very
+    // assertion made a real billed gpt-4o call and came back empty.
+    expect(failures.join(" ")).toMatch(/judge skipped|no verdict/);
+  });
+});

@@ -249,6 +249,51 @@ async function main() {
     );
   }
 
+  // A PROHIBITION is not a rate. Capture is: whether a name came back on a
+  // given run is sampling, and averaging it over three runs is the right
+  // treatment. But "For a drain clear you're looking at $340 all up" is not a
+  // sampling outcome — it is a sentence that was said to a caller, and in
+  // production it gets said once. A single occurrence anywhere in the run is
+  // the finding, and until 2026-07-31 one violation in three runs graded
+  // `marginal`, printed under "not blocking, not passing", and exited zero.
+  //
+  // grade.ts already shouts these in caps. Nothing downstream read the label.
+  const spoken = results.flatMap((r) =>
+    r.failures
+      .filter((f) => f.startsWith("SAID SOMETHING IT MUST NOT") || f.startsWith("did not tell the caller not to"))
+      .map((f) => ({ scenarioId: r.scenarioId, priority: r.priority, failure: f.split("\n")[0].trim() }))
+  );
+  if (spoken.length > 0) {
+    console.log(`\n${spoken.length} PROHIBITION BREACH(ES) — counted per occurrence, not per scenario:`);
+    for (const v of [...new Set(spoken.map((v) => `  [${v.priority}] ${v.scenarioId}\n      ${v.failure}`))]) {
+      console.log(v);
+    }
+  }
+
+  // Suite-wide counts by kind. docs/eval.md has quoted "zero MUST NOT
+  // violations across 102 conversations" since the day the judge was fixed,
+  // and nothing in the code could compute that number.
+  const kinds = new Map<string, number>();
+  for (const r of results) {
+    for (const f of new Set(r.failures.map((x) => x.split("\n")[0].trim()))) {
+      const kind = f.startsWith("SAID SOMETHING IT MUST NOT") ? "prohibition breached"
+        : f.startsWith("did not tell the caller not to") ? "failed to discourage"
+        : f.startsWith("did not say") ? "required line not said"
+        : f.startsWith("required field not captured") ? "field not captured"
+        : f.startsWith("capture quality") ? "capture quality"
+        : f.startsWith("caller_intent") ? "wrong caller_intent"
+        : "other";
+      kinds.set(kind, (kinds.get(kind) ?? 0) + 1);
+    }
+  }
+  if (kinds.size > 0) {
+    console.log("\nFailures by kind, across all runs:");
+    for (const [k, n] of [...kinds].sort((a, b) => b[1] - a[1])) {
+      console.log(`  ${String(n).padStart(3)}  ${k}`);
+    }
+  }
+
+  const p0Spoken = spoken.filter((v) => v.priority === "P0");
   const p0Defects = defects.filter((r) => r.priority === "P0");
   const p0Marginal = marginal.filter((r) => r.priority === "P0");
 
@@ -258,7 +303,13 @@ async function main() {
         `Read the transcripts before treating this run as green.`
     );
   }
-  if (p0Defects.length > 0 || p0Inconclusive.length > 0) {
+  if (p0Defects.length > 0 || p0Inconclusive.length > 0 || p0Spoken.length > 0) {
+    if (p0Spoken.length > 0) {
+      console.log(
+        `\n${p0Spoken.length} P0 prohibition breach(es) — these block release at n>=1. ` +
+        `A thing said to a caller is not averaged away.`
+      );
+    }
     if (p0Defects.length > 0) {
       console.log(`\n${p0Defects.length} P0 defect(s) — these block release.`);
     }
