@@ -50,7 +50,16 @@ const FORBIDDEN_PHRASES = [
   "I don't have that information",
   "I don't have pricing on hand",
   "I can't access their rates",
-  "I don't have those details on hand"
+  "I don't have those details on hand",
+  // Added 2026-07-31 after the Emergency farewell was found handing the model
+  // "Someone from X will be in touch as soon as possible" — a person AND a
+  // timing, both banned sixty lines above it in the same file. It survived
+  // every paid gate run because every promise-shaped assertion in the eval
+  // library is about a DAY, DATE, CLOCK TIME or DURATION, and "as soon as
+  // possible" is none of those. Two seconds of CI beats a $4.40 gate that
+  // structurally cannot see it.
+  "we'll have someone there",
+  "will be in touch as soon as possible"
 ];
 
 /**
@@ -70,6 +79,12 @@ const FORBIDDEN_PHRASES = [
  */
 export function sayablePart(line: string): string {
   return line
+    // - No "…", no "…", no "…"  — the shortest banning form, and the one the
+    //   price section does NOT use, so it was missed until the promise bans
+    //   were added. Case-insensitive and global because only the first item in
+    //   the list is capitalised. Without this, the new entries above
+    //   false-positive on the very line that bans them.
+    .replace(/\bno\s+"[^"]*"/gi, "")
     // - Do NOT say "…", "…", or "…"  — the ban is usually a LIST, so take the
     //   whole comma/or-separated run, not just the first quoted span.
     .replace(

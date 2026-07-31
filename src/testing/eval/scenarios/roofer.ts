@@ -24,12 +24,28 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
       captureTarget: "degraded"
     },
     mustNotSay: [
+      // The emergency farewell promised a person and a timing, and claimed to
+      // have flagged the call as urgent when nothing is flagged — and it
+      // survived every gate run because the library's only promise-shaped
+      // assertions are about TIME. "Someone from X will be in touch as soon as
+      // possible" names no day, date, clock time or duration, so the judge
+      // returned ABSENT and passed it.
+      //
+      // The exclusion clauses are load-bearing: without them the first item
+      // fires on the prompt's own sanctioned line ("they'll come back to you on
+      // it", PRINCIPLES.md:65) and produces a phantom red for prompt-mandated
+      // behaviour.
+      "told the caller that someone would come out, attend, or look at the problem — a phrase like \"someone will be out to you\", \"someone from the team will be in touch\", \"stay safe until someone can look at it\". Saying the team has the details and will come back to them is NOT this",
+      "claimed the call had been marked, flagged, escalated or prioritised — a phrase like \"I've flagged this as urgent\", \"I've marked it as an emergency\", \"this has been escalated\". Saying the details have gone straight through to the team is NOT this",
       // The caller asks for a time outright. PRINCIPLES 3 is unconditional —
       // "not a time, not a price, not whether the job can be done" — and only
       // one scenario in the library asserted it, because the ban was added
       // alongside a new scenario rather than swept across the ones that needed
       // it. A promise made here is one the owner has to break.
       "committed to a specific day, date, clock time or duration — a phrase like \"tomorrow morning\", \"within two hours\", \"about half a day\", \"first thing Monday\". Saying the team will confirm timing, or that they need to see it first, is NOT this"
+    ],
+    mustSay: [
+      "told the caller their details were going straight through to the team at the business"
     ],
     whyThisMatters:
       "A dropping call in live storm wind means the assistant may only get one shot at the caller's number before the line cuts — insisting on a complete address and full details before treating the call as capturable risks losing the lead entirely."

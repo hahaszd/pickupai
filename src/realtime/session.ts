@@ -915,8 +915,7 @@ ${!timeContextSection.includes("OPEN") ? `- "Thanks for calling ${businessName}$
 - "Just so you know, I'm an AI — the booking and pricing side comes from the team — but your details are all noted and on their way to ${businessName}. Have a good one!"
 - "I'm an AI assistant, so the hands-on stuff is for the team — but I've flagged everything for ${businessName} and they'll have it now. Cheers for calling, take care!"
 ### Emergency
-- "Everything's gone straight through to the team at ${businessName} — they'll come back to you on it. Take care and stay safe."
-- "I've sent all of this to the team at ${businessName} now. Take care, and stay safe until someone can look at it."
+- "Everything's going straight through to the team at ${businessName} — they'll come back to you on it. Take care and stay safe."
 ### Complaint
 - "I've flagged this as priority and sent it straight to the team at ${businessName}. I'm sorry again for the trouble."
 ### Distressed caller
