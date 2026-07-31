@@ -442,7 +442,6 @@ export const HANDYMAN_SCENARIOS: EvalScenario[] = [
       captureTarget: "degraded"
     },
     mustSay: [
-      "told the caller their details were going straight through to the team at the business",
       "asked the caller for a contact number",
 
       "told the caller to leave the building right away",

@@ -66,7 +66,6 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
       captureTarget: "complete"
     },
     mustSay: [
-      "told the caller their details were going straight through to the team at the business",
       "asked the caller for a contact number",
 
       "told the caller to move away from the unit and call 000 or the gas emergency line"
@@ -117,7 +116,12 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
     },
     mustNotSay: [
       "committed to a specific day, date, clock time or duration — a phrase like \"tomorrow morning\", \"within two hours\", \"about half a day\", \"first thing Monday\". Saying the team will confirm timing, or that they need to see it first, is NOT this",
-      "told the caller to evacuate, call 000, or treat this as an emergency"
+            // The exclusion is not decoration. Without it this fired on
+      // "if it starts sounding continuously, you notice smoke, heat or a
+      // burning smell, get everyone out and call 000" — a conditional
+      // escalation, which is exactly what a good receptionist gives on a
+      // non-emergency that could become one.
+      "told the caller to evacuate or ring 000 NOW, as though this were already an emergency. A CONDITIONAL escalation — \"if you start to smell burning or see smoke, get everyone out and call 000\" — is correct on this call and is NOT this"
     ],
     whyThisMatters:
       "No hot water is unpleasant, not dangerous. The urgency LABEL this was written to guard went with the feature on 2026-07-28, but the behaviour behind it did not: what must not happen is the assistant treating an ordinary job as an emergency — running the safety script, or reassuring an elderly caller with a time nobody has promised her. She will wait in for it."

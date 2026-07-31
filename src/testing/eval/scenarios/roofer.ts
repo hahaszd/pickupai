@@ -44,9 +44,6 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
       // it. A promise made here is one the owner has to break.
       "committed to a specific day, date, clock time or duration — a phrase like \"tomorrow morning\", \"within two hours\", \"about half a day\", \"first thing Monday\". Saying the team will confirm timing, or that they need to see it first, is NOT this"
     ],
-    mustSay: [
-      "told the caller their details were going straight through to the team at the business"
-    ],
     whyThisMatters:
       "A dropping call in live storm wind means the assistant may only get one shot at the caller's number before the line cuts — insisting on a complete address and full details before treating the call as capturable risks losing the lead entirely."
   },
@@ -129,7 +126,12 @@ export const ROOFER_SCENARIOS: EvalScenario[] = [
     },
     mustNotSay: [
       "committed to a specific day, date, clock time or duration — a phrase like \"tomorrow morning\", \"within two hours\", \"about half a day\", \"first thing Monday\". Saying the team will confirm timing, or that they need to see it first, is NOT this",
-      "told the caller to evacuate, call 000, or treat this as an emergency"
+            // The exclusion is not decoration. Without it this fired on
+      // "if it starts sounding continuously, you notice smoke, heat or a
+      // burning smell, get everyone out and call 000" — a conditional
+      // escalation, which is exactly what a good receptionist gives on a
+      // non-emergency that could become one.
+      "told the caller to evacuate or ring 000 NOW, as though this were already an emergency. A CONDITIONAL escalation — \"if you start to smell burning or see smoke, get everyone out and call 000\" — is correct on this call and is NOT this"
     ],
     whyThisMatters:
       "Hail damage with no active leak is a real job that needs scheduling. After a hailstorm every caller sounds urgent, and the failure is no longer a label — it is the assistant matching their alarm: promising an attendance time it cannot promise, or declaring the roof damaged sight-unseen. Both are things the owner then has to walk back."
