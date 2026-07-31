@@ -122,3 +122,35 @@ describe("aggregate", () => {
     expect(reports[1].runs).toBe(1);
   });
 });
+
+describe("escalated verdicts", () => {
+  // Only the marginals get re-run, so a scenario can be judged at n=3 or n=9
+  // in the same report. The criteria differ deliberately: at n=9 a genuinely
+  // healthy scenario (true rate 0.95) returns 9/9 only 63% of the time, so
+  // demanding perfection there would be NOISIER than n=3, not quieter.
+  it("passes on 8 of 9, where 8 of 9 would be marginal at n=3 semantics", () => {
+    expect(classify(8, 9)).toBe("pass");
+    expect(classify(9, 9)).toBe("pass");
+  });
+
+  it("calls it a defect when it is wrong more often than right", () => {
+    expect(classify(4, 9)).toBe("fail");
+    expect(classify(0, 9)).toBe("fail");
+  });
+
+  it("leaves the genuinely ambiguous middle as marginal", () => {
+    for (const passes of [5, 6, 7]) {
+      expect(classify(passes, 9), `${passes}/9`).toBe("marginal");
+    }
+  });
+
+  // The same ratio applied uniformly would make 1/3 a defect, and one bad
+  // sample out of three is not evidence of that. The rule is keyed on the run
+  // count on purpose.
+  it("does not apply the escalated ratio to an unescalated scenario", () => {
+    expect(classify(1, 3)).toBe("marginal");
+    expect(classify(2, 3)).toBe("marginal");
+    expect(classify(3, 3)).toBe("pass");
+    expect(classify(0, 3)).toBe("fail");
+  });
+});

@@ -19,7 +19,7 @@ import "../src/testing/eval/env-bootstrap.js";
 import { ALL_EVAL_SCENARIOS } from "../src/testing/eval/scenarios/index.js";
 import { runScenario } from "../src/testing/eval/runner.js";
 import { gradeScenario } from "../src/testing/eval/grade.js";
-import { aggregate } from "../src/testing/eval/aggregate.js";
+import { aggregate, ESCALATE_TO_RUNS } from "../src/testing/eval/aggregate.js";
 import { costReport, estimate } from "../src/testing/eval/cost.js";
 import type { EvalResult, EvalScenario, ScenarioReport } from "../src/testing/eval/types.js";
 
@@ -129,11 +129,14 @@ async function main() {
       `Projected cost: ${estimate(work.length)}\n`
   );
 
-  const results = await pooled<{ scenario: EvalScenario; run: number }, EvalResult>(
-    work,
+  const runAll = (
+    batch: Array<{ scenario: EvalScenario; run: number }>,
+    total: number
+  ) => pooled<{ scenario: EvalScenario; run: number }, EvalResult>(
+    batch,
     CONCURRENCY,
     async ({ scenario, run }) => {
-      const label = REPEAT > 1 ? ` (run ${run + 1}/${REPEAT})` : "";
+      const label = total > 1 ? ` (run ${run + 1}/${total})` : "";
       try {
         const conversation = await runScenario(scenario);
         const result = await gradeScenario(scenario, conversation);
@@ -155,7 +158,46 @@ async function main() {
     }
   );
 
+  const firstPass = await runAll(work, REPEAT);
+
+  let results = firstPass;
+
+  // ── Escalation ────────────────────────────────────────────────────────────
+  //
+  // A `marginal` at n=3 is mostly dice: with 35 healthy P0 scenarios at a true
+  // per-run rate of 0.95, five marginals per gate are pure sampling, and the
+  // one n=9 follow-up ever run by hand found four of five were noise. Nothing
+  // about a 1/3 or a 2/3 is actionable, so the verdict was a place findings
+  // went to be ignored.
+  //
+  // Only the marginals are re-run, and only up to n=9 total — the first three
+  // runs are kept, because they are i.i.d. samples from the same distribution
+  // and there is no reason to buy them twice. Roughly 5 scenarios × 6 runs
+  // ≈ $0.72 on a full gate.
+  const escalate = !has("no-escalate") && REPEAT < ESCALATE_TO_RUNS;
+  if (escalate) {
+    const toSettle = aggregate(firstPass).filter((r) => r.verdict === "marginal");
+    if (toSettle.length > 0) {
+      const extraPer = ESCALATE_TO_RUNS - REPEAT;
+      const extra = toSettle.flatMap((r) => {
+        const scenario = scenarios.find((sc) => sc.id === r.scenarioId)!;
+        return Array.from({ length: extraPer }, (_, run) => ({ scenario, run }));
+      });
+      console.log(
+        `\n${"─".repeat(60)}\n` +
+        `Settling ${toSettle.length} marginal scenario(s) at n=${ESCALATE_TO_RUNS} — ` +
+        `${extra.length} more conversation(s), ${estimate(extra.length)}\n` +
+        `  ${toSettle.map((r) => r.scenarioId).join(", ")}\n` +
+        `  Judged on >=8/9 rather than 3/3: a healthy scenario returns 9/9 only 63% of the time.\n`
+      );
+      results = firstPass.concat(await runAll(extra, ESCALATE_TO_RUNS));
+    }
+  }
+
   const reports = aggregate(results);
+  const escalatedIds = new Set(
+    reports.filter((r) => r.runs + (r.inconclusiveRuns ?? 0) > REPEAT).map((r) => r.scenarioId)
+  );
   const defects = reports.filter((r) => r.verdict === "fail");
   const marginal = reports.filter((r) => r.verdict === "marginal");
   const passed = reports.filter((r) => r.verdict === "pass");
@@ -165,9 +207,18 @@ async function main() {
   const inconclusive = reports.filter((r) => r.verdict === "inconclusive");
 
   console.log(`\n${"─".repeat(60)}`);
+  if (escalatedIds.size > 0) {
+    // A verdict reached under a different rule must not look identical to one
+    // reached under the default. "passed all 3 runs" and ">=8 of 9" are not the
+    // same claim and the report should not let them read as one.
+    console.log(
+      `Settled at n=${ESCALATE_TO_RUNS} (>=8/9 to pass, <=4/9 a defect): ` +
+      `${[...escalatedIds].join(", ")}\n`
+    );
+  }
   console.log(
     REPEAT > 1
-      ? `${passed.length}/${reports.length} scenarios passed all ${REPEAT} runs`
+      ? `${passed.length}/${reports.length} scenarios passed`
       : `${passed.length}/${reports.length} passed`
   );
   if (REPEAT > 1) {

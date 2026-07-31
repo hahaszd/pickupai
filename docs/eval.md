@@ -44,6 +44,42 @@ test. The suburb comes from the scenario's own `callerSuburb` when it sets one,
 and falls back to the hash otherwise; see *Where the caller lives is stated, not
 parsed* below for why that is a field rather than something inferred.
 
+## Marginals settle themselves at n=9
+
+A `marginal` at n=3 is mostly dice. With 35 healthy P0 scenarios at a true
+per-run pass rate of 0.95, **5.0 marginals per gate are pure sampling** — and
+the measured baseline was 5 of 21 P0, of which the one n=9 follow-up ever run by
+hand found **four of five were noise**. Nothing about a 1/3 or a 2/3 is
+actionable, so the verdict was a place findings went to be ignored.
+
+After the main pass, every `marginal` is re-run to n=9 automatically. Only the
+marginals, and only the shortfall — the first three runs are kept, because they
+are i.i.d. samples from the same distribution and there is no reason to buy them
+twice. On a full gate that is roughly 5 scenarios × 6 runs ≈ **$0.72**.
+
+| true per-run rate | P(pass) at 3/3 | P(pass) at ≥8/9 |
+|---|---|---|
+| 0.95 (healthy) | 85.7% | **92.9%** |
+| 0.70 (broken) | 34.3% | **19.6%** |
+| 0.50 | 12.5% | **2.0%** |
+
+**Both ends improve** — that is the ordinary return on sample size, not a
+trade. Expected false flags on a healthy P0 set fall from 5.0 to 2.5.
+
+The criterion has to loosen from *"every run"* to *"≥8/9"* in the same move, and
+this is the part that is easy to get backwards: a genuinely healthy p=0.95
+scenario returns 9/9 only **63%** of the time, so demanding perfection at n=9
+would be noisier than n=3. ≤4/9 — wrong more often than right — is a defect and
+blocks if the scenario is P0.
+
+The rule is keyed on the **run count**, not applied as a uniform ratio. The same
+8/9 ratio at n=3 would make 1/3 a defect, and one bad sample out of three is not
+evidence of that.
+
+The report names every scenario settled this way, because a verdict reached
+under a different rule must not read identically to one reached under the
+default. `--no-escalate` turns it off.
+
 ## What it covers
 
 Everything that lives in the prompt and the tool definitions:

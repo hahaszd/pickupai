@@ -6,11 +6,46 @@ import type { EvalResult, ScenarioReport, ScenarioVerdict } from "./types.js";
  * Pure, so the classification the release gate depends on is unit-testable
  * without spending a cent on conversations.
  */
+/**
+ * The threshold at which a scenario is re-run to settle a `marginal`, and the
+ * criteria used once it has been.
+ *
+ * At n=3, `marginal` is mostly dice. With 35 healthy P0 scenarios at a true
+ * per-run pass rate of 0.95, **5.0 marginals per gate are pure sampling** —
+ * and the measured baseline was 5 of 21, of which an n=9 follow-up found 4
+ * were noise. Nothing about a 1/3 or 2/3 is actionable.
+ *
+ * Re-running only the marginals to n=9 improves BOTH ends, which is the
+ * ordinary return on sample size rather than a trade:
+ *
+ *   true rate   P(pass) at 3/3   P(pass) at >=8/9
+ *      0.95          85.7%            92.9%
+ *      0.70          34.3%            19.6%
+ *      0.50          12.5%             2.0%
+ *
+ * The criterion has to loosen from "every run" to ">=8/9" in the same move: a
+ * genuinely healthy p=0.95 scenario returns 9/9 only 63% of the time, so
+ * demanding perfection at n=9 would be noisier than n=3, not quieter.
+ */
+export const ESCALATE_TO_RUNS = 9;
+const ESCALATED_PASS = 8;   // >= 8 of 9
+const ESCALATED_FAIL = 4;   // <= 4 of 9 — wrong more often than right
+
 export function classify(passes: number, runs: number): ScenarioVerdict {
   // runs here is the CONCLUSIVE count. Zero means every run hit the turn cap
   // and the scenario has no measurement at all — which must not read as a pass
   // (nothing was verified) or as a defect (nothing misbehaved).
   if (runs <= 0) return "inconclusive";
+
+  // Escalated scenarios are judged on a rate. Keyed on the run count rather
+  // than a ratio applied uniformly, because the same ratio at n=3 would make
+  // 1/3 a defect and that is not what a single bad sample means.
+  if (runs >= ESCALATE_TO_RUNS) {
+    if (passes >= ESCALATED_PASS) return "pass";
+    if (passes <= ESCALATED_FAIL) return "fail";
+    return "marginal";
+  }
+
   if (passes === runs) return "pass";
   if (passes === 0) return "fail";
   return "marginal";
