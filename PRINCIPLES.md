@@ -129,18 +129,85 @@ does not have to guess.
 
 ---
 
+## 8. It does not handle emergencies. It says "ring 000" and records.
+
+Decided 2026-07-31, and it replaces a much larger safety apparatus.
+
+**The premise: people with real emergencies do not ring a plumber.** A house
+filling with gas gets 000, the fire brigade, the police. Nobody in that
+situation looks up a tradie and waits on hold. So the calls this product
+actually receives are ordinary ones — *"the hot water's out"*, *"can someone
+look at the roof"* — and building an emergency-response system for a population
+that rings someone else is solving a problem the product does not have.
+
+**And giving safety advice IS judging.** It is Principle 1 with the costume on.
+Deciding what is dangerous, and what someone should do about it, is exactly the
+call this product hands to the tradie everywhere else. The prompt carried seven
+hazard-specific scripts and twelve per-trade safety tips — *don't touch the
+main switch*, *stay clear of the cable*, *don't reach into the overflow relief
+gully*, *don't go up the ladder*. Every one of them was the receptionist
+deciding on the tradie's behalf. All deleted.
+
+**What survives is one line, for three things nobody can misread**, and only
+when the caller's OWN words describe them happening now:
+
+- something is on fire, smoking, or smells of burning
+- they can smell gas
+- someone is trapped, unconscious, not breathing, or badly hurt
+
+> *"That sounds like one for 000 — ring them first, people come before the
+> house. Call us back whenever you're safe and we'll sort the rest."*
+
+Said **once**. If they say it is not that serious, drop it and carry on taking
+details — Principle 4 does not stop applying because the topic is safety.
+
+### Everything else is recorded, not advised
+
+An electric shock that already happened. A switchboard that feels hot. Water
+near a powerpoint. A CO alarm sounding. **These are precisely the calls that DO
+reach a tradie**, because the person making them does not think it is an
+emergency — and they are the ones the AI must not touch.
+
+The argument that settled it, from the owner, on the electric-shock case the
+prompt used to override:
+
+> *"They have told you they are fine, and they are able to make a phone call.
+> Forcing them to ring 000 is a strange judgement to make."*
+
+**The medical fact does not overturn it — it confirms it.** A mains shock can
+cause a delayed cardiac arrhythmia, and being able to speak is not evidence of
+being unharmed. But if the AI needs to know that to behave correctly, **it is
+practising medicine off a speech-to-text transcript**, blind to the current
+path, the contact time and the person's history. And 000 is the wrong number
+for *"should I get this looked at"* — it summons an ambulance. **A receptionist
+that makes a medical judgement and then gives the wrong number is worse than
+one that says nothing.**
+
+The right behaviour is the product's law, unchanged: write down what they said.
+`issue_summary: "washing machine gave him a belt, says he's fine"`. The tradie
+knows that machine, that circuit, that house. **The judgement is his, and he has
+more to judge with.**
+
+### What this costs, stated plainly
+
+The old rules would have caught a caller who is in danger and does not know it.
+That capability is gone, deliberately. It is traded for a receptionist that
+never overrides a caller about their own body, never invents advice for a
+hazard it cannot see, and never gives an instruction the tradie would not have
+given.
+
 ## What is NOT covered by any of this
 
-Two things survive every "the AI should not judge" argument, because neither is
+One thing survives every "the AI should not judge" argument, because it is not
 a judgement:
 
-1. **Safety instructions given while the caller is on the line.** Someone who
-   smells gas must be told to leave the building *now*. The tradie reading an
-   SMS twenty minutes later cannot do that. This is about the caller, not about
-   lead quality, and it is the highest-liability thing the product does.
-2. **Refusals that commit the business.** "Yes, we can wire that up" said on a
-   recorded call is a commitment; passing it on does not undo it. Licensing
-   boundaries, compliance certificates and pre-sale reports stay.
+- **Refusals that commit the business.** "Yes, we can wire that up" said on a
+  recorded call is a commitment; passing it on does not undo it. Licensing
+  boundaries, compliance certificates and pre-sale reports stay.
+
+The 000 line above is the other survivor, and it is deliberately not phrased as
+a safety system. It is one sentence for three unmistakable facts, and it
+requires the AI to recognise nothing it could get wrong.
 
 ---
 
