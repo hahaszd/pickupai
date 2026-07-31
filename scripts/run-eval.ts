@@ -284,7 +284,15 @@ async function main() {
 
   // Always, and always before the verdict, so it is read rather than scrolled
   // past. Built from the token counts OpenAI returned, not from an assumption.
-  const report = costReport(work.length);
+  // results.length, not work.length. `work` is the FIRST PASS only, so once
+  // marginals started escalating this divided the whole bill by the smaller
+  // number and reported $0.053 per conversation against an actual $0.023 —
+  // 2.3x too high. docs/eval.md instructs updating
+  // MEASURED_USD_PER_CONVERSATION from this very figure, so it would have been
+  // believed and every future estimate inflated. "Never present an unexamined
+  // column as a measurement" applies to the numbers this harness prints about
+  // itself, not only to the ones it prints about the product.
+  const report = costReport(results.length);
   if (report) console.log(report);
 
   // The gate is the rate. A P0 that fails every run is a defect and blocks; a
