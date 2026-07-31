@@ -26,6 +26,123 @@ Last updated: **2026-07-29**
 
 ## P0
 
+### Design review of the eval — it is the right instrument for the wrong ambition
+2026-07-31. A fourth independent agent, asked not "find bugs" but **"is this the
+right instrument at all"**. Verified where it mattered; the numbers below are
+recomputed here, not taken on trust.
+
+**The gate has almost no statistical power, and nobody had computed it.**
+
+| true per-run pass rate | P(verdict `pass`) at n=3 | **P(blocks release)** |
+|---|---|---|
+| 0.95 | 85.7% | 0.0% |
+| 0.70 | 34.3% | **2.7%** |
+| 0.50 | 12.5% | **12.5%** |
+| 0.30 | 2.7% | 34.3% |
+
+A P0 behaviour **wrong 30% of the time has a 2.7% chance of blocking release.**
+The gate reliably stops only what is essentially always broken — which a $0.22
+three-scenario slice already catches. And with 35 healthy P0 scenarios at
+p=0.95, **~5.0 marginals per gate are pure sampling**; the measured baseline was
+5 of 21, and the n=9 follow-up found 4 of 5 were noise. `marginal` is not a
+useless category, but n=3 cannot support a conclusion in the middle.
+
+Headline variance: σ≈2.74 scenarios per run. **Reading a 2-point movement as a
+regression is reading noise**, and this file already records that happening
+twice in one day.
+
+**Fixed immediately (commit `1fdbe55`):**
+
+- **A prohibition is not a rate.** The gate blocked only on failing ALL runs, so
+  quoting a price to a caller in 1 run of 3 graded `marginal` and exited zero.
+  Whether a name came back is sampling; a sentence said to a caller is not.
+  Now blocks at n≥1 for P0, with suite-wide failure counts by kind — which
+  `docs/eval.md` had been quoting ("zero MUST NOT violations across 102
+  conversations") while the code could not compute it.
+- **A missing judge key was permission.** An omitted key mapped to `ABSENT`, and
+  `ABSENT` PASSES a `mustNotSay`. Six items go in one prompt, so a truncated
+  reply tightened requirements and loosened every prohibition.
+
+**Still open, ranked by what it changes:**
+
+1. **Persist run output to JSON.** The harness writes nothing — no transcripts,
+   no baseline. Every number in `docs/eval.md` was transcribed by hand from a
+   console. This one gap blocks: paired before/after comparison (far more
+   powerful than two headline numbers), any retrospective measurement of the
+   JUDGE's accuracy, and the one free test of whether the context-free scenario
+   exercise actually worked. **~60 lines, breaks nothing, unlocks the rest.**
+2. **Auto-escalate marginals to n=9.** ~5 scenarios × 6 more runs ≈ $0.72.
+   Recomputed: at n=9 judged on ≥8/9, a healthy p=0.95 passes 92.9% (up from
+   85.7%) while a broken p=0.70 passes 19.6% (down from 34.3%) — **both ends
+   improve.** Expected false flags drop from 5.0 to 2.5 per gate. Not a cure:
+   the criterion must become ≥8/9, because a healthy scenario gets 9/9 only 63%
+   of the time.
+3. **Judge accuracy has never been measured against human labels.** The only
+   evidence is 6 frozen cases, all `mustNotSay`, all single-sentence, gated
+   behind an env var. Zero on `mustSay`, `mustDiscourage`, or multi-turn — which
+   is where all four overturned verdicts came from. **Costs $0 in API calls once
+   (1) ships**: label ~60 (transcript, item) pairs from a run already paid for.
+4. **Five prompt branches have zero paid coverage** because `evalTenant` is a
+   frozen literal: withheld caller ID (the longer branch, and the site of a real
+   past defect), returning-caller history, `custom_instructions`, vacation mode,
+   demo mode. Note `tests/prompt-conflicts.test.ts` — the FREE test — already
+   reaches the withheld branch that the $4.40 one does not.
+5. **The name oversells the instrument.** `npm run eval:p0` is called the
+   "release gate" and exits non-zero, but an honest reading of a green is *"no
+   P0 assertion failed all three times, over text, on a different model, on
+   assertions largely derived from the prompt being tested."* `docs/eval.md`
+   disclaims *scope* and says nothing about *power*. Rename to
+   `prompt-conformance-gate`; two lines.
+6. **Concurrency default is stale by the runner's own reasoning** — documented
+   as chosen for a 30k TPM tier, while the code notes gpt-5.6-luna carries
+   500k TPM. Raising it to 4–6 costs $0 and turns hours into minutes. The money
+   was never the binding cost; the owner's afternoon was.
+
+**The authoring-bias fix did not work, and git proves it.** The context-free
+scenario exercise was the right idea and widened subject coverage genuinely.
+But of the 14 scenarios it produced, **13 arrived in commits that also edit
+`session.ts`** (`69e8c04` +69 lines, `c378b10` +18 lines — verified). The
+scenario asserts a rule written in the same commit. That catches a model
+ignoring an instruction it was just given; it can never catch the **absence** of
+an instruction. Same author, same thought, split across two files — exactly as
+before, on new topics.
+
+One free discriminator going forward: **record each scenario's first-run pass
+rate at introduction.** A probe from outside the prompt's context should score
+LOWER than a restatement. Batch B scored 0/12 on arrival; Batch A had six of
+nine at 3/3. Nobody computed it because run output is not stored — see (1).
+
+### LIVE PROMPT DEFECT: the emergency farewell promises a person
+The Farewell section hands the model this quoted script for every emergency:
+
+> *"I've flagged this as **urgent** and the team has been notified. **Someone
+> from ${businessName} will be in touch as soon as possible.** Take care and
+> stay safe."*
+
+`PRINCIPLES.md` 3 is unconditional — *"Not a time, not a price, not whether the
+job can be done, **not a person**, a booking or an outcome"* — and the prompt's
+own No Promises list, sixty lines above, bans it in almost the same words:
+**`no "we'll have someone there"`**.
+
+**And "I've flagged this as urgent" is false.** Verified: the COMPLAINT path
+sets `next_action="COMPLAINT - urgent callback needed"`, and the emergency path
+sets **no next_action at all**. Nothing is flagged. The owner receives the same
+SMS as every other caller — which is exactly what PRINCIPLES decided, and the
+farewell tells the caller otherwise.
+
+This is `CODING_STANDARDS`' own rule biting: *"A concrete quoted template beats
+an abstract rule stated nearby — the template wins."* On every emergency call
+the model is handed a script that beats the rule twenty lines away.
+
+**The eval cannot see it.** 20 emergency-adjacent scenarios, 115 speech
+assertions across the library, and **not one forbids promising a person or the
+phrase "as soon as possible"**. The library's most-reused time ban is worded
+*"committed to a specific day, date, clock time or duration"* — "as soon as
+possible" is none of those. The exemption was drawn around the prompt's own
+phrasing, which is authoring bias in its purest observable form.
+
+Under `staged-change`: drafted, independent review, then a slice.
+
 ### Round 3: the same mistake three times, and what finally stopped it
 2026-07-30. Commits `0d8957a`, `bb36ab8`. Round 3 attacked rounds 1 and 2 and
 found most of round 2's fixes — mine — were defects of their own.
