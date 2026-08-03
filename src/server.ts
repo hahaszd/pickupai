@@ -92,6 +92,9 @@ import {
   getOverviewStats,
   getDailyFunnelStats,
   getPublicStats,
+  findExpiredTrials,
+  findNumbersDueForRelease,
+  releasedNumberStamp,
   getCampaignFunnelStats,
   listServiceRequests,
   countServiceRequests,
@@ -4845,15 +4848,7 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
 
   const runTrialExpirySweep = async () => {
     try {
-      const now = new Date().toISOString();
-      const expired = db.all<TenantRow>(
-        `SELECT * FROM tenants
-         WHERE payment_status = 'trial'
-           AND trial_ends_at IS NOT NULL
-           AND trial_ends_at < ?
-           AND active = 1`,
-        [now]
-      );
+      const expired = findExpiredTrials(db, new Date().toISOString());
       if (expired.length === 0) return;
       log.info({ count: expired.length }, "Trial-expiry sweep: flipping tenants to trial_expired");
       for (const t of expired) {
@@ -4871,17 +4866,7 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
   const runNumberReleaseSweep = async () => {
     try {
       const cutoff = new Date(Date.now() - NUMBER_RELEASE_GRACE_DAYS * 24 * 60 * 60 * 1000).toISOString();
-      const candidates = db.all<TenantRow>(
-        `SELECT * FROM tenants
-         WHERE payment_status IN ('expired', 'trial_expired')
-           AND expired_at IS NOT NULL
-           AND expired_at < ?
-           AND number_released_at IS NULL
-           AND twilio_number IS NOT NULL
-           AND twilio_number NOT LIKE '+PENDING%'
-           AND twilio_number NOT LIKE '+RELEASED%'`,
-        [cutoff]
-      );
+      const candidates = findNumbersDueForRelease(db, cutoff);
       if (candidates.length === 0) return;
       log.info({ count: candidates.length, graceDays: NUMBER_RELEASE_GRACE_DAYS }, "Number-release sweep: releasing Twilio numbers");
       for (const t of candidates) {
@@ -4894,7 +4879,7 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
           // Preserve the original number in an audit-friendly form so reports
           // can still tell which number this tenant used to own; keep the
           // unique constraint happy by prefixing with "+RELEASED-".
-          const stamped = `+RELEASED-${t.twilio_number.replace(/^\+/, "")}-${Date.now()}`;
+          const stamped = releasedNumberStamp(t.twilio_number, Date.now());
           updateTenant(db, t.tenant_id, {
             number_released_at: new Date().toISOString(),
             twilio_number: stamped

@@ -665,6 +665,68 @@ export type DailyFunnelStats = {
  * demo calls are ours, not customers', and a +PENDING number is a signup that
  * never finished provisioning.
  */
+/**
+ * Tenants whose trial has run out and who are still active.
+ *
+ * Split out of the sweep in `server.ts` on 2026-08-04. The loop that acts on
+ * these rows is thin; the QUERY is the whole risk, and it lived inside `main()`
+ * where no test could reach it. This one flips a tenant's billing state.
+ *
+ * `now` is injected rather than read from the clock so a test can stand either
+ * side of an expiry boundary — the sweep runs on every instance, on an interval,
+ * so "off by one comparison" means a tenant flips early or never.
+ */
+export function findExpiredTrials(db: Db, now: string): TenantRow[] {
+  return db.all<TenantRow>(
+    `SELECT * FROM tenants
+     WHERE payment_status = 'trial'
+       AND trial_ends_at IS NOT NULL
+       AND trial_ends_at < ?
+       AND active = 1`,
+    [now]
+  );
+}
+
+/**
+ * Tenants whose Twilio number is due for release.
+ *
+ * **Releasing a number is irreversible and it is the tradie's business phone.**
+ * A wrong row here does not lose a lead, it loses the number customers ring —
+ * which is why this query, and not the Twilio call, is the thing that needed a
+ * test. It had none: it lived inside `main()`.
+ *
+ * Four exclusions and every one is load-bearing:
+ *   - only already-expired tenants, never a paying one
+ *   - `expired_at` older than the grace window, so nobody loses a number the
+ *     day their card bounces
+ *   - `number_released_at IS NULL`, which is what makes the sweep idempotent
+ *     across the multiple instances CLAUDE.md says it runs on
+ *   - never a `+PENDING` or an already-`+RELEASED` placeholder
+ */
+export function findNumbersDueForRelease(db: Db, cutoffIso: string): TenantRow[] {
+  return db.all<TenantRow>(
+    `SELECT * FROM tenants
+     WHERE payment_status IN ('expired', 'trial_expired')
+       AND expired_at IS NOT NULL
+       AND expired_at < ?
+       AND number_released_at IS NULL
+       AND twilio_number IS NOT NULL
+       AND twilio_number NOT LIKE '+PENDING%'
+       AND twilio_number NOT LIKE '+RELEASED%'`,
+    [cutoffIso]
+  );
+}
+
+/**
+ * The audit-friendly form a released number is stamped with.
+ *
+ * Keeps the unique constraint happy while leaving the original readable, so a
+ * report can still say which number a tenant used to own.
+ */
+export function releasedNumberStamp(twilioNumber: string, at: number): string {
+  return `+RELEASED-${twilioNumber.replace(/^\+/, "")}-${at}`;
+}
+
 export function getPublicStats(db: Db): { calls_answered: number; businesses_served: number } {
   const calls = db.get<{ n: number }>(
     "SELECT COUNT(*) AS n FROM calls WHERE status = 'completed' AND is_demo = 0"
