@@ -1922,7 +1922,7 @@ async function main() {
     }
 
     const transferTarget = tenant.owner_phone || env.OWNER_PHONE_NUMBER;
-    if (shouldWarmTransferNow() && tenant.enable_warm_transfer && transferTarget) {
+    if (shouldWarmTransferNow(tenant) && tenant.enable_warm_transfer && transferTarget) {
       const vr = newVoiceResponse();
       sayFriendly(vr, "Please hold while I connect you.");
       const dial = vr.dial({

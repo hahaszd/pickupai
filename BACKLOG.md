@@ -1878,21 +1878,24 @@ multi-job call — the most valuable call that trade takes — arrives as
 "door won't latch, flyscreen hole, hang three pictures in hallw…". The full
 text survives on the lead page, but the tradie is reading an SMS in a van.
 
-### Warm transfer is not gated on anything about the call — VERIFIED 2026-08-03
-`shouldWarmTransferNow()` (`src/twilio/flow.ts:5`) reads an env flag and the
-business-hours window. **Nothing else.** Not urgency, which no longer exists;
-not the caller, not the trade, not the content. It is all calls or no calls.
+### FIXED 2026-08-04: warm transfer now uses the tenant's own hours
+`shouldWarmTransferNow()` read the GLOBAL `BUSINESS_HOURS_START/END/TIMEZONE`
+env vars, which are seed values for the first tenant. A Perth business would
+have been transferred on Sydney's clock — **three hours out** — and a tenant who
+narrowed their hours to 07:00–15:00 in the dashboard was ignored entirely.
 
-That is defensible as a design — it is the tenant's phone and the tenant's
-choice — but it was being SOLD as something else. `docs/gtm-playbook.md` had a
-human read down the phone: *"During business hours, genuine emergencies are
-warm-transferred to the owner."* Doubly false, and fixed on 2026-08-03 with an
-explicit "do not say this" note in the script.
+Invisible with one tenant, wrong for the second, and the kind of bug that
+surfaces as "it rang me at 5am" rather than as an error. Now takes the tenant
+and falls back to env only for a call with no resolved tenant.
 
-**Still open, and now a smaller question:** the window uses the GLOBAL
-`BUSINESS_HOURS_*` env vars rather than the tenant's own `business_hours_start`
-/ `_end` columns, so a tenant in Perth gets Sydney's hours. That is a real bug
-for any second tenant and invisible with one.
+Mutation-checked: reverting to the env vars fails the Perth test and the
+custom-hours test.
+
+**What it still does NOT depend on: anything about the call.** Not urgency,
+which no longer exists; not the caller, not the content. Every call or none, by
+the tenant's choice. That is a defensible design and it was being SOLD as
+something else — fixed in `docs/gtm-playbook.md` on 2026-08-03 with an explicit
+"do not say this" note in the script a human reads down the phone.
 
 ### Emergency follow-up SMS has no cap and a stale closure
 `server.ts:830-847` fires unconditionally two minutes after every emergency
