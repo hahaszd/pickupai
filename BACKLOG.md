@@ -1827,18 +1827,28 @@ just a scenario: the builder's-licence **value threshold** (NSW $5k, QLD $3.3k,
 VIC $10k, SA $12k, WA $20k) is not mentioned anywhere in `session.ts`, and
 neither is the ARC refrigerant boundary or the Level 2 ASP boundary.
 
-### Decide: should a life-safety call still capture a callback number?
-Surfaced by the eval, 2026-07-28. On `electrician_switchboard_crackling_hot_smell`
-the assistant tells the family to get out and ring 000 — correct — and lets
-them go without a number, following `session.ts:730`: *"Do not keep them on the
-line if they need to evacuate."*
+### DECIDED 2026-08-03: yes, in the same breath — and it was already written down
+The middle path this item proposed is what shipped: the triple-zero line ends
+*"Before you go though, what's the best number for you?"* — one question, asked
+with the referral rather than after it, then everything else let go.
 
-So a switchboard fire, one of the highest-value emergency jobs an electrician
-takes, can end with no way to ring the customer back. The prompt made that
-trade deliberately and the eval now tests it as designed
-(`captureTarget: "none"`), but it is worth deciding on purpose rather than by
-inheritance. A middle path exists: take the number in one breath *while*
-telling them to leave, rather than either holding them or letting them go.
+**The eval found it the hard way.** My first version ended *"Call us back
+whenever you're safe and I'll take your details then"*, and a slice caught it
+against an assertion written weeks earlier. Reading the deleted gas script
+showed the answer had been recorded years before the question was asked:
+
+> *"Take the number as they are leaving. **Do NOT tell them to ring you back
+> instead: they will not, and a gas job with no callback number is a lost
+> customer and a lost lead.**"*
+
+That sentence was deleted on 2026-07-31 along with the safety advice it was
+bundled with — **and it was never safety advice**. It is PRINCIPLES 6 and 7.
+Re-run: 0/3 → 3/3.
+
+**The general lesson, worth more than the decision:** when a block of prompt is
+deleted, check whether it contained two different things. This one contained a
+judgement (correctly deleted) and a piece of the core job (deleted by accident,
+in the same commit, with its reasoning).
 
 ### Decide: how hard should the assistant push for a callback number?
 `handyman_price_shopping_no_booking`. The assistant asks once, the caller
@@ -1868,12 +1878,21 @@ multi-job call — the most valuable call that trade takes — arrives as
 "door won't latch, flyscreen hole, hang three pictures in hallw…". The full
 text survives on the lead page, but the tradie is reading an SMS in a van.
 
-### Warm transfer is not gated on urgency, and uses global business hours
-`server.ts:1784` transfers before the media stream opens, so no urgency has
-been assessed — it is all calls or none. `shouldWarmTransferNow()`
-(`twilio/flow.ts:5-13`) reads `env.BUSINESS_HOURS_*`, not the tenant's, so a
-Perth tenant gets someone else's clock. Sold as "genuine emergencies are
-warm-transferred" in `docs/core-pricing-gtm.md:13`.
+### Warm transfer is not gated on anything about the call — VERIFIED 2026-08-03
+`shouldWarmTransferNow()` (`src/twilio/flow.ts:5`) reads an env flag and the
+business-hours window. **Nothing else.** Not urgency, which no longer exists;
+not the caller, not the trade, not the content. It is all calls or no calls.
+
+That is defensible as a design — it is the tenant's phone and the tenant's
+choice — but it was being SOLD as something else. `docs/gtm-playbook.md` had a
+human read down the phone: *"During business hours, genuine emergencies are
+warm-transferred to the owner."* Doubly false, and fixed on 2026-08-03 with an
+explicit "do not say this" note in the script.
+
+**Still open, and now a smaller question:** the window uses the GLOBAL
+`BUSINESS_HOURS_*` env vars rather than the tenant's own `business_hours_start`
+/ `_end` columns, so a tenant in Perth gets Sydney's hours. That is a real bug
+for any second tenant and invisible with one.
 
 ### Emergency follow-up SMS has no cap and a stale closure
 `server.ts:830-847` fires unconditionally two minutes after every emergency
