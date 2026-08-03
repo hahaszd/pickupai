@@ -26,6 +26,51 @@ Last updated: **2026-07-29**
 
 ## P0
 
+### RESEARCHED: the emergency deletion reduced legal exposure; marketing is the only real risk
+2026-08-03. Primary sources in
+[`docs/research/duty-of-care-ai-answering-service-2026-08.md`](docs/research/duty-of-care-ai-answering-service-2026-08.md).
+Not legal advice; the file says so at the top.
+
+The review that attacked PRINCIPLES 8 called this genuinely open and refused to
+guess. Researched against legislation and judgments rather than commentary:
+
+1. **A duty to the third-party caller is not an established category.** It would
+   be novel, on the salient-features analysis in *Caltex Refineries (Qld) Pty Ltd
+   v Stavar* [2009] NSWCA 258 at [103]. Most features point away: the service
+   does not create the hazard, has no control over it, and the caller keeps
+   control. **Arguable, leaning no. Nobody has decided it.**
+2. **Saying one thing does NOT create a duty about everything else.** This was
+   the crux — the worry that drawing a line at three facts is worse than drawing
+   none. On the closest authority, beginning to help does not generate a duty to
+   have helped more. **The narrowing reduced exposure and did not open a flank.**
+3. **Improvising advice is clearly the larger exposure.** Australian negligence
+   law is built on the act/omission distinction and reaches a negligent utterance
+   far more readily than a silence. Seven hazard scripts were seven positive
+   acts; one referral line is close to none.
+
+**No Australian judgment on an AI system's liability for what it says to a
+member of the public could be found** — NSW Caselaw full text, AustLII, Federal
+Court, High Court and Queensland reports all searched. What exists is courts
+regulating AI use *by lawyers*, a different subject.
+
+### THE ACTIONABLE RULE: triple zero is a design detail, never a selling point
+A reliance-based duty needs *"a specific representation upon which reliance was,
+or should have been, anticipated"*. **Nothing said on a phone call creates that.
+Marketing does.**
+
+A landing page saying the AI *"makes sure emergencies get to triple zero"* or
+*"screens dangerous calls"* would be exactly that representation — made to the
+world, in writing, archived — strengthening a duty argument AND creating an
+ACL s 18 exposure the first time it failed.
+
+**Checked, and the product is currently on the right side.** No marketing route
+makes a safety claim, and the sales assistant's scripted answer to *"Can it
+handle emergencies properly?"* is *"It does not try to… An AI improvising safety
+advice off a phone call is a liability you do not want."* That is a written,
+archived disclaimer of the representation a reliance duty would need. **Do not
+soften it to win a sale.** `tests/marketing-claims.test.ts` fails CI on eight
+such phrases — it now has a reason as well as a rule.
+
 ### MEASURED: the emergency deletion holds, and "say it once" is the hard edge
 2026-08-03, three slices, $1.34 total. Commits `905d82f` … `4aa259a`.
 
