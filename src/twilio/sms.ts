@@ -276,9 +276,14 @@ export function formatOwnerSms(opts: {
 
 /**
  * Build the confirmation SMS sent to the *caller* after a successful call.
- * Includes caller name, business name, job reference, a callback expectation
- * based on business hours, and optional photo suggestion for visual-issue
- * trades.
+ * Caller name, business name, and a job reference.
+ *
+ * The doc comment used to promise two more things, neither of which the
+ * function has ever done or may now do: a "callback expectation based on
+ * business hours" (removed 2026-07-29 — it is a time promise) and a "photo
+ * suggestion for visual-issue trades" (never emitted, and asking a caller to
+ * photograph the property was banned 2026-08-03; see PRINCIPLES.md 8). The
+ * `tradeType` parameter that existed only for the photo suggestion is gone.
  */
 export function buildCallerConfirmationSms(opts: {
   businessName: string;
@@ -289,7 +294,6 @@ export function buildCallerConfirmationSms(opts: {
   businessHoursEnd?: string;
   timezone?: string;
   vacationMode?: boolean;
-  tradeType?: string | null;
 }): string {
   const biz = opts.businessName;
 

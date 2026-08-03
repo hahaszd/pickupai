@@ -674,16 +674,11 @@ describe("buildCallerConfirmationSms — enhanced features", () => {
   // removed (commit e39e3f3): outbound SMS goes out under an alphanumeric
   // sender ID, which cannot receive replies, so the invitation was a dead end
   // for the caller. These tests lock that removal in.
-  it("does not invite the caller to reply with photos (trade-specific)", () => {
-    const result = buildCallerConfirmationSms({
-      businessName: "Dan's Plumbing",
-      tradeType: "plumber"
-    });
-    expect(result).not.toContain("photos of the issue");
-    expect(result).not.toMatch(/photo/i);
-  });
-
-  it("does not invite the caller to reply with photos (no trade type)", () => {
+  // The `tradeType` parameter these two tests passed existed ONLY to select a
+  // per-trade photo suggestion. It was never read, and asking a caller to
+  // photograph the property was banned on 2026-08-03 (PRINCIPLES.md 8), so the
+  // parameter is gone. The assertion stays: the SMS must not invite photos.
+  it("does not invite the caller to reply with photos", () => {
     const result = buildCallerConfirmationSms({
       businessName: "Some Business"
     });

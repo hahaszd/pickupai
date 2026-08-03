@@ -4734,8 +4734,7 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
                     businessHoursStart: tenant.business_hours_start,
                     businessHoursEnd: tenant.business_hours_end,
                     timezone: tenant.timezone,
-                    vacationMode: !!tenant.vacation_mode,
-                    tradeType: tenant.trade_type
+                    vacationMode: !!tenant.vacation_mode
                   });
                   sendOwnerSms(db, callerSmsBody, callerPhone)
                     .catch((err) => log.warn({ err }, "caller confirmation SMS failed"));

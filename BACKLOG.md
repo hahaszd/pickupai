@@ -1780,14 +1780,30 @@ handled does not suppress it, and there is no per-tenant cap. Twenty hail calls
 means forty messages. It is also an unref'd in-process timer, so a deploy
 inside the window silently cancels it.
 
-### Photo capture is promised in three places and implemented in none
-`session.ts:655` lists "Photo suggestion (if relevant)" in the conversation
-flow with no section defining what to say; `sms.ts:132` documents a photo
-suggestion the function never emits and accepts a `tradeType` parameter it
-never reads; `docs/core-pricing-gtm.md:11` sells it. Highest-value miss for
-roofing and handyman, where a photo turns a site visit into a phone quote.
-Note the caller SMS goes out under an alphanumeric sender when Mobile Message
-is active, which cannot receive replies — decide the channel before the copy.
+### WONTFIX 2026-08-03: photo capture, as an ASK, is now banned
+This asked for the photo feature to be finished. The three orphan references —
+the conversation-flow step, the `sms.ts` doc comment and the GTM copy — have all
+been removed; the flow step's only definition anywhere was the deleted roofer
+safety tip.
+
+**The feature as described cannot be built.** `PRINCIPLES.md` 8 forbids asking a
+caller to go and inspect anything or do anything to the property, and the
+scenario that made the point is exactly this one: a 68-year-old offering to
+climb onto a wet tiled roof to photograph it *for the receptionist*. That is not
+a safety judgement, it is a business asking a customer to do unpaid work on
+their own house so an intake form can be completed.
+
+**What is NOT closed**, and is a different thing: a caller who ALREADY has a
+photo and offers to send it. Zero labour, zero risk, and genuinely valuable —
+`docs/research/trade-call-failure-modes-2026-07.md` records roofers saying a
+photo is what turns a site visit into a phone quote. The assistant cannot
+receive one on a voice call, so this would be a channel question (the caller SMS
+goes out under an alphanumeric sender when Mobile Message is active, which
+cannot receive replies) rather than a prompt question.
+
+Recorded because the two were conflated once already: the first draft of the
+never-ask rule banned "taking a photo" outright, which would have refused a
+caller holding a photo in their hand. Harm was in the roof, not the photo.
 
 ### Decide whether fencing, locksmith and concreting should stay aliased to handyman
 `TRADE_ALIASES` maps general, maintenance, locksmith, locks, landscaping,
