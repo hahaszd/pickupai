@@ -227,8 +227,14 @@ describe("the assistant never asks the caller to do anything", () => {
   it("refuses a caller's offer to climb, photograph, or go and check", () => {
     for (const trade of TRADES) {
       const p = buildSystemPrompt(makeTenant(trade), [], null);
-      expect(p, trade).toContain("Never ask a caller to DO anything, and never accept an offer to");
+      expect(p, trade).toContain("Never ask a caller to go and inspect anything, or to do anything to the property");
       expect(p, trade).toMatch(/just tell me what you can see from where you are/i);
+      // Narrowed 2026-08-03. The first wording was "never ask a caller to DO
+      // anything", which the same prompt contradicts six times over — it asks
+      // callers to repeat themselves, spell a suburb, confirm a read-back, and
+      // give a number. An absolute the prompt breaks is not a rule, it is a
+      // coin toss about which half the model keeps.
+      expect(p, trade).toContain("Questions are completely fine and they are your job");
     }
   });
 
@@ -240,11 +246,18 @@ describe("the assistant never asks the caller to do anything", () => {
     expect(p).toMatch(/You are not judging the ladder/i);
   });
 
-  // Two rules that reverse each other must both say when they apply — the one
-  // thing the assistant DOES ask of a caller has to be named inside the ban.
-  it("names triple zero as the single exception, inside the ban itself", () => {
+  // The narrowed ban no longer needs a triple-zero carve-out: pointing someone
+  // to 000 is not asking them to inspect the property. What it does need is the
+  // sentence for a caller who asks outright, which the first version banned
+  // without supplying — the failure this repo has measured four times.
+  it("supplies the sentence for a caller who asks what to do", () => {
     const p = buildSystemPrompt(makeTenant("plumber"), [], null);
-    expect(p).toMatch(/The ONE exception is the triple-zero line above/i);
+    expect(p).toMatch(/I'm the AI receptionist here, so I'm honestly not the one to tell you what to do/);
+    expect(p).toContain("I can't see it and I'm not the tradesperson");
+    // The evasive improvisations that a bare prohibition produces, named so the
+    // model does not reach for them — same shape as the price rule.
+    expect(p).toContain('"I\'m not able to advise on that"');
+    expect(p).toMatch(/applies to every "what should I do" question, not only dangerous ones/);
   });
 
   // Asking is not requesting. The intake questions are the job and must survive.

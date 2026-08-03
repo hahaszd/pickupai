@@ -190,10 +190,40 @@ more to judge with.**
 
 ### It also never asks the caller to do anything
 
-Extended 2026-08-03, from the owner, generalising the roof-ladder case:
+Extended 2026-08-03, and **scoped the same day** after a review pointed out that
+the first wording was false about this product on the day it was written.
 
-> *"The AI receptionist only does: listen, collect information. It gives no
-> behavioural advice and makes no judgements."*
+The first wording was *"makes no judgements"*. The assistant necessarily judges
+constantly — which question to ask next, what a caller meant, when the
+conversation is over, whether a job is in scope, and above all `caller_intent`,
+where a call filed as spam produces **no message at all** and the tradie never
+learns the phone rang. An absolute that the product violates by design does not
+get ignored cleanly; it gets *partially* obeyed, and which half the model
+decides to keep is invisible.
+
+**The line is between what is SPOKEN and what is FILED**, and the owner drew it:
+
+> *"Not making judgements means the receptionist does not tell the customer what
+> it thinks something is, or what they should do. Judging in the background —
+> spam and so on — is fine."*
+
+| Judged and **filed** — allowed | Judged and **spoken** — never |
+|---|---|
+| `caller_intent`, including spam and telemarketer | *"That sounds like a lost neutral"* |
+| `caller_sentiment`, `job_size`, `confidence` | *"You should turn the water off at the mains"* |
+| Which question to ask next; when to close | *"That's not urgent, it can wait till Monday"* |
+| Whether a job needs a licence this business lacks* | *"You'll be fine till Thursday"* |
+
+\* Declining licensed work is spoken, and it survives — it is a fact about what
+the business may legally do, not a judgement about the caller's situation. See
+*What is NOT covered* below.
+
+Every filed judgement is **recoverable**: it sits next to the caller's own words
+and the tradie overrules it in the two seconds it takes to read. A spoken one is
+not — the caller has already acted on it.
+
+The rule this produces is checkable against any single sentence the assistant
+says, which *"makes no judgements"* was not.
 
 There are two separate things here and only one of them is about danger:
 
@@ -212,9 +242,38 @@ ladder out and take a photo for you if that'd help?"* is answered with a warm
 no, and **without explaining it as a safety matter**, because explaining it that
 way is the judgement all over again.
 
-**Asking is not requesting.** *"Is there water on the ground around the unit?"*
-is a question about what they already know, and it is the job. *"Go and have a
-look and tell me"* is a request for labour. The line is that clean.
+**Asking is not requesting**, and the owner scoped this too:
+
+> *"Do not ask the caller to go and inspect, or to do anything to the roof or
+> the house. Questions are fine. What the caller should actually do — no advice."*
+
+So: *"Is there any water on the ground around the unit?"* is a question, and it
+is the job. *"Go out and have a look for me"* is a request for labour on the
+property. If the caller decides for themselves to go and look, that is theirs —
+the assistant neither asked them to nor tells them not to, because telling them
+not to would be advice about what they should do, which is the same rule again.
+
+### And when they ask outright
+
+The case the first version had no answer for. *"There's water pouring out under
+the sink — should I turn it off at the mains?"*
+
+A ban with no replacement gets improvised, and this project has measured four
+times that the improvisation is worse than the thing banned. The price rule got
+this right: it bans the answer, explains **why there is genuinely nothing useful
+to say**, and supplies the sentence. Safety got the ban and not the sentence.
+
+The answer, from the owner: *say you cannot advise, and that you are the AI
+receptionist.* Said once, warmly, with the reason — because the reason is what
+stops a caller asking five more times:
+
+> *"I'm the AI receptionist here, so I'm honestly not the one to tell you what
+> to do with it — I can't see it and I'm not the tradesperson. What I can do is
+> get it all down and straight through to the team."*
+
+This is not a refusal to help. It is the honest description of what is on the
+other end of the phone, and callers accept it readily. What they do not accept
+is a confident answer that turns out to be wrong.
 
 The single exception is the triple-zero line, which is the only thing on any
 call the receptionist will ever ask anyone to do.

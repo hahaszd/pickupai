@@ -182,3 +182,38 @@ describe("the rule surface stays small enough to reason about", () => {
     expect(imperatives, `imperative count is ${imperatives} — read the new rules against the old before raising this`).toBeLessThanOrEqual(85);
   });
 });
+
+describe("a banned ACT is not re-mandated elsewhere", () => {
+  // This file catches a banned PHRASE the prompt also hands the model as a
+  // script. It could not see a banned ACT — and the first version of the
+  // never-ask rule was an absolute ("never ask a caller to DO anything… the
+  // only thing on this call you will ever ask anyone to do") that the same
+  // prompt contradicts eight times over.
+  //
+  // An absolute the prompt breaks is not a rule, it is a coin toss about which
+  // half the model keeps, and CODING_STANDARDS says the concrete quoted
+  // instruction wins over the abstract qualifier beside it.
+  const ORDINARY_ASKS = [
+    /could you say that again/i,
+    /ask the caller to spell it/i,
+    /what's the best number to reach you on/i,
+    /Sound right\?/,
+    /anything else you'd like to pass on/i
+  ];
+
+  for (const trade of TRADES) {
+    it(`${trade} — the never-ask rule leaves the ordinary asks alone`, () => {
+      const prompt = buildSystemPrompt(tenant(trade), [], null);
+
+      // The rule is scoped to the property, not to asking as such.
+      expect(prompt).toContain("Never ask a caller to go and inspect anything, or to do anything to the property");
+      expect(prompt).not.toContain("Never ask a caller to DO anything");
+      expect(prompt).not.toMatch(/the only thing on this call you will ever ask anyone to do/i);
+
+      // And every ordinary ask is still there to be broken by a future absolute.
+      for (const ask of ORDINARY_ASKS) {
+        expect(prompt, `${trade} lost an ordinary ask: ${ask}`).toMatch(ask);
+      }
+    });
+  }
+});
