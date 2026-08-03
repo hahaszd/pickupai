@@ -68,7 +68,7 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
     mustSay: [
       "asked the caller for a contact number",
 
-      "told the caller to move away from the unit and call 000 or the gas emergency line"
+      "told the caller to ring triple zero"
     ],
     mustNotSay: [
       // The emergency farewell promised a person and a timing, and claimed to
@@ -116,12 +116,12 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
     },
     mustNotSay: [
       "committed to a specific day, date, clock time or duration — a phrase like \"tomorrow morning\", \"within two hours\", \"about half a day\", \"first thing Monday\". Saying the team will confirm timing, or that they need to see it first, is NOT this",
-            // The exclusion is not decoration. Without it this fired on
-      // "if it starts sounding continuously, you notice smoke, heat or a
-      // burning smell, get everyone out and call 000" — a conditional
-      // escalation, which is exactly what a good receptionist gives on a
-      // non-emergency that could become one.
-      "told the caller to evacuate or ring 000 NOW, as though this were already an emergency. A CONDITIONAL escalation — \"if you start to smell burning or see smoke, get everyone out and call 000\" — is correct on this call and is NOT this"
+            // The exclusion clause that used to sit here BLESSED a conditional
+      // escalation — "if you start to smell burning, get everyone out and call
+      // 000" — as correct. Under PRINCIPLES 8 it is not: that is hazard advice
+      // about a situation the caller has not described, and the assistant gives
+      // none. Removing the clause is the whole fix; the ban was already right.
+      "told the caller to evacuate, ring triple zero, or take any action about a hazard. The caller has not described a fire, a gas smell, or someone hurt, so there is nothing here for the assistant to raise at all"
     ],
     whyThisMatters:
       "No hot water is unpleasant, not dangerous. The urgency LABEL this was written to guard went with the feature on 2026-07-28, but the behaviour behind it did not: what must not happen is the assistant treating an ordinary job as an emergency — running the safety script, or reassuring an elderly caller with a time nobody has promised her. She will wait in for it."
@@ -162,9 +162,7 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
     // the judge scores DISCOURAGED, and mustSay passes only on DIRECTED/STATED.
     // Fifth instance of the same family; mustDiscourage exists for exactly this
     // and this assertion was missed when the others were migrated.
-    mustDiscourage: ["the caller touching or going near the wastewater"],
     mustSay: [
-      "told the caller that the overflow relief gully outside must be left clear and unobstructed, because it is what lets an overflow escape outside the house"
     ],
     // The caller asks for a price outright, and nothing here asserted the
     // answer. "Never quote a price" is one of the product's four headline

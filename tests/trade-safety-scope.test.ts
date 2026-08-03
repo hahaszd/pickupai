@@ -216,3 +216,41 @@ describe("save_lead schema", () => {
     expect(p).not.toMatch(/set job_value/);
   });
 });
+
+describe("the assistant never asks the caller to do anything", () => {
+  // Distinct from safety advice, and it survived the first deletion because
+  // nothing had named it: a caller offering to climb onto their roof to take a
+  // photo is not a hazard the assistant is judging, it is a customer being
+  // asked to work on their own house so a form can be filled in.
+  const TRADES = ["roofer", "electrician", "plumber", "handyman"];
+
+  it("refuses a caller's offer to climb, photograph, or go and check", () => {
+    for (const trade of TRADES) {
+      const p = buildSystemPrompt(makeTenant(trade), [], null);
+      expect(p, trade).toContain("Never ask a caller to DO anything, and never accept an offer to");
+      expect(p, trade).toMatch(/just tell me what you can see from where you are/i);
+    }
+  });
+
+  // If the assistant declines BECAUSE it is dangerous, that is the judgement
+  // section 8 deleted, arriving by the back door.
+  it("does not let the refusal be explained as a safety matter", () => {
+    const p = buildSystemPrompt(makeTenant("roofer"), [], null);
+    expect(p).toMatch(/This is NOT about danger, and you must not explain it as though it were/i);
+    expect(p).toMatch(/You are not judging the ladder/i);
+  });
+
+  // Two rules that reverse each other must both say when they apply — the one
+  // thing the assistant DOES ask of a caller has to be named inside the ban.
+  it("names triple zero as the single exception, inside the ban itself", () => {
+    const p = buildSystemPrompt(makeTenant("plumber"), [], null);
+    expect(p).toMatch(/The ONE exception is the triple-zero line above/i);
+  });
+
+  // Asking is not requesting. The intake questions are the job and must survive.
+  it("keeps the questions that collect what the caller already knows", () => {
+    const p = buildSystemPrompt(makeTenant("plumber"), [], null);
+    expect(p).toContain("Is there active water leaking right now?");
+    expect(p).toContain("Can they see where it's coming from");
+  });
+});
