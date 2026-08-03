@@ -19,7 +19,7 @@ PickupAI is an AI receptionist for tradies (plumbers, electricians, handymen, ro
 1. The tradie sets up conditional call forwarding on their mobile (so calls ring their phone first, then forward to PickupAI after ~20 seconds if unanswered).
 2. PickupAI answers the call with a natural Australian voice. It sounds like a real receptionist.
 3. The AI asks for the caller's name, contact number, address, and what the job is about. It writes down what the caller actually said, in their words, rather than grading it — the tradie reads the message and decides what is urgent, because he knows the job and the AI does not.
-4. After the call, the tradie gets an SMS and optional email with the full job summary, urgency level, and caller details.
+4. After the call, the tradie gets an SMS and optional email with the full job summary, and caller details.
 5. All leads appear in the PickupAI dashboard where the tradie can review, update status, and export them.
 
 ## Pricing
@@ -46,10 +46,10 @@ Works with all major Australian carriers:
 
 ## Key Features
 - Natural Australian AI voice — most callers don't notice it's AI.
-- Emergency detection and priority flagging.
+- Every call written down in the caller's own words.
 - SMS + email job notifications sent instantly after each call.
 - Online dashboard with lead management, call recordings, transcripts, and statistics.
-- Optional warm transfer — forward urgent calls live to the tradie's mobile during business hours.
+- Optional warm transfer — forward calls live to the tradie's mobile during business hours.
 - Vacation mode — custom away message when the tradie is on holiday.
 - Service area settings to let callers know the coverage zone.
 - CSV export of all job leads.
@@ -81,7 +81,7 @@ Q: Can I try it before signing up?
 A: Absolutely! You can call our demo number at +61 2 8000 0796 right now to hear how the AI receptionist sounds. Or sign up for a free trial and get your own personalised demo with a temporary test number.
 
 Q: Does it work with all trades?
-A: Yes — plumbers, electricians, roofers, builders, handymen, painters, landscapers, and all other trades. The AI adapts its questions and emergency handling to match your trade type.
+A: Yes — plumbers, electricians, roofers, builders, handymen, painters, landscapers, and all other trades. The AI adapts its questions to match your trade type.
 
 ## Customer Service
 You also handle customer service for PickupAI users. When a customer:

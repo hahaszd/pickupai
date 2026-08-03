@@ -1,4 +1,25 @@
 /**
+ * THESE SCRIPTS ARE A PRODUCT PROMISE. Every line is spoken to a prospect on
+ * the landing pages, so a demo that shows behaviour the product does not have
+ * is a misrepresentation, not a mock-up.
+ *
+ * Rewritten 2026-08-03. Every script previously demonstrated all four of the
+ * things the product spent two days removing:
+ *   - "I've flagged this as urgent"     — nothing is flagged; urgency was
+ *                                          deleted 2026-07-28
+ *   - "likely within the hour"           — a time promise (PRINCIPLES 3)
+ *   - "someone will be in touch"         — promises a person (PRINCIPLES 3)
+ *   - "Safety tip: avoid touching the switchboard", "put a bucket under the
+ *     drip"                              — safety advice, and asking the caller
+ *                                          to act (PRINCIPLES 8)
+ *
+ * Before adding a line, read PRINCIPLES.md. The receptionist records, promises
+ * nothing, gives no advice, and asks nobody to do anything to the property.
+ *
+ * NOTE: editing this file does NOT change what a visitor hears. The rendered
+ * MP3s in public/demos/ are checked in and served directly. Regenerate them.
+ */
+/**
  * generate-demos.ts
  *
  * Generates all 16 demo audio files (4 trades × 4 scenarios) for the landing page
@@ -43,9 +64,9 @@ const DEMOS: Array<{ id: string; customerVoice: Voice; lines: Line[] }> = [
       { speaker: "customer", text: "I'm in Parramatta, 2150." },
       { speaker: "ai",       text: "Got ya, Parramatta 2150. And what's the best number to reach you on — is it the one you're calling from?" },
       { speaker: "customer", text: "Yeah that's fine, same number." },
-      { speaker: "ai",       text: "Perfect. I've flagged this as urgent. Just so you know, I'm an AI assistant so I can't book someone in directly, but the team will give you a ring back as soon as possible — likely within the hour. Is there anything else you'd like to pass on to them?" },
+      { speaker: "ai",       text: "Perfect. Just so you know, I'm an AI assistant so I can't book someone in directly, but everything you've told me is going straight to the team. Is there anything else you'd like to pass on to them?" },
       { speaker: "customer", text: "No, just please hurry — there's water all over the floor." },
-      { speaker: "ai",       text: "No dramas at all Mark, I've got you down as urgent. Someone from the team will be in touch real soon. Cheers, take care!" },
+      { speaker: "ai",       text: "No dramas at all Mark, it's all with the team now. Cheers, take care!" },
     ],
   },
 
@@ -63,7 +84,7 @@ const DEMOS: Array<{ id: string; customerVoice: Voice; lines: Line[] }> = [
       { speaker: "customer", text: "This mobile is fine." },
       { speaker: "ai",       text: "Beauty. Just so you're across it — I'm an AI receptionist, so I can't give you a price right now, but I've got all your details and one of our licensed plumbers will call you back to chat through the scope and arrange an on-site measure. Any other details you'd like to add about the job?" },
       { speaker: "customer", text: "The bathroom is about three by two metres, and I've already got tiles picked out." },
-      { speaker: "ai",       text: "Brilliant, I've noted that down. The team will be in touch real soon — cheers Jenny, have a great day!" },
+      { speaker: "ai",       text: "Brilliant, I've noted that down. it's all with the team now — cheers Jenny, have a great day!" },
     ],
   },
 
@@ -81,7 +102,7 @@ const DEMOS: Array<{ id: string; customerVoice: Voice; lines: Line[] }> = [
       { speaker: "customer", text: "Yeah this one's fine." },
       { speaker: "ai",       text: "Perfect. Look, I want to be upfront — I'm an AI so I can't access the job history right now, but I'll flag this as a follow-up from previous work and the team will give you a call back to sort it out. They may have the original job notes and can get someone back out quickly. Anything else you'd like to add?" },
       { speaker: "customer", text: "No that's it, I just want it fixed properly." },
-      { speaker: "ai",       text: "Totally understand Dave — I've got it logged as a priority follow-up. Someone will be in touch shortly. Cheers!" },
+      { speaker: "ai",       text: "Totally understand Dave — I've got all of that down and it's going to the team. Cheers!" },
     ],
   },
 
@@ -99,7 +120,7 @@ const DEMOS: Array<{ id: string; customerVoice: Voice; lines: Line[] }> = [
       { speaker: "customer", text: "0401 222 333." },
       { speaker: "ai",       text: "Brilliant. Since it's not urgent, I'll log this and the team will give you a call back first thing tomorrow morning to get a time sorted. Just so you know, I'm an AI so I can't book anything in directly — but your details are all in. Anything else?" },
       { speaker: "customer", text: "No that's fine, thank you." },
-      { speaker: "ai",       text: "No worries at all Angela — you'll hear from us tomorrow. Have a good evening, cheers!" },
+      { speaker: "ai",       text: "No worries at all Angela — it's all with the team now. Have a good evening, cheers!" },
     ],
   },
 
@@ -119,7 +140,7 @@ const DEMOS: Array<{ id: string; customerVoice: Voice; lines: Line[] }> = [
       { speaker: "customer", text: "0412 345 678." },
       { speaker: "ai",       text: "Brilliant. Just to be upfront, I'm an AI receptionist, so I can't confirm a booking on the spot, but I've logged this as a safety concern and the team at City Electrical will call you back to arrange a visit as soon as they can. Is there anything else?" },
       { speaker: "customer", text: "No, that's all. Thanks for your help." },
-      { speaker: "ai",       text: "No worries at all Sarah — all sorted! The team will be in touch soon. Have a good one!" },
+      { speaker: "ai",       text: "No worries at all Sarah — all sorted! it's all with the team now. Have a good one!" },
     ],
   },
 
@@ -139,7 +160,7 @@ const DEMOS: Array<{ id: string; customerVoice: Voice; lines: Line[] }> = [
       { speaker: "customer", text: "Probably four — two on each side wall." },
       { speaker: "ai",       text: "Great, I've noted that down. I'm an AI so I can't give you a price right now, but one of our licensed sparkies will call you back to run through it and arrange an on-site look. Anything else to add?" },
       { speaker: "customer", text: "No that covers it, thanks." },
-      { speaker: "ai",       text: "Beauty Chris — the team will be in touch real soon. Have a ripper day!" },
+      { speaker: "ai",       text: "Beauty Chris — it's all with the team now. Have a ripper day!" },
     ],
   },
 
@@ -157,7 +178,7 @@ const DEMOS: Array<{ id: string; customerVoice: Voice; lines: Line[] }> = [
       { speaker: "customer", text: "0417 888 000." },
       { speaker: "ai",       text: "Perfect. Just so you're aware, I'm an AI so I can't pull up the previous enquiry directly, but I've logged this as a follow-up on a switchboard quote and the team will call you back today to get that sorted. Really sorry for the delay." },
       { speaker: "customer", text: "No worries, I just wanted to make sure it hadn't been forgotten." },
-      { speaker: "ai",       text: "Absolutely understood Karen — it's now flagged as a priority follow-up. You'll hear from us shortly, cheers!" },
+      { speaker: "ai",       text: "Absolutely understood Karen — I've got all of that down and it's going to the team, cheers!" },
     ],
   },
 
@@ -173,7 +194,7 @@ const DEMOS: Array<{ id: string; customerVoice: Voice; lines: Line[] }> = [
       { speaker: "customer", text: "Ryde, 2112." },
       { speaker: "ai",       text: "Ryde 2112 — got that. And the best number to reach you on?" },
       { speaker: "customer", text: "Same as this one." },
-      { speaker: "ai",       text: "Perfect. Since the lights are still on and it doesn't sound like an immediate danger, I'll log this for a first-thing morning call from the team. If it gets worse overnight — like a full outage or burning smell — please call 000. I'm an AI so I can't dispatch anyone directly, but your details are in. Anything else?" },
+      { speaker: "ai",       text: "Perfect. I'll get this to the team for a first-thing morning call from the team. If it gets worse overnight — like a full outage or burning smell — please call 000. I'm an AI so I can't dispatch anyone directly, but your details are in. Anything else?" },
       { speaker: "customer", text: "No that's fine, thanks for the info." },
       { speaker: "ai",       text: "No worries Phil — the team will be onto it first thing tomorrow. Have a good night, cheers!" },
     ],
@@ -193,9 +214,9 @@ const DEMOS: Array<{ id: string; customerVoice: Voice; lines: Line[] }> = [
       { speaker: "customer", text: "Blacktown, 2148." },
       { speaker: "ai",       text: "Blacktown 2148 — got it. And the best number to reach you on?" },
       { speaker: "customer", text: "0405 111 222." },
-      { speaker: "ai",       text: "Perfect, I've logged this as urgent. I'm an AI so I can't dispatch someone directly, but the team will call you back as soon as possible to get someone out. Have you been able to turn the water off?" },
+      { speaker: "ai",       text: "Perfect, I'm an AI so I can't dispatch someone directly, but everything you've told me is going straight to the team to get someone out. Have you been able to turn the water off?" },
       { speaker: "customer", text: "Yes, I just got it turned off." },
-      { speaker: "ai",       text: "That's great, well done — that'll stop any more damage. The team will be in touch real soon. Hang tight Lisa, cheers!" },
+      { speaker: "ai",       text: "it's all with the team now. Hang tight Lisa, cheers!" },
     ],
   },
 
@@ -213,7 +234,7 @@ const DEMOS: Array<{ id: string; customerVoice: Voice; lines: Line[] }> = [
       { speaker: "customer", text: "Same number as this one's fine." },
       { speaker: "ai",       text: "Perfect. Just to be upfront — I'm an AI, so I can't give you a quote or lock in a time right now, but I've got all your details and the team at All Trades Handyman will call you back to run through the work and get you a price. Anything else you'd like to add?" },
       { speaker: "customer", text: "No that's it, thanks." },
-      { speaker: "ai",       text: "Beauty! All your details are in — someone will be in touch real soon. Cheers for calling, have a lovely day!" },
+      { speaker: "ai",       text: "Beauty! All your details are in — it's all with the team now. Cheers for calling, have a lovely day!" },
     ],
   },
 
@@ -231,7 +252,7 @@ const DEMOS: Array<{ id: string; customerVoice: Voice; lines: Line[] }> = [
       { speaker: "customer", text: "0422 999 111." },
       { speaker: "ai",       text: "Perfect. I'm an AI so I can't pull up the original quote right now, but I've logged this as a follow-up on a deck repair quote and the team will call you back today to get a time locked in. Are you flexible on dates?" },
       { speaker: "customer", text: "Yeah pretty flexible, I'd just like it done before next month." },
-      { speaker: "ai",       text: "Got it — noted. The team will be in touch shortly to sort it out. Thanks for your patience Michael, cheers!" },
+      { speaker: "ai",       text: "Got it — noted. it's all with the team now. Thanks for your patience Michael, cheers!" },
     ],
   },
 
@@ -249,7 +270,7 @@ const DEMOS: Array<{ id: string; customerVoice: Voice; lines: Line[] }> = [
       { speaker: "customer", text: "0411 777 888." },
       { speaker: "ai",       text: "Perfect. I've flagged this as a security concern. I'm an AI so I can't send anyone tonight, but the team will call you first thing in the morning to get it looked at urgently. In the meantime, is there a deadbolt or chain you could use on the door?" },
       { speaker: "customer", text: "Yeah there's a chain, I'll put that on. Thanks." },
-      { speaker: "ai",       text: "Good thinking. You'll hear from us first thing tomorrow morning Rachel — stay safe, cheers!" },
+      { speaker: "ai",       text: "Good thinking. It's all with the team now Rachel — take care, cheers!" },
     ],
   },
 
@@ -267,9 +288,9 @@ const DEMOS: Array<{ id: string; customerVoice: Voice; lines: Line[] }> = [
       { speaker: "customer", text: "Cronulla, 2230." },
       { speaker: "ai",       text: "Cronulla 2230 — got it. And the best number to reach you on?" },
       { speaker: "customer", text: "Same as this one." },
-      { speaker: "ai",       text: "Perfect. I've flagged this as urgent. I'm an AI so I can't book someone in directly, but the team will call you back as soon as possible to get someone out. While you wait, if you can put some towels or a bucket down to catch the water it'll help prevent damage to your ceiling. Anything else?" },
+      { speaker: "ai",       text: "Perfect. I'm an AI so I can't book someone in directly, but everything you've told me is going straight to the team to get someone out. While you wait, if you can put some towels or a bucket down to catch the water it'll help prevent damage to your ceiling. Anything else?" },
       { speaker: "customer", text: "No, just please hurry — it's getting worse." },
-      { speaker: "ai",       text: "Absolutely Ryan — it's been logged as urgent and someone will be in touch real soon. Hang in there, cheers!" },
+      { speaker: "ai",       text: "Absolutely Ryan — it's all with the team now. Hang in there, cheers!" },
     ],
   },
 
@@ -289,7 +310,7 @@ const DEMOS: Array<{ id: string; customerVoice: Voice; lines: Line[] }> = [
       { speaker: "customer", text: "It's terracotta tiles. The house is a standard four-bedroom." },
       { speaker: "ai",       text: "Got it, noted. I'm an AI so I can't quote on the spot, but the team will call you back to arrange an on-site measure and give you a proper price. Anything else?" },
       { speaker: "customer", text: "No that covers it, cheers." },
-      { speaker: "ai",       text: "Beauty Greg — the team will be in touch real soon. Have a great day!" },
+      { speaker: "ai",       text: "Beauty Greg — it's all with the team now. Have a great day!" },
     ],
   },
 
@@ -305,9 +326,9 @@ const DEMOS: Array<{ id: string; customerVoice: Voice; lines: Line[] }> = [
       { speaker: "customer", text: "Sutherland, 2232." },
       { speaker: "ai",       text: "Sutherland 2232 — got it. And the best number to reach you on?" },
       { speaker: "customer", text: "0432 100 200." },
-      { speaker: "ai",       text: "Perfect. I'm an AI so I can't look up the job directly, but I've logged this as an urgent follow-up on a pending quote and the team will be in touch today to get that sent through. Sorry again for the delay Sandra." },
+      { speaker: "ai",       text: "Perfect. I'm an AI so I can't look up the job directly, but I've got all of that down and it's with the team now. Sorry again for the delay Sandra." },
       { speaker: "customer", text: "That's okay, I just wanted to make sure it hadn't been forgotten." },
-      { speaker: "ai",       text: "Absolutely — it's flagged as priority now. You'll hear from us today. Thanks for your patience, cheers!" },
+      { speaker: "ai",       text: "Absolutely — I've got all of that down for the team. Thanks for your patience, cheers!" },
     ],
   },
 

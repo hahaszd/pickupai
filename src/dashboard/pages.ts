@@ -1486,7 +1486,7 @@ export function upgradePage(tenant?: TenantRow, stripeEnabled?: boolean, reason?
       </li>
       <li style="display:flex;gap:.65rem;align-items:flex-start">
         <span style="color:var(--green);font-weight:700;margin-top:.1rem">✓</span>
-        <span>Emergency detection and priority flagging</span>
+        <span>Every call written down in the caller's own words</span>
       </li>
       <li style="display:flex;gap:.65rem;align-items:flex-start">
         <span style="color:var(--green);font-weight:700;margin-top:.1rem">✓</span>
