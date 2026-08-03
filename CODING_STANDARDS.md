@@ -179,6 +179,13 @@ rather than by review.
   is the same every time: have the code read an explicit value, and have the test
   detect the situation some other way. `callerSuburb` is a field; its test scans
   prose and demands the field exists.
+- **A scripted multi-part edit verifies every part BEFORE writing any of it.**
+  Three times in one session a Python edit script asserted on its second or third
+  replacement, threw, and never reached its `write_text` — so the earlier
+  successful replacements were discarded, the file kept the old text, and the
+  script's own output said the first edits had worked. Once the commit message
+  was written from that output and claimed four fixes where the diff had one.
+  Check that every pattern is present, then apply, then write.
 - **A mutation that does not apply is not evidence.** Verify the file actually
   changed before running the test. A `perl -0pi -e` whose pattern misses reports
   a confident GREEN, and a whole mutation matrix was once nearly filed that way —

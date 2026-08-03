@@ -155,7 +155,13 @@ describe("rules that reverse each other are visibly scoped", () => {
     // Both sides must still say when they apply — that is the whole rule, and
     // the one time only the emergency side was scoped, the caller's name became
     // the most-dropped field across three gate runs.
-    expect(prompt).toMatch(/take \*\*their number\*\* and let the rest go/i);
+    expect(prompt).toMatch(/Ask for their number in the same breath, not after/i);
+    // The rule that came back from a paid slice: the 000 line used to end
+    // "call us back whenever you're safe and I'll take your details then",
+    // which the eval caught as telling the caller to hang up and ring later —
+    // exactly what the deleted gas script warned about, in writing, for a
+    // reason that was never about safety.
+    expect(prompt).toMatch(/Do NOT tell them to ring you back/i);
     expect(prompt).toContain("applies ONLY there; do not carry it into a routine call");
     expect(prompt).toContain("A caller who is leaving a building reverses it");
   });
