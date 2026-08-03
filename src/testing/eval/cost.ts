@@ -59,6 +59,12 @@ export function totalCostUsd(): number {
 }
 
 /** Human-readable breakdown for the end of a run. Empty when nothing was spent. */
+/** The run's total in dollars, for the saved run file. null if nothing billed. */
+export function totalUsd(): number | null {
+  if (tallies.size === 0) return null;
+  return [...tallies].reduce((sum, [model, t]) => sum + costOf(model, t), 0);
+}
+
 export function costReport(conversations: number): string {
   if (tallies.size === 0) return "";
   const lines: string[] = ["", "─".repeat(60), "Estimated cost (from OpenAI's own token counts):"];

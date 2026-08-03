@@ -3,7 +3,7 @@ import type { EvalScenario, EvalResult } from "./types.js";
 import { recordUsage, type OpenAiUsage } from "./cost.js";
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
-const JUDGE_MODEL = process.env.EVAL_JUDGE_MODEL ?? "gpt-4o";
+export const JUDGE_MODEL = process.env.EVAL_JUDGE_MODEL ?? "gpt-4o";
 
 /**
  * What the receptionist did about a thing, as opposed to whether it came up.

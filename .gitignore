@@ -43,3 +43,11 @@ Thumbs.db
 # Claude Code — .claude/settings.json IS committed (shared project config);
 # settings.local.json is per-developer and must not be.
 .claude/settings.local.json
+
+# Saved eval runs. Transcripts of simulated calls, plus per-scenario results.
+# Not committed by default: they are large, they are outputs rather than
+# sources, and a run is only meaningful next to the commit it measured.
+#
+# To keep one as a baseline, commit it deliberately with the commit it belongs
+# to — that is the pairing the comparison depends on.
+.eval-runs/

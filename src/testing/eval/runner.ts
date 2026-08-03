@@ -25,9 +25,9 @@ const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 // of 500,000 TPM against gpt-4o's 30,000. That last one dissolves the
 // throttling this harness kept hitting without paying anything.
 // See docs/research/openai-platform-2026-07.md.
-const ASSISTANT_MODEL = process.env.EVAL_ASSISTANT_MODEL ?? "gpt-5.6-luna";
+export const ASSISTANT_MODEL = process.env.EVAL_ASSISTANT_MODEL ?? "gpt-5.6-luna";
 // Unchanged: at $0.15/$0.60 nothing OpenAI currently lists undercuts it.
-const CALLER_MODEL = process.env.EVAL_CALLER_MODEL ?? "gpt-4o-mini";
+export const CALLER_MODEL = process.env.EVAL_CALLER_MODEL ?? "gpt-4o-mini";
 // Spoken turns, not chat() calls. The distinction matters: the prompt tells the
 // assistant to save progressively, and a save_lead with no accompanying speech
 // costs an iteration of the loop below. Charging those against the same budget

@@ -44,6 +44,43 @@ test. The suburb comes from the scenario's own `callerSuburb` when it sets one,
 and falls back to the hash otherwise; see *Where the caller lives is stated, not
 parsed* below for why that is a field rather than something inferred.
 
+## Runs are saved, and compared scenario by scenario
+
+    npx tsx scripts/run-eval.ts --priority P0 --repeat 3 --out .eval-runs/before.json
+    # …change the prompt…
+    npx tsx scripts/run-eval.ts --priority P0 --repeat 3 --out .eval-runs/after.json --baseline .eval-runs/before.json
+
+The harness wrote **nothing** until 2026-08-03. Every figure in this document
+had been transcribed by hand from a console, and four things were impossible:
+
+- **Reading a transcript already paid for.** A scenario landed 7/9 with its two
+  failures in opposite directions, and deciding whether to touch the prompt
+  needed those nine transcripts. They were gone with the process.
+- **A paired comparison.** The gate runs the same scenarios either side of a
+  change, which is a matched design — and comparing two headline numbers throws
+  it away. With σ≈2.74 scenarios per run a two-point move is noise, and
+  `BACKLOG.md` records that being read as signal twice in one day.
+- **Measuring the judge.** Four of its verdicts have been overturned, every one
+  on a `mustSay`, a `mustDiscourage`, or a multi-turn transcript. The only
+  evidence about its accuracy is six single-sentence `mustNotSay` probes.
+- **Testing whether the context-free scenario exercise worked.** A scenario
+  written from outside the prompt's context should have a lower first-run pass
+  rate than one restating a rule it shipped beside. Nobody computed it.
+
+`--baseline` compares **per scenario, never headline to headline**, and reports
+rates so an escalated n=9 scenario is comparable with an n=3 one. A scenario
+present in only one of the two runs is named separately rather than counted as a
+change — a filter difference is not a regression, and quietly treating it as one
+is how a comparison lies.
+
+`judgeSample()` in `persist.ts` turns a saved run into the hand-labelling sample
+for the judge: the assistant's words and the assertion, with the judge's own
+verdict kept separate so a labeller is not anchored by it. **That measurement
+now costs nothing in API calls** — it reuses conversations already bought.
+
+Run files are gitignored. Commit one deliberately, alongside the commit it
+measured, when it is worth keeping as a baseline.
+
 ## Marginals settle themselves at n=9
 
 A `marginal` at n=3 is mostly dice. With 35 healthy P0 scenarios at a true

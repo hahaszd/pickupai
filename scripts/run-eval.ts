@@ -20,7 +20,10 @@ import { ALL_EVAL_SCENARIOS } from "../src/testing/eval/scenarios/index.js";
 import { runScenario } from "../src/testing/eval/runner.js";
 import { gradeScenario } from "../src/testing/eval/grade.js";
 import { aggregate, ESCALATE_TO_RUNS } from "../src/testing/eval/aggregate.js";
-import { costReport, estimate } from "../src/testing/eval/cost.js";
+import { costReport, estimate, totalUsd } from "../src/testing/eval/cost.js";
+import { writeRunFile, readRunFile, compareRuns, formatComparison } from "../src/testing/eval/persist.js";
+import { ASSISTANT_MODEL, CALLER_MODEL } from "../src/testing/eval/runner.js";
+import { JUDGE_MODEL } from "../src/testing/eval/grade.js";
 import type { EvalResult, EvalScenario, ScenarioReport } from "../src/testing/eval/types.js";
 
 function arg(name: string): string | undefined {
@@ -158,6 +161,7 @@ async function main() {
     }
   );
 
+  const startedAt = new Date().toISOString();
   const firstPass = await runAll(work, REPEAT);
 
   let results = firstPass;
@@ -294,6 +298,46 @@ async function main() {
   // itself, not only to the ones it prints about the product.
   const report = costReport(results.length);
   if (report) console.log(report);
+
+  // ── Persist ───────────────────────────────────────────────────────────────
+  //
+  // Written AFTER the cost report so `totalUsd()` is final. Until 2026-08-03
+  // this harness wrote nothing at all: every figure in docs/eval.md was
+  // transcribed by hand from a console, transcripts were discarded the moment
+  // the process exited, and the same conversations had to be bought twice to
+  // read one of them.
+  const outPath = arg("out");
+  if (outPath) {
+    writeRunFile(outPath, {
+      formatVersion: 1,
+      startedAt,
+      argv: process.argv.slice(2),
+      models: { assistant: ASSISTANT_MODEL, caller: CALLER_MODEL, judge: JUDGE_MODEL },
+      repeat: REPEAT,
+      totals: { scenarios: reports.length, conversations: results.length, usd: totalUsd() },
+      reports
+    });
+    console.log(`\nRun written to ${outPath} (${results.length} conversations, transcripts included)`);
+  }
+
+  // Paired, per scenario. The same scenarios run before and after a change are
+  // a matched design, and comparing two headline numbers throws that away — with
+  // sigma around 2.7 scenarios per run, a two-point move in the headline is
+  // noise, and BACKLOG.md records that being read as signal twice in one day.
+  const baselinePath = arg("baseline");
+  if (baselinePath) {
+    try {
+      console.log(formatComparison(compareRuns(readRunFile(baselinePath), {
+        formatVersion: 1, startedAt, argv: process.argv.slice(2),
+        models: { assistant: ASSISTANT_MODEL, caller: CALLER_MODEL, judge: JUDGE_MODEL },
+        repeat: REPEAT,
+        totals: { scenarios: reports.length, conversations: results.length, usd: totalUsd() },
+        reports
+      }), baselinePath));
+    } catch (err) {
+      console.error(`\nCould not compare against ${baselinePath}: ${(err as Error).message}`);
+    }
+  }
 
   // The gate is the rate. A P0 that fails every run is a defect and blocks; a
   // P0 that flaps is not a release blocker, but it is not a pass either and
