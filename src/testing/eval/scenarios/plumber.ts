@@ -58,12 +58,24 @@ export const PLUMBER_SCENARIOS: EvalScenario[] = [
     // case, it is a dead call." A permanently-declining caller cannot occur
     // here, so relaxing the capture assertion buys nothing and costs the whole
     // reason the scenario exists.
-    mustCapture: ["name", "phone", "issue_summary", "address"],
+    // phone + issue_summary, NOT the full four. The prompt now says: ask for
+    // the number in the same breath and "let everything else go — do not hold
+    // anyone on the phone for a name or an address". So a fully COMPLIANT
+    // assistant cannot satisfy captureTarget "complete", and leaving it would
+    // make a compliant run a P0 defect.
+    //
+    // This is the shape of change docs/research warns against — "must not
+    // weaken the assertions to fit what the prompt already does" — so the
+    // distinction matters: the prompt did not drift, it was deliberately
+    // changed by the owner on 2026-08-03 (PRINCIPLES.md 8), and this scenario
+    // predates that decision. The assertion that still bites is below: it must
+    // ASK for the number, and it must not tell them to ring back.
+    mustCapture: ["phone", "issue_summary"],
     expected: {
       shouldSaveLead: true,
       shouldEndCall: true,
       shouldSendOwnerSms: true,
-      captureTarget: "complete"
+      captureTarget: "degraded"
     },
     mustSay: [
       "asked the caller for a contact number",

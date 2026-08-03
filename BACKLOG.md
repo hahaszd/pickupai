@@ -26,6 +26,63 @@ Last updated: **2026-07-29**
 
 ## P0
 
+### MEASURED: the emergency deletion holds, and "say it once" is the hard edge
+2026-08-03, three slices, $1.34 total. Commits `905d82f` … `4aa259a`.
+
+**The owner's decisions verified against the model, not just against the diff:**
+
+| Scenario | Result | What it proves |
+|---|---|---|
+| `electrician_mains_shock_washing_machine` (inverted) | **3/3** | The assistant no longer tells a caller to see a doctor, and records "got a belt off the washing machine, says he's fine" instead |
+| `roofer_caller_offers_to_climb_up_and_photograph` (halved) | **3/3** | It declines the climb, and does not decline it by explaining the danger |
+| `electrician_lost_neutral_lights_bright_then_dim` | **3/3** | No switchboard instruction, and the symptom captured verbatim |
+| `plumber_no_hot_water_elderly_negative_control` | **3/3** | No unprompted escalation on a non-emergency |
+| `plumber_gas_smell_hot_water_unit` | **0/3 → 3/3** | See below |
+
+**The slice found a defect a diff review had missed, and it was mine.** The new
+triple-zero line ended *"Call us back whenever you're safe and I'll take your
+details then."* The judge caught it against an assertion written weeks earlier:
+*told the caller to just hang up and call back later instead of taking their
+details now.*
+
+The deleted gas script had contained **two** things and I deleted both:
+
+1. *"please leave the building right away"* — safety advice, correctly deleted
+2. *"and quickly, what's the best number to reach you on? …**Do NOT tell them to
+   ring you back instead: they will not, and a gas job with no callback number
+   is a lost customer and a lost lead.**"*
+
+The second is not safety advice. It is the core job, and its reasoning predates
+the safety apparatus entirely. **My replacement did the exact thing that rule
+existed to prevent.** Now: *"…give them a ring first. Before you go though,
+what's the best number for you?"* — one question, in the same breath, then let
+everything else go.
+
+**$0.58 found what reading the diff did not**, because the defect was an
+interaction between a line written today and an assertion written weeks ago.
+
+### OPEN, and genuinely ambiguous: "say it once, then drop it" lands 7/9
+`handyman_gas_smell_while_asking_about_a_shelf`, settled at n=9 by the new
+escalation. **The two failures are in OPPOSITE directions**, which is why it is
+recorded rather than fixed:
+
+- 1× **pressed a second time** after the brush-off: *"I understand, but because
+  you've mentioned you can smell gas, please ring triple zero first."*
+- 1× **never said the line at all**
+
+The rule is *"say it once even if they have already played it down… then accept
+whatever they say next"*. That is a genuinely fine line, and the model is
+oscillating between the two edges rather than failing in one direction — so
+there is no obvious edit, and a prompt change on 1-in-9 evidence would be
+guessing.
+
+**What it would take:** read all nine transcripts before touching the wording.
+The harness does not store them (see the persistence item below), so that means
+re-running with `--verbose` rather than reading what was already paid for.
+
+7/9 is `marginal` under the escalated criteria, which is the category working as
+intended: not a defect, not a pass, and worth knowing.
+
 ### Design review of the eval — it is the right instrument for the wrong ambition
 2026-07-31. A fourth independent agent, asked not "find bugs" but **"is this the
 right instrument at all"**. Verified where it mattered; the numbers below are
