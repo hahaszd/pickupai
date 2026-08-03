@@ -40,10 +40,14 @@ Today's substantive changes, all live:
   silently dead for months, 19 dependency CVEs down to 1 low, CI added.
 - Three data-loss paths closed: deploys, crashes, and instance overlap.
   See [ADR-0001](docs/adr/0001-whole-blob-persistence-and-deferred-migration.md).
-- Electrical safety advice now branches instead of sending every caller to the
-  switchboard; a mains-shock rule was added. Handymen got a licensing boundary
-  that had been switched off in code by a `!isHandyman` guard.
-- Urgency is judged on the situation rather than on a keyword match.
+- **SUPERSEDED 2026-08-03 — do not act on the two lines that were here.** They
+  described branching electrical safety advice and a mains-shock rule as current
+  state; both were deleted, along with all seven hazard scripts and twelve
+  per-trade safety tips. See `PRINCIPLES.md` 8. What remains is one line, for
+  three caller-stated facts, and no advice of any kind.
+- Handymen got a licensing boundary that had been switched off in code by a
+  `!isHandyman` guard. That one still stands.
+- Urgency grading was deleted on 2026-07-28. Nothing grades urgency now.
 - Owner SMS: `notes` now reaches the tradie, GSM-7 sanitising and an
   action-first layout took a realistic lead from 5 segments to 2.
 - Site went from one indexable page to five, plus robots/sitemap/structured

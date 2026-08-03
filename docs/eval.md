@@ -502,9 +502,10 @@ format has room for the right answer** before adding another instruction telling
 it to try harder. The first fix widened the format and immediately exposed a
 second class it still had no room for.
 
-Verified working by this: the branching electrical safety advice, the
-electric-shock rule, the handyman licensing boundary, and all three negative
-controls against emergency over-tagging.
+**Superseded 2026-08-03.** This paragraph named the branching electrical
+safety advice and the mains-shock rule as things the eval verifies. Both were
+deleted with the rest of the safety apparatus — see `PRINCIPLES.md` 8 — and the
+nine scenarios that asserted them were rewritten to assert their absence.
 
 **Three of those claims did not survive being run three times.** See the
 baseline below: the handyman licensing boundary holds 2 runs in 3, one negative

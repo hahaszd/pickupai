@@ -14,8 +14,25 @@ the document gets changed on purpose.
 The one-line version: **the receptionist records, it does not judge.** It answers
 the phone, finds out what the caller needs, writes it down faithfully and passes
 it on — and that is the whole job, not a step towards something more impressive.
-The tradie decides. Urgency grading, callback-time promises and price answers
-were all built and then deleted for this reason; the evidence is in the file.
+The tradie decides. Urgency grading, callback-time promises, price answers and
+**all safety advice** were built and then deleted for this reason; the evidence
+is in the file.
+
+Two clarifications from 2026-08-03, because the absolute version was unusable:
+
+- **"Does not judge" means does not judge OUT LOUD.** The assistant classifies
+  constantly — `caller_intent`, sentiment, job size, what to ask next — and must,
+  or it cannot run a call. Those are filed next to the caller's own words and the
+  tradie overrules them by reading. What it never does is tell the CALLER what it
+  thinks their situation is or what they should do about it.
+- **It gives no safety advice and asks nobody to do anything to the property.**
+  People with real emergencies ring 000, not a plumber. One line survives, for
+  three caller-stated facts. Everything else — a shock that already happened, a
+  hot switchboard, a sounding alarm — is written down, not advised on.
+
+Anything customer-facing that claims otherwise is a false claim, not just stale
+copy: `tests/marketing-claims.test.ts` fails CI on eight such phrases across
+`public/*.html`, the dashboard, the support bot and the demo scripts.
 
 ## Commands
 

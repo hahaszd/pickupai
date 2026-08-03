@@ -262,7 +262,7 @@ The dashboard displays all leads for this tradie's account, sorted newest first:
 Clicking a lead shows the full record:
 - Caller name, phone number, full address
 - Detailed issue description
-- Urgency level
+- ~~Urgency level~~ — removed 2026-07-28; nothing writes it
 - Preferred call-back time
 - **Call recording** (playable directly in browser)
 - Full **call transcript** (text)

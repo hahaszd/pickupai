@@ -4,7 +4,9 @@ This playbook is a practical, step-by-step GTM guide for launching the **Core (n
 
 ## 0) What we’re selling (Core)
 **Outcome promise (no booking / no integrations):**
-> We answer every call 24/7 and turn it into a structured SMS lead. During business hours, genuine emergencies are warm-transferred to the owner; after-hours, callers get instant SMS confirmation and a clear callback commitment.
+> We answer every call 24/7 and turn it into a structured SMS lead in the caller's own words. If warm transfer is switched on, calls during business hours ring through to you live. After hours, the caller gets an instant SMS confirming you have their details.
+>
+> **Do not say "emergencies are warm-transferred".** Warm transfer is keyed on your business hours and a setting, not on what the call is about — the AI does not decide what counts as an emergency, and since 2026-07-31 it does not give safety advice at all. Saying otherwise is a claim the product cannot keep.
 
 **Pricing:** $149/mo (founding offer for first 20 customers, locks for 3 months), then $199/mo. 14-day free trial with credit card required.
 
@@ -104,7 +106,7 @@ You do not need a fancy brand. You need credibility and speed.
 
 ### 5.6 Objection handling (common)
 **“Will customers hate AI?”**
-> It’s designed to be fast and helpful. Most callers just want someone to pick up and confirm you’ll call back. We also warm-transfer genuine emergencies during business hours.
+> It’s designed to be fast and helpful. Most callers just want someone to pick up and take their details down properly. If you turn warm transfer on, calls during business hours ring through to you live.
 
 **“I don’t want extra admin.”**
 > No admin. You just set call forwarding once. You get a text summary after each call. That’s it.
@@ -125,7 +127,7 @@ Keep it simple and time-boxed.
 - Clear success criteria:
   - every call answered
   - every call produces an SMS lead summary
-  - emergencies during business hours are warm-transferred
+  - warm transfer, if enabled, rings calls through during business hours — all calls, not a selected subset
 
 ### What you need from the customer to start
 - business name
