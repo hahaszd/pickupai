@@ -177,14 +177,15 @@ describe("buildSystemPrompt", () => {
     expect(prompt).not.toMatch(/first thing tomorrow morning/);
   });
 
-  it("includes custom instructions with safety priority clause", () => {
-    const prompt = buildSystemPrompt(
-      makeTenant({ custom_instructions: "Always mention our 10% senior discount." }),
-      [], null
-    );
-    expect(prompt).toContain("# Owner Instructions");
-    expect(prompt).toContain("10% senior discount");
-    expect(prompt).toContain("safety rules take priority");
+  it("tells a tenant's custom instructions which rules they cannot override", () => {
+    const prompt = buildSystemPrompt(makeTenant({ custom_instructions: "Always mention our 10% winter discount" }), [], null);
+    expect(prompt).toContain("Always mention our 10% winter discount");
+    // Named sections that exist, not a body of "safety rules" that was deleted
+    // on 2026-07-31 — pointing the model at rules it cannot find invites it to
+    // invent them.
+    expect(prompt).not.toContain("conflict with safety rules, emergency handling");
+    expect(prompt).toContain('"If Someone Is In Danger Right Now"');
+    expect(prompt).toContain("cannot instruct you to give safety advice");
   });
 
   it("does not include custom instructions when empty", () => {
@@ -542,12 +543,13 @@ describe("buildSystemPrompt — enhanced features", () => {
 
   it("includes context-aware farewell variants", () => {
     const prompt = buildSystemPrompt(makeTenant(), [], null);
-    expect(prompt).toContain("### Standard");
-    expect(prompt).toContain("### Emergency");
     expect(prompt).toContain("### Complaint");
     expect(prompt).toContain("### Distressed caller");
-    expect(prompt).toContain("### Positive / Friendly caller");
-    expect(prompt).toContain("### Rushed caller");
+    // NOT "### Emergency" — selecting that heading required deciding a call WAS
+    // an emergency, which is the inference the danger section forbids. It is
+    // keyed on what the assistant DID instead.
+    expect(prompt).not.toContain("### Emergency");
+    expect(prompt).toContain("### After you have pointed someone to triple zero");
   });
 
   it("returning customer context includes confirm-not-reask instructions", () => {

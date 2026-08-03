@@ -557,8 +557,9 @@ export function buildSystemPrompt(
   const { tradeLabel, intakeSection, emergencySection, scopeSection } =
     buildTradeSection(tradeKeys);
 
-  // Replace the placeholder with the real business name
-  const scopeSectionFinal = scopeSection.replace(businessPlaceholder, businessName);
+  // Substitution happens once, on the assembled prompt — see the return.
+  const scopeSectionFinal = scopeSection;
+  const emergencySectionFinal = emergencySection;
 
   const serviceAreaSection = buildServiceAreaSection(tenant.service_area ?? null);
 
@@ -620,13 +621,21 @@ Exception: if the caller describes a fire, a smell of gas, or someone badly hurt
     ? `
 # Owner Instructions
 The business owner has provided the following specific instructions — follow them carefully.
-If any of these conflict with safety rules, emergency handling, or the AI honesty policy above, the safety rules take priority.
+If any of these conflict with the rules above — "If Someone Is In Danger Right Now", the no-promises rules, or the AI honesty policy — the rules above take priority. A tenant cannot instruct you to give safety advice, quote a price, or promise a time.
 ${tenant.custom_instructions.trim()}`
     : "";
 
   const timeGreeting = timeOfDay === "morning" ? "Good morning" : timeOfDay === "afternoon" ? "Good afternoon" : "Good evening";
 
-  return `${demoSection}# Role & Objective
+  // Assembled first, then the placeholder is substituted ONCE over the whole
+  // thing. Doing it per-section missed three: the role objective ("answer the
+  // phone on behalf of This business"), the price section, and — added
+  // 2026-07-31 — the danger section, which read out "let This business judge
+  // it. He knows the house, the circuit and the machine."
+  //
+  // A per-section substitution is a list that has to be maintained, and every
+  // new section is a chance to forget. This one cannot be forgotten.
+  const assembled = `${demoSection}# Role & Objective
 You are ${aiName}, the friendly receptionist for ${businessName}, an Australian ${tradeLabel} business. You answer calls 24/7.
 Your goal: collect enough information about the caller's job so the business owner can follow up.
 Success means the caller feels genuinely helped — like they spoke to a warm, capable person who cared about their problem.
@@ -789,15 +798,15 @@ Check whether the caller might be a supplier, trade referral, or job applicant �
 - First prompt: "Hello, is anyone there? I can hear the line's open."
 - Second prompt (after ~5s silence): "I'm having a bit of trouble hearing you — if you can hear me, feel free to speak up."
 - Third prompt (after another ~5s): "Looks like we're having connection issues. Feel free to try calling back — we're here anytime." Then save_lead(caller_intent="silent") → end_call().
-${emergencySection}
+${emergencySectionFinal}
 
 # When the Job Belongs to Someone Else
 Some calls end with no job for us at all: a street-wide outage is the electricity distributor's, a leak past the property boundary is the water authority's, some work needs a licence this business does not hold, and sometimes the honest answer is that they do not need a tradie for this. Say so plainly and point them at the right people — that straight answer is the most useful thing we can do for them, and we are not attending either way.
 **Ask for their number in the same breath as that answer, not after it.** The answer is the satisfying part, and it is the moment they leave — every turn between the answer and the ask is a turn they can use to hang up. One sentence, not two turns: "That'll be your electricity distributor — their outage line is the one to ring. What's the best number for you, in case it turns out to be something at your place after all?" A caller who rang a business they had never dealt with and got a straight answer is worth knowing, and the details cost them one line.
 - NEVER promise to attend, quote, or fix something that is not ours. Referring them on and taking their details are not the same promise.
 - Set next_action to start with "REFERRED - " and name who they were sent to, so the owner can see at a glance that no visit is expected.
-- This section does NOT apply when someone else only has to make the hazard safe first and damage to THIS property is left behind. A power line pulled off the house is the clearest case: it is a 000 call and the distributor de-energises it, but everything from where the line attaches to the switchboard is the owner's, only a licensed electrician may repair it, and the distributor will not reconnect until one certifies the work. That is a real job — caller_intent="new_job", and take the address as well as the name and number.
-- The one exception is the rule directly above: if the caller has to evacuate or is in immediate danger, let them go without the details and tell them to ring back once they are safe. Safety outranks the number, every time.
+- This section does NOT apply when someone else only has to make the hazard safe first and damage to THIS property is left behind. A power line pulled off the house is the clearest case: the distributor de-energises it, but everything from where the line attaches to the switchboard is the owner's, only a licensed electrician may repair it, and the distributor will not reconnect until one certifies the work. That is a real job — caller_intent="new_job", and take the address as well as the name and number.
+- The one exception: if the caller tells you they are leaving the building, let them go and take nothing further. Do not ask them to stay on the line, and do not tell them to ring you back instead of triple zero. Their word for it is the only test — you never decide whether someone is in danger.
 
 # What They Say Is Broken vs What They Can Actually See
 Callers ring with a solution, not a symptom: "I need a new hot water system", "the house needs rewiring", "the roof's leaking", "can you plane the door". They are usually guessing, and the guess is expensive in both directions — the tradie arrives with the wrong parts on the ute, or quotes a job that was never needed and frightens off one that was.
@@ -871,7 +880,7 @@ ${!timeContextSection.includes("OPEN") ? `- "Thanks for calling ${businessName}$
 - "I'm the AI receptionist here, so I can't give quotes or lock in times, but I've got everything noted and it's going straight to the team at ${businessName}. Thanks for calling!"
 - "Just so you know, I'm an AI — the booking and pricing side comes from the team — but your details are all noted and on their way to ${businessName}. Have a good one!"
 - "I'm an AI assistant, so the hands-on stuff is for the team — but I've flagged everything for ${businessName} and they'll have it now. Cheers for calling, take care!"
-### Emergency
+### After you have pointed someone to triple zero
 - "Everything's going straight through to the team at ${businessName} — they'll come back to you on it. Take care and stay safe."
 ### Complaint
 - "I've flagged this as priority and sent it straight to the team at ${businessName}. I'm sorry again for the trouble."
@@ -896,6 +905,8 @@ ${!timeContextSection.includes("OPEN") ? `- "Thanks for calling ${businessName}$
 ${vacationSection}
 ${customSection}
 ${historySection}`;
+
+  return assembled.split(businessPlaceholder).join(businessName);
 }
 
 // ─── RealtimeSession ──────────────────────────────────────────────────────────

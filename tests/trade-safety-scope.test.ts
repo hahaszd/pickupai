@@ -254,3 +254,17 @@ describe("the assistant never asks the caller to do anything", () => {
     expect(p).toContain("Can they see where it's coming from");
   });
 });
+
+describe("the business name is substituted everywhere it appears", () => {
+  // The placeholder was replaced in ONE section, with a non-global replace. The
+  // danger section added 2026-07-31 read out verbatim: "let This business judge
+  // it. He knows the house, the circuit and the machine." Two placeholders, in
+  // the section carrying the product's only safety utterance.
+  it("leaves no placeholder anywhere in the rendered prompt", () => {
+    for (const trade of ["electrician", "plumber", "roofer", "handyman", "builder"]) {
+      const p = buildSystemPrompt(makeTenant(trade), [], null);
+      expect(p, `${trade} still contains the raw placeholder`).not.toContain("This business");
+      expect(p).toContain("Test Trade Co");
+    }
+  });
+});
