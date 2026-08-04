@@ -281,3 +281,47 @@ describe("the business name is substituted everywhere it appears", () => {
     }
   });
 });
+
+describe("the trigger names the words people actually use", () => {
+  // The trigger is the caller's OWN words and "never an inference". But nobody
+  // rings up and says "something smells of burning" — they say "hot plastic",
+  // "melting", "an electrical smell". Requiring the model to bridge that gap on
+  // the product's only safety utterance is exactly the ambiguity that produces
+  // a run-to-run flap, so the prompt names the phrasings instead of widening
+  // the list to a fourth category.
+  it("lists the phrasings for the burning trigger, without adding a category", () => {
+    const p = buildSystemPrompt(makeTenant("electrician"), [], null);
+    for (const phrase of ["burning plastic", "hot plastic", "melting", "an electrical smell"]) {
+      expect(p, `trigger should name "${phrase}"`).toContain(phrase);
+    }
+    // Still exactly three bullets — fire/smoke/burning, gas, someone hurt.
+    expect(p).toContain("they can smell gas");
+    expect(p).toContain("trapped, unconscious, not breathing, or badly hurt");
+    // And nothing has crept back in as a fourth.
+    expect(p).not.toMatch(/^- (?:a shock|water near|an alarm|a switchboard)/m);
+  });
+});
+
+describe("a caller who asks outright gets the sentence, not an answer", () => {
+  const TRADES = ["electrician", "plumber", "roofer", "handyman"];
+
+  it("supplies the words, and names the evasions that must not replace them", () => {
+    for (const trade of TRADES) {
+      const p = buildSystemPrompt(makeTenant(trade), [], null);
+      expect(p, trade).toMatch(/I'm the AI receptionist here, so I'm honestly not the one to tell you what to do/);
+      expect(p, trade).toContain("I can't see it and I'm not the tradesperson");
+      // A prohibition with no replacement gets improvised, and the
+      // improvisation reads as a system failing — measured four times in this
+      // repo, most expensively on price.
+      expect(p, trade).toContain('"I\'m not able to advise on that"');
+    }
+  });
+
+  it("applies to every 'what should I do' question, not only the dangerous ones", () => {
+    const p = buildSystemPrompt(makeTenant("plumber"), [], null);
+    expect(p).toMatch(/applies to every "what should I do" question, not only dangerous ones/);
+    // Said once, then straight back to the conversation — the shape the price
+    // rule proved works.
+    expect(p).toMatch(/If they ask a second time, do not re-explain/i);
+  });
+});
