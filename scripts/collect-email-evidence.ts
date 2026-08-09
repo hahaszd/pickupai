@@ -53,25 +53,35 @@ const LIMIT = Number(flag("limit", "10"));
 const STATE = flag("state", "NSW")!;
 const TRADE = flag("trade");
 const OUT_DIR = flag("out", "./data/email-evidence")!;
+/** 551 NSW rows were SMSed in the campaign that produced zero replies. Off by default. */
+const INCLUDE_CONTACTED = args.includes("--include-contacted");
 
 /**
- * Rows that are in `prospects` but could never be a customer. The first run
- * spent 7 of its 23 reader agents — 30% of the budget — on the Electrical
- * Trades Union before anyone noticed it is a union, not a tradie. Suppliers
- * (Reece) turned up in an earlier sample the same way.
+ * Rows that are in `prospects` but could never be a customer. The audit in
+ * `scripts/audit-prospect-quality.ts` found these are not stragglers but a
+ * whole class: AGM Roofing Supplies filed as `roofer`, AEW Electrical
+ * Wholesalers as `electrician`, No 1 Roofing & Building Supplies five times
+ * over, the Electrical Trades Union as `electrician`. They sell TO tradies.
  *
  * Override with --exclude '<regex>', or --exclude '' to keep everything. What
  * gets dropped is always printed: a filter that silently shrinks the list reads
- * as "we covered everything" when it did not.
+ * as "we covered everything" when it did not. The pattern over-matches by
+ * design — "Academy Roofing" is probably a real roofer and will be dropped.
+ * Read the printed list; a genuine business caught by it can be added back by
+ * narrowing the pattern.
  */
 const EXCLUDE = new RegExp(
   flag(
     "exclude",
     "\\b(union|association|institute|federation|council|chamber|academy|college|tafe|" +
-      "supplies|supply|wholesale|wholesaler|distributor|trade centre|warehouse|bunnings|reece)\\b"
+      "suppl(y|ies|ier|iers)|wholesal(e|er|ers)|distributor|trade centre|warehouse|" +
+      "hardware|bunnings|reece|drywall)\\b"
   )!,
   "i"
 );
+
+/** Websites that are not a business's own site. */
+const BAD_SITE = /(cdn\.|googleusercontent|gstatic|growthbook|facebook\.com|instagram\.com|linktr\.ee)/i;
 
 // Addresses that are technically on the page but are nobody's business contact.
 const ASSET_RE = /\.(png|jpe?g|gif|webp|svg|css|js|woff2?)$/i;
@@ -162,24 +172,70 @@ async function main() {
   }
   const db = await openDb(process.env.SQLITE_PATH ?? "./data/app.sqlite", process.env.DATABASE_URL);
 
-  // Over-fetch so the exclusions below can be replaced rather than shrinking the
-  // batch — --limit 10 should still deliver ten businesses worth reading.
+  // SQL carries the checks that are certain — a malformed field, an honoured
+  // opt-out, a prior contact. Everything a regex could be wrong about is done
+  // below in JS so it can be printed. Over-fetch so exclusions get replaced
+  // rather than shrinking the batch: --limit 20 should deliver twenty.
+  //
+  // `status = 'not_mobile'` is deliberately NOT excluded. It parked those rows
+  // for SMS because there was no mobile number, and says nothing about email —
+  // 1,535 NSW rows sit there and are candidates again.
   const candidates = db.all<any>(
-    `SELECT prospect_id, business_name, trade_type, suburb, state, website, source
+    `SELECT prospect_id, business_name, trade_type, suburb, state, website, source,
+            status, last_contacted_at
        FROM prospects
-      WHERE state = ? AND website LIKE 'http%' AND unsubscribed_at IS NULL
+      WHERE state = ?
+        AND website LIKE 'http%'          -- 188 NSW rows hold the string "true"
+        AND business_name IS NOT NULL AND trim(business_name) != ''
+        AND unsubscribed_at IS NULL       -- opt-out is cross-channel, always
+        AND (status IS NULL OR status NOT IN ('do_not_contact', 'unsubscribed'))
+        ${INCLUDE_CONTACTED ? "" : "AND last_contacted_at IS NULL"}
         ${TRADE ? "AND trade_type = ?" : ""}
       ORDER BY prospect_id
       LIMIT ?`,
-    TRADE ? [STATE, TRADE, LIMIT * 3] : [STATE, LIMIT * 3]
+    TRADE ? [STATE, TRADE, LIMIT * 8] : [STATE, LIMIT * 8]
   );
 
-  const dropped = candidates.filter((p) => EXCLUDE.source && EXCLUDE.test(p.business_name ?? ""));
-  const rows = candidates.filter((p) => !dropped.includes(p)).slice(0, LIMIT);
+  // Reasons a row is dropped, each printed so a wrong call is visible.
+  const reasonFor = (p: any): string | null => {
+    if (BAD_SITE.test(p.website ?? "")) return "website is a CDN/platform, not a business site";
+    if (/[鈥âÃ]/.test(p.business_name ?? "")) return "business name is mojibake";
+    if (EXCLUDE.test(p.business_name ?? "")) return "name reads as a supplier/association, not a tradie";
+    return null;
+  };
+
+  const dropped: { p: any; why: string }[] = [];
+  const seenSite = new Set<string>();
+  const seenName = new Set<string>();
+  const rows: any[] = [];
+
+  for (const p of candidates) {
+    if (rows.length >= LIMIT) break;
+    const why = reasonFor(p);
+    if (why) {
+      dropped.push({ p, why });
+      continue;
+    }
+    // The same business twice is a compliance problem, not just noise: 288 NSW
+    // rows duplicate a website and 297 duplicate name+suburb.
+    const siteKey = (p.website ?? "").toLowerCase().replace(/[?#].*$/, "").replace(/\/+$/, "");
+    const nameKey = `${(p.business_name ?? "").toLowerCase().trim()}|${(p.suburb ?? "").toLowerCase().trim()}`;
+    if (seenSite.has(siteKey)) {
+      dropped.push({ p, why: "duplicate website" });
+      continue;
+    }
+    if (seenName.has(nameKey)) {
+      dropped.push({ p, why: "duplicate business name + suburb" });
+      continue;
+    }
+    seenSite.add(siteKey);
+    seenName.add(nameKey);
+    rows.push(p);
+  }
 
   if (dropped.length) {
-    console.log(`Excluded ${dropped.length} row(s) as not-a-tradie-business — check this list, it is a heuristic:`);
-    for (const d of dropped) console.log(`  · ${d.business_name}`);
+    console.log(`Excluded ${dropped.length} row(s). These are heuristics — read the list:`);
+    for (const d of dropped) console.log(`  · ${String(d.p.business_name).slice(0, 44).padEnd(44)} ${d.why}`);
     console.log("");
   }
 

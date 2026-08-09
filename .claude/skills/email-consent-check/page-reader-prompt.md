@@ -67,6 +67,37 @@ Compare the address's domain against the `SOURCE-URL:` domain. A match is strong
 evidence it is theirs; a mismatch is not proof it is not (many small businesses
 use gmail/bigpond/optusnet), so judge it on the surrounding words too.
 
+## Question 3 — is this row even a real target?
+
+**Do not trust the business name, trade, suburb or state we hand you.** That
+data was scraped in April 2026 without quality control and has aged. An audit
+found suppliers filed as tradies (`AGM Roofing Supplies` as `roofer`), a trade
+union filed as an electrician, a painter filed as a roofer, booleans in the
+website column, and duplicate rows. **Judge from the page, and say so when the
+page contradicts what we gave you.**
+
+Four things, each answerable from the page in front of you:
+
+- **`trading`** — does this read as a business that is currently operating? A
+  parked domain, a "site coming soon" placeholder, an expired-listing page, a
+  "we have closed" notice, or a template with lorem-ipsum text and no real
+  contact details is **not**.
+- **`does_the_work`** — do they perform the trade themselves, or do they sell to
+  people who do? A **supplier, wholesaler, trade counter, manufacturer, industry
+  association, union, training college, or a directory** is not a target. A
+  franchise's national head office is not a target; an individual franchisee who
+  attends jobs is.
+- **`actual_trade`** — what trade do they actually do, in your own words from the
+  page (`plumber`, `electrician`, `roofer`, `painter`, `landscaper`, `mixed
+  trades`, …). If it disagrees with the `trade_type` we gave you, say so.
+- **`size_signal`** — the smallest business that fits the page: `sole_trader`,
+  `small_team` (roughly 2–10, "our team", a few named staff), `larger_firm`
+  (an office, a receptionist, a careers page, many branches, corporate/commercial
+  clients), or `unclear`. This is a signal, not a verdict — give your reason.
+
+Answer from evidence on the page, not from the business name. If the page does
+not support a call, say `unclear` rather than guessing.
+
 ## Output
 
 Return **JSON only** — no prose before or after, no code fence:
@@ -81,7 +112,14 @@ Return **JSON only** — no prose before or after, no code fence:
   "why": "<one sentence>",
   "addresses": [
     {"email": "...", "belongs_to_business": true | false, "why": "<short>"}
-  ]
+  ],
+  "trading": true | false | "unclear",
+  "does_the_work": true | false | "unclear",
+  "actual_trade": "<what they actually do, from the page>",
+  "trade_matches_our_record": true | false,
+  "size_signal": "sole_trader" | "small_team" | "larger_firm" | "unclear",
+  "target_verdict": "target" | "not_a_target" | "unclear",
+  "target_why": "<one sentence, citing what on the page decided it>"
 }
 ```
 

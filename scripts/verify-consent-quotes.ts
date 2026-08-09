@@ -37,7 +37,7 @@
  *
  * Exit codes: 0 everything verified · 1 at least one fabrication · 2 bad input.
  */
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
 
 type Verdict = {
@@ -87,12 +87,25 @@ async function main() {
   const ghostAddresses: { v: Verdict; email: string }[] = [];
   let addressesChecked = 0;
 
+  /**
+   * A reader given a whole prospect's pages can legitimately cite any of them,
+   * so verification must span the prospect's directory, not just the one file
+   * named on the verdict. Getting this wrong is not a near-miss: a real address
+   * found on the contact page would be reported FABRICATED against the
+   * homepage, and this script's own rule then invalidates the entire run.
+   */
+  const readAllPages = async (prospectId: string): Promise<string> => {
+    const dir = join(evidenceRoot, prospectId);
+    const names = (await readdir(dir)).filter((n) => n.endsWith(".txt"));
+    const parts = await Promise.all(names.map((n) => readFile(join(dir, n), "utf8")));
+    return parts.join("\n\n");
+  };
+
   for (const v of verdicts) {
-    // Read the page once — both checks below need it.
+    // Read the prospect's pages once — both checks below need them.
     let text: string | null = null;
-    const file = join(evidenceRoot, v.prospect_id, v.page_file);
     try {
-      text = await readFile(file, "utf8");
+      text = await readAllPages(v.prospect_id);
     } catch (e) {
       unreadable.push({ v, why: (e as Error).message });
     }

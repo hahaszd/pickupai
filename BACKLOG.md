@@ -26,6 +26,58 @@ Last updated: **2026-08-09**
 
 ## P0
 
+### MEASURED: 57% of the prospect rows we read were wrong about something
+2026-08-10. First filtered run: 20 NSW prospects, 14 reachable, all read by
+Sonnet 5, all quotes and addresses verified against source. **The owner's
+instinct not to trust this list was right, and the error rate is higher than
+"stale" implies.**
+
+| Row | Our record said | The page says |
+|---|---|---|
+| `AGC ROOF`, Saint Peters, agcroof.com.au | — | **Tomkat Roofing**, Prestons NSW. The word "AGC" appears nowhere. Name, website and suburb all wrong |
+| `Varley Electric` | electrician, Bamarang | *"We regret to inform you that Varley Electric is no longer in operation"* — **closed**, referring callers elsewhere |
+| `Flash Plumbing Services` | **roofer** | plumber. Roof plumbing is one line item among many |
+| `CIW (NSW)` | **roofer** | commercial waterproofing / basement tanking contractor |
+| `Vaporooter Australia` | **plumber** | tree-root pipe-treatment specialist, a niche |
+| `Nathan Parnell Roofing` | Old Erowal Bay | Vincentia |
+| `KAH Electrical` | Adamstown | Merewether |
+| `Varley Electric` | Bamarang | Tomerong |
+
+**8 of 14 reachable rows carry at least one wrong field — 57%.** Wrong trade
+alone is 3/14. `trade_type` cannot be used to target a campaign, and `suburb`
+cannot be used to claim a business is in a service area.
+
+**The yield is much worse than estimated, and the estimate was mine.**
+
+| | |
+|---|---|
+| Prospects attempted | 20 |
+| Reachable | 14 (**30% dead**, against 13% in the first survey) |
+| Still trading | 13 |
+| **Usable, verified addresses** | **6 — a 30% end-to-end yield** |
+
+**So 50 addresses needs ~167 prospects, not the ~93 recorded above.** That
+earlier figure came from a survey that counted raw regex hits; this one counts
+addresses a reader confirmed belong to the business. Use 30%.
+
+**Zero refusal notices again — now 0 across 14 businesses and 46 pages**,
+including several real privacy policies and OH&S/environmental policies. Three
+zeros in a row (regex, Haiku, Sonnet) with rising method quality each time.
+Still not a base rate, but it is no longer nothing.
+
+**Sonnet 5 on this run: 6/6 addresses verified present in source, 0 fabricated.**
+Against Haiku's 2 invented addresses on a comparable read. On a Max plan the
+per-token cost argument is void — usage headroom and wall-clock are the only
+constraints — so there is no reason left to run question 2 on a cheap model.
+
+**A defect in the harness, found because it nearly fired:** `KAH Electrical`'s
+address is on its contact page, not the homepage named on the verdict. Stage 3
+checked only the named file, so a real address would have been reported
+FABRICATED — and this repo's own rule says one fabrication invalidates the whole
+run. A correct finding would have thrown away thirteen good ones. Verification
+now spans every page saved for that prospect. **The check that guards the run
+was itself the thing most able to destroy it.**
+
 ### BUILT: `email-consent-check`, and its first run cost 761k tokens for 7 businesses
 2026-08-10. `.claude/skills/email-consent-check/` (the repo's first skill),
 `scripts/collect-email-evidence.ts`, `scripts/verify-consent-quotes.ts`.
