@@ -57,6 +57,25 @@ const OUT_DIR = flag("out", "./data/email-evidence")!;
 const INCLUDE_CONTACTED = args.includes("--include-contacted");
 
 /**
+ * Default to a business's own Google listing. The directory sources —
+ * oneflare, hipages, serviceseeking, localsearch — are excluded for a legal
+ * reason before a quality one: a directory listing is published by the
+ * directory, not by the business, so it fails Schedule 2 cl 4(2)(c) ("reasonable
+ * to assume the publication occurred with the agreement of" the person). Two of
+ * those companies have themselves been penalised by ACMA for spamming.
+ * `--source all` keeps everything.
+ */
+const SOURCE = flag("source", "google_places")!;
+
+/**
+ * Review count as a size proxy: a business with hundreds of reviews usually has
+ * someone answering the phone already, which is the opposite of the customer.
+ * A heuristic, and applied only where the field is populated — rows with no
+ * review_count are kept rather than silently dropped.
+ */
+const MAX_REVIEWS = Number(flag("max-reviews", "40"));
+
+/**
  * Rows that are in `prospects` but could never be a customer. The audit in
  * `scripts/audit-prospect-quality.ts` found these are not stragglers but a
  * whole class: AGM Roofing Supplies filed as `roofer`, AEW Electrical
@@ -73,9 +92,12 @@ const INCLUDE_CONTACTED = args.includes("--include-contacted");
 const EXCLUDE = new RegExp(
   flag(
     "exclude",
-    "\\b(union|association|institute|federation|council|chamber|academy|college|tafe|" +
-      "suppl(y|ies|ier|iers)|wholesal(e|er|ers)|distributor|trade centre|warehouse|" +
-      "hardware|bunnings|reece|drywall)\\b"
+    // No word boundary on the strong indicators: `LinkRoofingSupplies` is one
+    // word, and `\bsuppl` slipped it straight through into a read.
+    "(suppl(y|ies|ier|iers)|wholesal|warehouse|distributor)" +
+      // Boundaries on the ambiguous ones, so `Union Street Plumbing` survives.
+      "|\\b(union|association|institute|federation|council|chamber|academy|college|" +
+      "tafe|trade centre|hardware|bunnings|reece|drywall)\\b"
   )!,
   "i"
 );
@@ -180,20 +202,27 @@ async function main() {
   // `status = 'not_mobile'` is deliberately NOT excluded. It parked those rows
   // for SMS because there was no mobile number, and says nothing about email —
   // 1,535 NSW rows sit there and are candidates again.
+  const params: any[] = [STATE];
+  if (SOURCE !== "all") params.push(SOURCE);
+  if (TRADE) params.push(TRADE);
+  params.push(LIMIT * 8);
+
   const candidates = db.all<any>(
     `SELECT prospect_id, business_name, trade_type, suburb, state, website, source,
-            status, last_contacted_at
+            status, last_contacted_at, review_count, google_rating
        FROM prospects
       WHERE state = ?
         AND website LIKE 'http%'          -- 188 NSW rows hold the string "true"
         AND business_name IS NOT NULL AND trim(business_name) != ''
         AND unsubscribed_at IS NULL       -- opt-out is cross-channel, always
         AND (status IS NULL OR status NOT IN ('do_not_contact', 'unsubscribed'))
+        ${SOURCE !== "all" ? "AND source = ?" : ""}
         ${INCLUDE_CONTACTED ? "" : "AND last_contacted_at IS NULL"}
         ${TRADE ? "AND trade_type = ?" : ""}
+        AND (review_count IS NULL OR review_count <= ${Number.isFinite(MAX_REVIEWS) ? MAX_REVIEWS : 1e9})
       ORDER BY prospect_id
       LIMIT ?`,
-    TRADE ? [STATE, TRADE, LIMIT * 8] : [STATE, LIMIT * 8]
+    params
   );
 
   // Reasons a row is dropped, each printed so a wrong call is visible.
@@ -309,10 +338,23 @@ async function main() {
   await writeFile(join(OUT_DIR, "index.json"), JSON.stringify({ collected_at: stamp, state: STATE, trade: TRADE ?? null, prospects: index }, null, 2), "utf8");
 
   const reach = index.filter((r) => r.reachable);
+  const withAddr = reach.filter((r) => r.candidate_emails.length > 0);
+  const noAddr = reach.filter((r) => r.candidate_emails.length === 0);
   const pagesTotal = index.reduce((n, r) => n + r.pages.length, 0);
-  console.log(`\nreachable ${reach.length}/${index.length} · ${pagesTotal} pages saved · ${index.reduce((n, r) => n + r.candidate_emails.length, 0)} candidate addresses`);
-  console.log(`\nNOTHING HAS BEEN JUDGED YET. Every address above is a candidate and every`);
-  console.log(`page is unread. Stage 2 reads them one at a time; stage 3 verifies the quotes.`);
+
+  console.log(`\nreachable ${reach.length}/${index.length} · ${pagesTotal} pages saved`);
+  console.log(`\nFOR STAGE 2 — ${withAddr.length} prospect(s) have at least one candidate address:`);
+  for (const r of withAddr) {
+    console.log(`  ${r.prospect_id}  ${String(r.business_name).slice(0, 34).padEnd(34)} ${r.candidate_emails.join(", ")}`);
+  }
+  console.log(`\nSKIPPED — ${noAddr.length} reachable prospect(s) yielded no address, so there is`);
+  console.log(`nothing for a reader to consent-check. Reading them cannot produce a usable`);
+  console.log(`address, because the reader may only classify addresses a script extracted.`);
+  console.log(`THE COST OF THIS SHORTCUT: an address hidden behind Cloudflare obfuscation`);
+  console.log(`("[email protected]") or written as "name [at] domain" is lost here and never`);
+  console.log(`recovered. Some of the ${noAddr.length} below may have a usable address we cannot see:`);
+  for (const r of noAddr) console.log(`  · ${String(r.business_name).slice(0, 40).padEnd(40)} ${r.website}`);
+  console.log(`\nNOTHING HAS BEEN JUDGED YET. Stage 2 reads the ${withAddr.length} above; stage 3 verifies.`);
   console.log(`Index: ${join(OUT_DIR, "index.json")}`);
   process.exit(0);
 }

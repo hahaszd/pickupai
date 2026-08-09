@@ -26,6 +26,77 @@ Last updated: **2026-08-09**
 
 ## P0
 
+### DONE: 23 verified NSW addresses, and the SMS campaign was NOT sent to the wrong people
+2026-08-10. 90 prospects fetched → 51 with a candidate address → 30 read by
+Sonnet 5 → **29 addresses verified present in source, 0 fabricated**. Register in
+`data/email-evidence/consent-register-2026-08-10.json` (gitignored — it is other
+businesses' contact data).
+
+**23 clean** (small operator, trade confirmed from the page), **6 marginal**
+(real but off-positioning: a painter filed as handyman, an automotive trimmer
+filed as roofer, a builder, a solar inspector, two firms large enough to have a
+front desk), **1 rejected**: `Group of Roofers` is a lead-generation site owned
+by Client Connect Australia Pty Ltd, not a roofer. Its own homepage says so.
+
+**Two free filters did most of the work.** Restricting to `source =
+'google_places'` and `review_count <= 40` lifted the address-bearing rate from
+43% to 57% of reachable. The source filter is a **legal** requirement before it
+is a quality one — directory listings are published by the directory, not the
+business, so they fail Schedule 2 cl 4(2)(c).
+
+### ANSWERED: the SMS campaign reached tradies — but may have called a fifth of them the wrong trade
+2026-08-10, `scripts/audit-who-we-texted.ts`. The question was whether the
+list's 57% metadata error rate means the 560-SMS campaign never reached the
+target audience, which would make `docs/channel-evidence.md`'s conclusion
+unsupported.
+
+**On audience identity: the hypothesis is not supported.** Of **718 distinct
+prospects** in `outreach_log`, **717 are `google_places`** — no directory rows
+at all — and only **9 (1.3%)** are visibly not a tradie by name. The reason is
+mechanical: the campaign needed a mobile number, and suppliers and wholesalers
+mostly publish landlines, so `status = 'not_mobile'` filtered them out as a side
+effect. **The texted cohort was cleaner than the table it came from.**
+
+**On message relevance: the concern is real and bigger.** The campaign targeted
+by trade — 395 plumber, 156 electrician, 106 roofer, 61 handyman — and the
+page-read found `trade_type` wrong in **6 of 30** rows: a plumber and a handyman
+and a commercial waterproofer all filed as roofers, plus an **automotive** roof
+liner, a builder, and a solar inspector. **If those messages named the
+recipient's trade, roughly one in five opened on a false premise.** Nobody
+replies "I'm not a roofer" — they delete it.
+
+**What this does to `docs/channel-evidence.md`.** Its conclusion — *"They read
+them and did not tap"* — still stands, but confidence should drop, for two
+reasons. It always rested on **8 known humans out of 718**. And there is now a
+competing explanation for the silence that the data cannot separate from the
+recorded one. **Both point at the same action, so this is not a reason to re-run
+SMS** — it is a reason to stop quoting the conclusion as settled.
+
+**Also: `outreach_log` holds 718 distinct prospects and `channel-evidence.md`
+says 560 messages.** Nobody has reconciled those numbers. Recorded, not chased.
+
+**And the transferable point:** the same defect poisons email identically. A
+trade-personalised email to a business whose trade we have wrong is worse than a
+generic one, because the personalisation is the thing that fails. That is what
+stage 2's third question exists for, and on this run it caught all six.
+
+### THREE LIMITS on the "zero refusal notices" result — it is weaker than it looks
+Now 0 refusals across 44 businesses and ~120 pages. Before that hardens into a
+belief, three ways the fetcher can produce a false zero, all observed:
+
+1. **PDF policy pages.** `EM Electrical Group` publishes four policies as PDFs.
+   The fetcher saved them as `.txt` byte dumps; neither `pdftotext` nor `strings`
+   recovered readable text. Four policy pages, unread.
+2. **JS-rendered policy bodies.** `GS Roofing`'s privacy page saved only nav and
+   footer chrome — the policy body never rendered.
+3. **Obfuscated addresses are invisible upstream.** Stage 1 now skips any
+   prospect with no extractable address, so a Cloudflare-protected
+   `[email protected]` page is never read at all. 25 of 76 reachable prospects
+   were skipped this way; the count is printed, so the loss is at least visible.
+
+**A "no refusal found" on a page that did not render is not evidence of
+absence.** Any future claim about the base rate has to exclude these.
+
 ### MEASURED: 57% of the prospect rows we read were wrong about something
 2026-08-10. First filtered run: 20 NSW prospects, 14 reachable, all read by
 Sonnet 5, all quotes and addresses verified against source. **The owner's
