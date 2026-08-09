@@ -169,6 +169,29 @@ Configured in `docs/agents/issue-tracker.md`. In routine use here:
 The issue-tracker-centric skills (`to-tickets`, `triage`, `to-spec`,
 `wayfinder`) are deliberately not set up — see `docs/agents/issue-tracker.md`.
 
+### Before building something the owner specified
+
+Three lines in the reply, every time, **before** the work starts:
+
+1. **What it costs** — tokens, time, money. A number, not "somewhat expensive".
+2. **The design choice you would make differently, and why** — or say plainly
+   that you would not change it.
+3. **What would make this not worth doing at all.**
+
+Either those three lines are there or they are not; that is the check. A
+disposition to "think critically" does not fire on its own, and it fails in a
+specific place: a well-formed proposal suppresses questions when it should
+invite more of them, because its design choices are already made and therefore
+already invisible. Measured 2026-08-10 — 23 subagents spawned on a suggestion
+with the cost named only afterwards (761k tokens, 30% of it spent on a row that
+could never be a customer).
+
+**Spec'd, simple delegated work goes to a cheap model.** Say which model and
+why. The exception is not optional: a cheap model is safe when its failure is
+**visible**. Where the failure is silent — a check that can miss something and
+report nothing, like the stage-2 reader in `email-consent-check` — calibrate it
+against known answers before trusting it.
+
 ## Docs
 
 `CONTEXT.md` is the glossary — read it before naming anything. In particular,
