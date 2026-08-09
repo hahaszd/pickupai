@@ -20,11 +20,241 @@ rather than being deleted.
 
 A deferral with a documented trigger is P2, however alarming it reads.
 
-Last updated: **2026-07-29**
+Last updated: **2026-08-09**
 
 ---
 
 ## P0
+
+### BUILT: `email-consent-check`, and its first run cost 761k tokens for 7 businesses
+2026-08-10. `.claude/skills/email-consent-check/` (the repo's first skill),
+`scripts/collect-email-evidence.ts`, `scripts/verify-consent-quotes.ts`.
+Four stages: filter the list → fetch and judge nothing → one agent per page →
+deterministic quote verification.
+
+**The design point worth keeping.** Stage 3 checks every claimed refusal quote
+against the saved page by literal substring match — `CODING_STANDARDS`' rule
+that *a test must detect by a different mechanism than the code computes by*,
+applied to an agent instead of a test. A model checking a model shares the
+failure; `String.includes` cannot hallucinate.
+
+**But stage 3 only sees claims that were made.** A refusal the reader walked
+past is invisible to every check in the pipeline, and **a false negative is the
+direction that costs money** — you email someone who said not to. That, not
+hallucination, is what one-agent-per-page is actually buying. Worth being clear
+about, because the reason we gave ourselves at the time was the wrong one.
+
+**First run, 10 NSW prospects:** 7 reachable, 23 pages, 23 agents,
+**761,308 subagent tokens ≈ 109k per business.** Per agent ~33k, of which the
+page is ~1.7k — **95% is fixed startup overhead.** 100 businesses would be ~11M.
+
+**Result: 0 refusals in 23 pages, 0 fabricated quotes.** This zero is worth more
+than the regex zero above it — someone read every page — and is still not a base
+rate at n=23.
+
+**Three things this got wrong, all recorded in the skill:**
+
+1. **The cost was never stated before it was spent.** The number was not
+   unreasonable; not knowing it in advance was. Cost the run first.
+2. **30% of the budget went to the Electrical Trades Union** — a union, not a
+   tradie, that could never be a customer. `prospects` holds non-businesses
+   (unions, industry bodies, suppliers like Reece). `--exclude` now drops them
+   by name **and prints what it dropped**, because a filter that silently
+   shrinks a batch reads as "we covered everything".
+3. **Do not optimise stage 2 yet.** The obvious cut is to give only policy/terms
+   pages their own agent — which assumes refusals live on policy pages, and this
+   run found none anywhere. Cut based on where real refusals turn up, not on the
+   assumption. Optimising against an assumption is exactly how the keyword regex
+   earned its worthless zero.
+
+**Open:** try a smaller model for stage 2 against a batch with known answers —
+"does this page contain a sentence of this kind" is a narrow task.
+
+### MEASURED: ~62% of NSW tradie sites publish a usable email, and the extraction needs a human
+2026-08-10. Read-only survey, nothing sent, nothing written to `prospects`.
+Method: 30 NSW prospects with a `website`, sampled at even intervals across the
+alphabetical list (not the first 30, which are numeric business names); fetched
+the homepage and, when no address was found, up to three contact-page paths.
+
+**The holdings.** 10,614 prospects; **NSW is 5,078 of them and 3,417 have a
+website**. Exactly **2 rows in the entire table have an email** — confirming the
+handover's claim from the data side rather than from reading the scrapers.
+
+| | |
+|---|---|
+| Sampled | 30 |
+| Reachable | 26 (4 dead sites — a 13% rot rate on a list scraped this year) |
+| **Published an email** | **18 / 26 = 69% raw** |
+| Contact form only | 5 |
+| Neither | 3 |
+| Carried a "no unsolicited marketing" notice | **0** |
+
+**So the practical blocker I predicted is not there.** I expected most tradie
+sites to be contact-form-only; two thirds publish an address. **Path A does not
+fail for lack of addresses.** It still fails on cl 4(2)(d) + the s 16(5) burden
+at n=10,614 — but nobody should now argue it fails because the data is missing.
+
+**The 69% is wrong and the way it is wrong is the useful part.** Vetting the 18
+by hand drops it to **~16, i.e. 62%**:
+
+- `Hilltop Plumbing` yielded `impallari@gmail.com` and `matt@pixelspread.com` —
+  **a font designer's address out of a CSS licence comment, and the web
+  developer's**. Neither is the business. Send to that row and you cold-email a
+  type foundry in Argentina.
+- `ASK Electrical` yielded its own `admin@` **and** `contact@ekko-digital.com`,
+  its marketing agency.
+- `Reece Plumbing Wollongong` is a plumbing **supplier**, not a tradie, and its
+  addresses include `donotreply@`.
+- One stored `website` is `https://cdn.growthbook.io` — a CDN, not a business.
+
+**This is the concrete case for "program fetches, human vets, provenance
+recorded per address."** The fetching is fine and always was. What cannot be
+automated is deciding whether the string is the business's own published contact
+address — and at n=100 a person does all 100 in under an hour.
+
+**The zero on refusal notices is a weak zero and must not be quoted as 0%.** The
+detector was a keyword regex over the homepage and one contact page. It did not
+follow links to privacy policies or terms pages, which is exactly where such a
+statement usually lives, and cl 4(2)(d) says "or a statement to similar effect",
+which no regex covers. **0 hits means the detector found nothing, not that
+nothing is there** — the same mistake shape as reading the 60 SMS link-scanner
+stamps as clicks.
+
+**Data quality, separately:** `prospects.state` is dirty — it holds `plumber`,
+`Scotland`, `England`, a phone number, a URL and bare suburb names in ~20 rows.
+Small, but any query that filters by state silently drops or mixes them.
+
+### RESEARCHED: scraping 10,614 emails is closed, and the reason is not the one we expected
+2026-08-09. Primary sources in
+[`docs/research/spam-act-email-outreach-2026-08.md`](docs/research/spam-act-email-outreach-2026-08.md)
+— Spam Act 2003 (Cth) Compilation No. 10 (the Act has not been amended since
+10 March 2016), Spam Regulations 2021, and ACMA's own enforcement registers
+2015–July 2026. Not legal advice; the file says so at the top.
+
+**This resolves the amplifiers-vs-tradies fork the handover left open. Path B
+(≈100 hand-collected amplifier addresses) is available; Path A (≈10,614 scraped
+tradie addresses) is not.**
+
+**The premise this research was commissioned on was wrong, and that matters more
+than the verdict.** The brief assumed ss 20–22 — address harvesting — were a
+free-standing bar on scraping. They are not. Every one of them switches off if
+the sends do not contravene s 16: s 20(2) "no reason to suspect", s 21(2) "did
+not intend", s 22(2) "was not in connection with". **Harvesting is a penalty
+multiplier on a consent breach, not an independent offence.** So "write the
+scraper differently" was never the fix, and nobody should go looking for one.
+
+**What actually closes Path A is Schedule 2 cl 4(2)(d).** Inferred consent is
+destroyed for any address published alongside a statement — or "a statement to
+similar effect" — that the holder does not want unsolicited commercial
+messages. Website privacy policies and contact pages routinely carry exactly
+that. **A person collecting 100 addresses reads the page and sees it. A
+`mailto:` scraper cannot see it and cannot say which rows are affected.** Under
+s 16(5) the burden of establishing consent is the sender's, address by address.
+At n=100 it is dischargeable. At n=10,614 it is not, *because* the collection
+was automated.
+
+**Three findings that change decisions beyond the fork:**
+
+1. **Paying someone else to scrape is strictly worse than scraping yourself.**
+   Building your own list is not "acquiring" one, so s 21 does not bite;
+   commissioning or buying one engages s 21 against us **and** s 20 against the
+   supplier. Rules out the obvious shortcut.
+2. **Drip-feeding a campaign multiplies exposure.** ACMA applies the Schedule 3
+   table day by day and sums the days — verified from the published Ticketek
+   notice, where 170 messages across five dates came to $515,040. Ten days of
+   1,061 emails costs roughly ten times one day of 10,614.
+3. **Schedule 2 never distinguishes email from phone. Not once.** "Electronic
+   address" is undefined; cl 4(2) says "a particular electronic address"
+   throughout. The email analysis and the phone analysis in `LISTS.md` are the
+   same analysis — so email inherits every one of its gaps rather than escaping
+   them.
+
+**The arithmetic, independently re-verified.** A penalty unit is **$364** from
+1 July 2026 — I pulled the Crimes (Amount of a Penalty Unit) Instrument 2026
+(F2026N00424, registered 16 June 2026) myself rather than take it on trust, and
+s 5 reads *"the amount of a penalty unit is $364"*. Body corporate, no prior
+record: **$36,400 per s 16(1) contravention, capped $728,000 per day**;
+$18,200 / $364,000 for ss 17, 18, 20, 21, 22. Prior record multiplies by five.
+The realistic instrument is an infringement notice: **$364,000 for a body
+corporate at 50-or-more alleged s 16 contraventions.**
+
+**Two things in ACMA's record that bear on this repo directly.** `Service
+Seeking Pty Ltd` ($50,400, 2018) and `Oneflare Pty Ltd` ($75,600 + undertaking,
+2019) — **two of the six directories that supplied our 10,614-row prospect
+table — were themselves penalised for spamming.** That is not an argument about
+our position, but it is the best available evidence that `LISTS.md`'s
+"grey to red — DO NOT USE" rating of directory data is correctly rated. And
+ACMA acts against sole traders (`Noah Rose trading as BetDeluxe`, $50,172):
+being one founder changes the multiplier, not the exposure.
+
+**What could not be verified, so nothing above rests on it:** no Australian
+judgment interpreting ss 20–22 could be read (`judgments.fedcourt.gov.au`
+returns 403 behind a JS challenge); **no ACMA enforcement action has ever
+concerned harvesting at all** — every Spam Act matter 2015–2026 is s 16, s 17
+or s 18, which is absence of evidence, not permission. The Explanatory
+Memorandum was out of scope and not read. And **nothing under the Privacy Act
+1988** was examined: scraping 10,614 addresses engages APP 3, 5 and 7
+independently, and the small-business exemption should not be assumed. If Path
+A is ever revisited, that is the other half of the question.
+
+### P1 — the s 17 trap applies to SMS this product already sends
+Falls out of the research above, applies **today**, and is independent of which
+outreach path wins.
+
+**The third-largest Spam Act penalty on record was not about consent.**
+Latitude Finance, **$3,960,000**, April 2026, charged **entirely under s 17(1)**
+— sender identification — with no s 16 or s 18 count in the notice at all
+(read in the published PDF; ACMA's own register describes the conduct
+differently, so register summaries are not a guide to the provisions pleaded).
+**s 17 carries no consent defence and applies even to designated messages.** It
+is the provision this project is least likely to think about.
+
+**And "it's a service message" is not the shelter it looks like.** ACMA on the
+Lululemon notice ($702,900): *"the fifth enforcement action the ACMA has
+undertaken in the last 18 months against businesses that have incorrectly
+treated messages as non-commercial even though they contained or had links to
+clearly commercial material."* Its Statement of Expectations: *"A link to a web
+page with commercial content is likely to mean the message is also
+commercial."*
+
+**PickupAI sends welcome, onboarding-nudge, trial-expiry and lead-notification
+SMS to tenants.** Any of those that promotes an upgrade — or links to a page
+that does — is a commercial electronic message needing s 17 and s 18
+compliance. **Nobody has audited them against that.** That audit is the
+actionable item; it is cheap and needs no owner decision.
+
+Related and already known: `LISTS.md`'s hosted opt-out shortlink is the
+mitigation for the exact Latitude fact pattern (alphanumeric sender IDs cannot
+be replied to, so "reply STOP" is a non-functional unsubscribe facility). It is
+load-bearing, not a nicety. If `MOBILE_MSG_OPT_OUT_LINK` were ever unset in
+production under an alpha tag, the `hello@getpickupai.com.au` fallback is the
+whole defence.
+
+### P2 — `LISTS.md` needs the email section, and two corrections to the phone one
+The email consent section was already on the list. The research adds two things
+to fix in the **existing** phone analysis while writing it:
+
+1. **`LISTS.md` states the inferred-consent test as three conditions and there
+   are four.** It omits cl 4(2)(c) — "reasonable to assume the publication
+   occurred **with the agreement of**" the person. That is the condition that
+   decides source quality, and it reaches the same "do not use directory data"
+   answer by a **Spam Act** route rather than the terms-of-service route
+   currently used, which is a contractual/ACL argument. The statutory route is
+   stronger: a listing published by a directory, possibly scraped by the
+   directory itself, is not obviously published with the tradie's agreement, so
+   inferred consent never forms.
+2. **The licence-register basis does not transfer.** NSW Fair Trading, QBCC and
+   VBA are the sources `LISTS.md` rates "inferred consent — defensible", and
+   they publish **phone numbers**. They are not a source of email addresses, so
+   Path B cannot inherit that rating and needs its own.
+
+Also for the email section, from ss 17–18 and Spam Regulations 2021 s 7: the
+"5 working days" figure in circulation is **not in s 18 and the Act never uses
+that phrase** — it is Schedule 2 cl 6, "5 **business** days", defined by public
+holidays at the recipient's location. Contact details must stay valid ≥30 days;
+the unsubscribe address must stay functional ≥30 days **per message**; and
+reg 7 forbids a premium service, any fee, a login, or requiring personal
+information beyond the address messaged.
 
 ### RESEARCHED: the emergency deletion reduced legal exposure; marketing is the only real risk
 2026-08-03. Primary sources in
