@@ -146,16 +146,18 @@ was read as engagement when it was scanner traffic:
 
 Threshold to call the channel working: **100 sends → ≥3 human replies.**
 
-**What resolves the fork: research against the Spam Act — NOT YET DONE.** It was
-started on 2026-08-09 and stopped immediately, by the owner's decision that this
-work belongs to the next session rather than the last hour of this one. **No
-file was written**; `docs/research/spam-act-email-outreach-2026-08.md` does not
-exist. **This is the first task of the new session.**
+**What resolves the fork: research against the Spam Act — DONE 2026-08-09.**
+`docs/research/spam-act-email-outreach-2026-08.md` now exists; the verdict is in
+`BACKLOG.md` P0. **The fork is resolved: Path B (amplifiers, ~100 hand-collected
+addresses) is available; Path A (10,614 scraped tradie addresses) is not.**
 
-If hand-collection is clean and scripted scraping is not, the tradie path needs
-10,614 addresses gathered by hand and closes itself; the amplifier path needs
-100 and is open today. If both are clean, the fork becomes a judgement about
-channel fit rather than about law.
+The reason is not the one guessed at above, and the difference matters — ss 20–22
+are not free-standing, so no scraper design fixes it. Path A dies on Schedule 2
+cl 4(2)(d) plus the s 16(5) burden: inferred consent is destroyed by a
+"no unsolicited commercial messages" statement published alongside the address, a
+human collecting 100 sees it, a scraper cannot, and the burden of proving consent
+address-by-address is the sender's. Read the P0 entry before acting on any of
+this.
 
 ### What would have to be built
 
@@ -225,10 +227,9 @@ reviews, so treat the remainder as suspect rather than clean:
 **The new session's first task, decided 2026-08-09: email-outreach preparation.**
 In this order, because each step gates the next:
 
-1. **Research the Spam Act on email** (§4) — address harvesting, inferred
-   consent for email, what a compliant message must contain. Zero API cost.
-   It decides whether the tradie path exists at all, so it comes before any
-   building.
+1. ~~**Research the Spam Act on email**~~ — **DONE 2026-08-09**, see §4. Target
+   is Path B: ~100 amplifier addresses, collected by hand, provenance recorded
+   per address.
 2. **Build the sending path** — `outreach_log` email channel, unsubscribe,
    suppression, and measurement wired to `funnel_events` rather than to opens.
    This is the same work whichever target wins, so it is not blocked by (1).
