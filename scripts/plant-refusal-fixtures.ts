@@ -74,6 +74,83 @@ const FIXTURES = [
   },
 ];
 
+/**
+ * Second question, worth 3.3x on cost: can ONE agent read a whole prospect's
+ * pages in a single bundle, or does it skim?
+ *
+ * The position test showed a reader finds a refusal anywhere WITHIN one page.
+ * It says nothing about the fourth page of four. So the plant goes in the LAST
+ * document of each bundle — the position a skimmer reaches last, or not at all —
+ * plus a clean bundle so "yes to everything" does not pass.
+ */
+const BUNDLES = [
+  {
+    id: "bundle-a-plant-in-last",
+    srcs: [
+      "009f7bb4-9542-483f-b6c6-197f39fcce7b/00-homepage.txt",
+      "009f7bb4-9542-483f-b6c6-197f39fcce7b/01-contact.txt",
+      "009f7bb4-9542-483f-b6c6-197f39fcce7b/02-contact.txt",
+    ],
+    plantInto: 2,
+    expect: true,
+    insert:
+      "A note to marketers: we do not want unsolicited commercial email at any address on this site, and we do not respond to it.",
+  },
+  {
+    id: "bundle-b-plant-in-middle",
+    srcs: [
+      "005e5009-498b-4f65-b878-146e41ead576/00-homepage.txt",
+      "005e5009-498b-4f65-b878-146e41ead576/01-policy.txt",
+      "005e5009-498b-4f65-b878-146e41ead576/02-contact.txt",
+      "005e5009-498b-4f65-b878-146e41ead576/03-contact.txt",
+    ],
+    plantInto: 1,
+    expect: true,
+    insert:
+      "We ask that our published email addresses are not added to any marketing or mailing list without our prior written agreement.",
+  },
+  {
+    id: "bundle-c-control-clean",
+    srcs: [
+      "001742ee-6ac3-405e-adef-ecace092a9c0/00-homepage.txt",
+      "001742ee-6ac3-405e-adef-ecace092a9c0/01-contact.txt",
+      "001742ee-6ac3-405e-adef-ecace092a9c0/02-contact.txt",
+    ],
+    plantInto: -1,
+    expect: false,
+    insert: null,
+  },
+];
+
+async function buildBundles(answers: any[]) {
+  for (const b of BUNDLES) {
+    const docs: string[] = [];
+    for (const [i, src] of b.srcs.entries()) {
+      let t = await readFile(join(SRC, src), "utf8");
+      if (b.insert && i === b.plantInto) {
+        const lines = t.split("\n");
+        const at = Math.min(lines.length - 1, Math.floor(lines.length * 0.6));
+        lines.splice(at, 0, "", b.insert, "");
+        t = lines.join("\n");
+        if (!t.includes(b.insert)) throw new Error(`${b.id}: insertion into doc ${i} did not take`);
+      }
+      docs.push(`===== PAGE ${i + 1} OF ${b.srcs.length} =====\n${t}`);
+    }
+    const dir = join(OUT, b.id);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "page.txt"), docs.join("\n\n"), "utf8");
+    answers.push({
+      id: b.id,
+      page: join(dir, "page.txt"),
+      from: b.srcs,
+      position: b.insert ? `bundle of ${b.srcs.length}, planted in page ${b.plantInto + 1}` : `bundle of ${b.srcs.length}, unmodified`,
+      expect_refuses_marketing: b.expect,
+      planted_sentence: b.insert,
+    });
+    console.log(`  ${b.id.padEnd(28)} expect=${String(b.expect).padEnd(5)} ${b.srcs.length} pages, plant in #${b.plantInto + 1 || "none"}`);
+  }
+}
+
 async function main() {
   await mkdir(OUT, { recursive: true });
   const answers: any[] = [];
@@ -106,6 +183,8 @@ async function main() {
     });
     console.log(`  ${f.id.padEnd(28)} expect=${String(f.expect).padEnd(5)} ${f.position}`);
   }
+
+  await buildBundles(answers);
 
   await writeFile(join(OUT, "answers.json"), JSON.stringify(answers, null, 2), "utf8");
   console.log(`\n${answers.length} fixtures → ${OUT}`);

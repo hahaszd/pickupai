@@ -100,17 +100,36 @@ negative. That is the ~10x saving, and note what it is *not*: it does not reduce
 the agent count at all. The answer to "how do we spawn fewer agents" is that you
 do not — you make each one cheap.
 
-**3. But question 2 wants a stronger reader.** On the same page Haiku marked the
-Cloudflare obfuscation placeholder `[email protected]` as a genuine business
-address; the stronger model had excluded it. That is the harmless direction — one
-junk address in a list a human vets anyway — but it is the difference between
-the two questions. If they are ever split, question 1 goes to every page on the
-cheap model, question 2 runs once per prospect over the candidate list.
+**3. One agent may read a whole prospect's pages as one bundle.** Tested with the
+plant in the LAST page of three and in the middle of four, plus a clean bundle:
+3/3, both quotes verified. That is the 3.3x cut in agent count — from one per
+page to one per prospect. Keep the `===== PAGE n OF m =====` separators and tell
+the reader the questions apply to every page in the file.
 
-**The limit of this evidence:** three planted sentences, all written by us. Real
+**4. But the same run proved the reader cannot be trusted to PRODUCE addresses.**
+On a bundle containing no email address at all, the cheap reader returned
+`hello@sunnydayselectrical.com.au` and `info@sunnydayselectrical.com.au`,
+justified as "domain matches SOURCE-URL; appears in privacy policy contact
+section". It was simultaneously perfect on refusals.
+
+Two consequences, both now enforced:
+
+- **The reader classifies addresses; it never supplies them.** The candidate
+  list comes from the stage-1 manifest, which extracted it from the saved page
+  by regex. Hand that list to the reader and tell it to judge only those.
+- **Stage 3 checks every returned address against the page by literal match**,
+  and exits 1 on any that is not there — the same treatment as a quote.
+
+**The general lesson, and it is the one to carry to any other cheap-model
+delegation: the two questions failed independently.** Passing one is no evidence
+about the other. "We validated the cheap model" is only ever true of the exact
+question that was validated.
+
+**The limit of this evidence:** five planted sentences, all written by us. Real
 wording in the wild may be subtler than anything we thought to plant. This shows
-a cheap reader is not blind; it does not prove it is sufficient. Re-run the
-fixtures — and add to them — whenever a real refusal is found in the field.
+a cheap reader is not blind on question 1; it does not prove it is sufficient.
+Re-run the fixtures — and add to them — whenever a real refusal is found in the
+field.
 
 Give each agent exactly this job:
 

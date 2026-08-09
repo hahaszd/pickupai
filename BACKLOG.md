@@ -95,10 +95,37 @@ which the stronger model had excluded. Harmless direction — one junk row in a
 list a human vets — but it argues for splitting: question 1 (refusal) on every
 page cheaply, question 2 (whose address) once per prospect over the candidates.
 
-**The limit:** three planted sentences, all written by us, so real wording may be
+**Bundling tested too, and it passes: one agent per PROSPECT, not per page.**
+Plant in the last page of three and in the middle of four, plus a clean bundle —
+3/3, both quotes verified. That is the 3.3x cut in agent count, and it is the
+answer to "50 addresses would need 270 agents": it needs ~81.
+
+**But the same run caught the cheap reader INVENTING ADDRESSES, and nothing
+would have stopped it.** On a bundle containing no email address at all, Haiku
+returned `hello@sunnydayselectrical.com.au` and
+`info@sunnydayselectrical.com.au`, justified as *"domain matches SOURCE-URL;
+appears in privacy policy contact section"*. It was perfect on refusals in the
+same run. **Stage 3 only checked refusal quotes, so both would have gone
+straight into the outreach list** — mail to a made-up address on a real
+business's domain.
+
+Fixed in the same sitting:
+
+- `verify-consent-quotes.ts` now literal-matches **every returned address**
+  against the saved page and exits 1 on any that is not there.
+- `page-reader-prompt.md` now hands the reader the candidate list from the
+  stage-1 manifest and forbids adding to it. **The reader classifies addresses;
+  it never produces them.**
+
+**The lesson to carry to any other cheap-model delegation: the two questions
+failed independently.** Passing one is no evidence about the other. "We
+validated the cheap model" is only ever true of the exact question validated —
+and here the validated one looked like the hard one.
+
+**The limit:** five planted sentences, all written by us, so real wording may be
 subtler than anything we thought to plant. This shows a cheap reader is not
-blind; it does not prove it is sufficient. Add any real refusal found in the
-field to the fixtures.
+blind on question 1; it does not prove it is sufficient. Add any real refusal
+found in the field to the fixtures.
 
 ### MEASURED: ~62% of NSW tradie sites publish a usable email, and the extraction needs a human
 2026-08-10. Read-only survey, nothing sent, nothing written to `prospects`.

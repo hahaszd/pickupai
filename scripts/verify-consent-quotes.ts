@@ -26,7 +26,16 @@
  * A discarded finding is not "probably fine". It means that reader fabricated,
  * so every other verdict from that run is suspect and the run should be redone.
  *
- * Exit codes: 0 all quotes verified · 1 at least one fabricated · 2 bad input.
+ * EVERY RETURNED ADDRESS IS CHECKED THE SAME WAY, and that check was added
+ * because a reader failed it. On 2026-08-10 a cheap-model reader handed back
+ * `hello@sunnydayselectrical.com.au` and `info@sunnydayselectrical.com.au` with
+ * confident reasoning — "domain matches SOURCE-URL; appears in privacy policy
+ * contact section" — for a file that contains no email address at all. It had
+ * been perfect on refusals in the same run. An address that is not in the page
+ * is an address nobody published, and mailing it is both useless and, on a real
+ * business's domain, worse than useless.
+ *
+ * Exit codes: 0 everything verified · 1 at least one fabrication · 2 bad input.
  */
 import { readFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
@@ -38,6 +47,7 @@ type Verdict = {
   page_url?: string;
   refuses_marketing: boolean;
   quote: string | null;
+  addresses?: { email: string; belongs_to_business?: boolean }[];
   note?: string;
 };
 
@@ -74,7 +84,29 @@ async function main() {
   const unreadable: { v: Verdict; why: string }[] = [];
   let clean = 0;
 
+  const ghostAddresses: { v: Verdict; email: string }[] = [];
+  let addressesChecked = 0;
+
   for (const v of verdicts) {
+    // Read the page once — both checks below need it.
+    let text: string | null = null;
+    const file = join(evidenceRoot, v.prospect_id, v.page_file);
+    try {
+      text = await readFile(file, "utf8");
+    } catch (e) {
+      unreadable.push({ v, why: (e as Error).message });
+    }
+
+    // An address the page does not contain was invented, whatever the reader
+    // said about it. Checked for every verdict, refusal or not.
+    if (text !== null) {
+      for (const a of v.addresses ?? []) {
+        if (!a?.email) continue;
+        addressesChecked++;
+        if (!text.toLowerCase().includes(a.email.toLowerCase())) ghostAddresses.push({ v, email: a.email });
+      }
+    }
+
     if (!v.refuses_marketing) {
       clean++;
       continue;
@@ -83,14 +115,7 @@ async function main() {
       fabricated.push({ ...v, note: "claimed a refusal with no quote at all" });
       continue;
     }
-    const file = join(evidenceRoot, v.prospect_id, v.page_file);
-    let text: string;
-    try {
-      text = await readFile(file, "utf8");
-    } catch (e) {
-      unreadable.push({ v, why: (e as Error).message });
-      continue;
-    }
+    if (text === null) continue; // already reported as unreadable
     if (norm(text).includes(norm(v.quote))) confirmed.push(v);
     else fabricated.push(v);
   }
@@ -100,6 +125,8 @@ async function main() {
   console.log(`  no refusal claimed        ${clean}`);
   console.log(`  refusal, quote VERIFIED   ${confirmed.length}`);
   console.log(`  refusal, quote FABRICATED ${fabricated.length}`);
+  console.log(`  addresses checked         ${addressesChecked}`);
+  console.log(`  addresses NOT IN SOURCE   ${ghostAddresses.length}`);
   if (unreadable.length) console.log(`  page file unreadable      ${unreadable.length}`);
 
   if (confirmed.length) {
@@ -114,7 +141,20 @@ async function main() {
     console.log(`\n  UNREADABLE  ${u.v.prospect_id}/${u.v.page_file} — ${u.why}`);
   }
 
-  if (fabricated.length) {
+  if (ghostAddresses.length) {
+    console.log(`\n${line}\nINVENTED ADDRESSES — not present anywhere in the saved page\n${line}`);
+    for (const g of ghostAddresses) {
+      console.log(`  ${g.email}   (${g.v.business_name ?? g.v.prospect_id} · ${g.v.page_file})`);
+    }
+    console.log(
+      `\nDrop every one of them. A reader can be perfect on refusals in the same\n` +
+        `run that invents an address — the two questions fail independently, so\n` +
+        `passing one is no evidence about the other.`
+    );
+  }
+
+  if (fabricated.length || ghostAddresses.length) {
+    if (!fabricated.length) process.exit(1);
     console.log(`\n${line}\nFABRICATED — the quoted sentence is not in the saved page\n${line}`);
     for (const v of fabricated) {
       console.log(`\n  ${v.business_name ?? v.prospect_id}  ${v.page_file}`);

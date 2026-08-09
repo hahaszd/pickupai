@@ -41,7 +41,18 @@ positive costs one address, a false negative costs a contravention.
 
 ## Question 2 — whose address is each one?
 
-For every email address on the page, decide whether it is **this business's own
+**You will be handed a list of candidate addresses, extracted from this page by
+a script. Classify only those. Do not add to the list.** If an address you
+expected is missing from it, say so in `why` — do not supply it yourself.
+
+This is not a formality. On 2026-08-10 a reader returned
+`hello@sunnydayselectrical.com.au` and `info@sunnydayselectrical.com.au` with
+the justification "domain matches SOURCE-URL; appears in privacy policy contact
+section", for a file containing **no email address at all**. The same reader was
+perfect on question 1 in the same run. Every returned address is now checked
+against the page by literal match, and an address that is not there is dropped.
+
+For each candidate you were given, decide whether it is **this business's own
 contact address** or somebody else's. Addresses that are NOT theirs:
 
 - The web developer or design agency who built the site
@@ -79,3 +90,7 @@ file.** Copy it, do not retype it, do not tidy it, do not translate it, do not
 join two sentences with an ellipsis. If there is no such statement, return
 `false` and `null` — that is a complete, correct and expected answer. A
 fabricated quote invalidates the entire run, not just your page.
+
+**Every address in `addresses` is checked the same way.** Return only addresses
+from the candidate list you were given. An empty `addresses` array is a normal
+answer for a page with no contact details on it.
