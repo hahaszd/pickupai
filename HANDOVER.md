@@ -146,11 +146,16 @@ was read as engagement when it was scanner traffic:
 
 Threshold to call the channel working: **100 sends → ≥3 human replies.**
 
-**What resolves the fork:** `docs/research/spam-act-email-outreach-2026-08.md`,
-commissioned 2026-08-09. If hand-collection is clean and scraping is not, the
-tradie path needs 10,614 addresses gathered by hand and is effectively closed;
-the amplifier path needs 100 and is open today. If both are clean, the fork is a
-judgement call about channel fit rather than about law.
+**What resolves the fork: research against the Spam Act — NOT YET DONE.** It was
+started on 2026-08-09 and stopped immediately, by the owner's decision that this
+work belongs to the next session rather than the last hour of this one. **No
+file was written**; `docs/research/spam-act-email-outreach-2026-08.md` does not
+exist. **This is the first task of the new session.**
+
+If hand-collection is clean and scripted scraping is not, the tradie path needs
+10,614 addresses gathered by hand and closes itself; the amplifier path needs
+100 and is open today. If both are clean, the fork becomes a judgement about
+channel fit rather than about law.
 
 ### What would have to be built
 
@@ -215,13 +220,27 @@ reviews, so treat the remainder as suspect rather than clean:
 
 ---
 
-## 6. Owner actions, ranked
+## 6. Where to start
 
-1. **Make a real phone call** (§3) — nothing substitutes for it.
+**The new session's first task, decided 2026-08-09: email-outreach preparation.**
+In this order, because each step gates the next:
+
+1. **Research the Spam Act on email** (§4) — address harvesting, inferred
+   consent for email, what a compliant message must contain. Zero API cost.
+   It decides whether the tradie path exists at all, so it comes before any
+   building.
+2. **Build the sending path** — `outreach_log` email channel, unsubscribe,
+   suppression, and measurement wired to `funnel_events` rather than to opens.
+   This is the same work whichever target wins, so it is not blocked by (1).
+3. **`LISTS.md` email consent section**, at the standard of the phone sections.
+4. **Verify what +61 2 8000 0796 actually answers with** (§4) — it may be the
+   centrepiece of the outreach or it may say "My Tradie Business".
+
+**Owner actions, in parallel and only the owner can do them:**
+
+1. **Make a real phone call** (§3) — the owner has taken this on directly.
 2. **Ring Western Sealants** — the only working acquisition path in evidence,
    unexplored.
-3. **Decide the email question** (§4): amplifiers first, or tradies as
-   originally framed.
 4. `SEED_PASSWORD` still falls back to nothing now — seeding refuses without it,
    which is correct, but **`scripts/test-lifecycle.ts` needs `ADMIN_TOKEN`,
    `SEED_EMAIL` and `SEED_PASSWORD` set** or `npm run test:e2e` exits early. CI
