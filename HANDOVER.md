@@ -93,10 +93,17 @@ been P1 for two weeks.
 
 ---
 
-## 4. Email outreach — the investigation that was about to start
+## 4. Email outreach — DECIDED, and the current work
 
-The owner wants to test **email** as an acquisition channel, on the reasoning
-that SMS was tried and failed. Three findings from a first pass, all verified:
+**Owner decision 2026-08-09: email outreach is going ahead, and building it is
+the priority.** The owner is separately running the real phone call (§3)
+himself, so those two tracks run in parallel.
+
+What is NOT yet decided is the **target**: amplifiers or tradies (see below).
+The infrastructure is the same either way, so it is being built first and the
+fork is being resolved by research rather than by argument.
+
+Three findings from a first pass, all verified:
 
 **(a) There are zero email addresses.** All 11 scrapers in `scripts/scrape-*`
 write `email: ""`. The `prospects` table has the column; nothing has ever
@@ -118,9 +125,9 @@ people opted out and 2 replied, so humans read them. They read them and did not
 tap."* Switching pipe does not fix that, and email is the channel a tradie on a
 roof is **least** likely to read.
 
-### The recommendation on the table, not yet accepted
+### The open fork: amplifiers or tradies
 
-Test email **on amplifiers, not on tradies**: accountants and bookkeepers who
+The recommendation is to test email **on amplifiers, not on tradies**: accountants and bookkeepers who
 serve tradies, industry associations, trade-focused agencies. Each holds
 20–200 tradies. Their email addresses are published on their own websites as
 their business contact, so 100 can be gathered **by hand** — which is also
@@ -138,6 +145,12 @@ was read as engagement when it was scanner traffic:
 | ✅ A call to the demo number | Strongest, because it is zero-friction |
 
 Threshold to call the channel working: **100 sends → ≥3 human replies.**
+
+**What resolves the fork:** `docs/research/spam-act-email-outreach-2026-08.md`,
+commissioned 2026-08-09. If hand-collection is clean and scraping is not, the
+tradie path needs 10,614 addresses gathered by hand and is effectively closed;
+the amplifier path needs 100 and is open today. If both are clean, the fork is a
+judgement call about channel fit rather than about law.
 
 ### What would have to be built
 
