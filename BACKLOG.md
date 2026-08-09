@@ -167,13 +167,18 @@ twice in one day.
 
 **Still open, ranked by what it changes:**
 
-1. **Persist run output to JSON.** The harness writes nothing — no transcripts,
+1. ~~**Persist run output to JSON.**~~ **DONE 2026-08-03** (`0ad57a7`) — `--out`
+   writes the run with transcripts, `--baseline` compares per scenario, and
+   `judgeSample()` turns a saved run into the judge-labelling sample at zero API
+   cost. Original text: the harness writes nothing — no transcripts,
    no baseline. Every number in `docs/eval.md` was transcribed by hand from a
    console. This one gap blocks: paired before/after comparison (far more
    powerful than two headline numbers), any retrospective measurement of the
    JUDGE's accuracy, and the one free test of whether the context-free scenario
    exercise actually worked. **~60 lines, breaks nothing, unlocks the rest.**
-2. **Auto-escalate marginals to n=9.** ~5 scenarios × 6 more runs ≈ $0.72.
+2. ~~**Auto-escalate marginals to n=9.**~~ **DONE 2026-08-03** (`18d07ce`), and
+   it fired correctly on its first real run — settled a 7/9 that n=3 would have
+   left as an unreadable marginal. ~5 scenarios × 6 more runs ≈ $0.72.
    Recomputed: at n=9 judged on ≥8/9, a healthy p=0.95 passes 92.9% (up from
    85.7%) while a broken p=0.70 passes 19.6% (down from 34.3%) — **both ends
    improve.** Expected false flags drop from 5.0 to 2.5 per gate. Not a cure:
