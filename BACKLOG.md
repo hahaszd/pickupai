@@ -32,11 +32,30 @@ Sonnet 5 → **29 addresses verified present in source, 0 fabricated**. Register
 `data/email-evidence/consent-register-2026-08-10.json` (gitignored — it is other
 businesses' contact data).
 
-**23 clean** (small operator, trade confirmed from the page), **6 marginal**
-(real but off-positioning: a painter filed as handyman, an automotive trimmer
-filed as roofer, a builder, a solar inspector, two firms large enough to have a
-front desk), **1 rejected**: `Group of Roofers` is a lead-generation site owned
-by Client Connect Australia Pty Ltd, not a roofer. Its own homepage says so.
+**The list is 23. Owner decisions, 2026-08-10, both recorded because they
+generalise beyond this batch:**
+
+1. **A business large enough to already have someone answering the phone is
+   dropped, not kept as a marginal.** `Curran Plumbing` (36 years, careers page,
+   loyalty club) and `Five Star Roofing` (Sydney + Brisbane offices, own fleet)
+   are gone. The product's customer is the person who misses the call himself;
+   a firm with a front desk is not a weaker version of that, it is a different
+   business. **Do not re-add them to pad a batch.**
+2. **Where the page contradicts the prospect record, the page wins — including
+   for how the business is addressed.** This was asked as an open question and
+   should not have been: once the page has been read there is nothing left for
+   the stale field to contribute. `AGC ROOF` is written to as Tomkat Roofing,
+   `Sharpline Plumbing` as Emergency Drains.
+
+Also dropped: a painter filed as handyman, an automotive roof-liner filed as
+roofer, a builder with no roofing, a solar inspector — real businesses, wrong
+positioning, and the first sentence of any email would have been wrong. And
+`Group of Roofers`, which is a lead-generation site owned by Client Connect
+Australia Pty Ltd, not a roofer; its own homepage says so.
+
+**The 23 that remain need no size filtering — they already pass.** Twenty are
+`sole_trader` or `small_team` on the reader's own judgement, one is `unclear`,
+and none was judged `larger_firm`.
 
 **Two free filters did most of the work.** Restricting to `source =
 'google_places'` and `review_count <= 40` lifted the address-bearing rate from
