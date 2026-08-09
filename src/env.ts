@@ -185,6 +185,40 @@ const envSchema = z.object({
   SMTP_PASS:   z.string().optional(),
   SMTP_FROM:   z.string().optional().default("PickupAI <noreply@getpickupai.com.au>"),
 
+  // ── Marketing email (optional; ALL of these are required to send one) ──────
+  //
+  // Split from SMTP_* on purpose. Those carry transactional lead notifications
+  // and are already configured; these gate MARKETING email, which is a
+  // different legal object. Every one is optional at boot so an existing deploy
+  // keeps working, and `assertMarketingEmailConfigured()` in
+  // src/outreach/email-compliance.ts refuses to send until all are present —
+  // the failure is at send time, loudly, not a silently non-compliant message.
+  //
+  // s 17 of the Spam Act has NO consent defence, and the third-largest penalty
+  // on record ($3.96m, Latitude Finance, April 2026) was an s 17 case with no
+  // consent count in the notice at all. See
+  // docs/research/spam-act-email-outreach-2026-08.md.
+
+  /** The legal entity that authorises the sending. s 17(1). */
+  OUTREACH_SENDER_LEGAL_NAME: z.string().optional(),
+  /** Trading name, when it differs from the legal name. Both are shown. */
+  OUTREACH_SENDER_TRADING_NAME: z.string().optional().default("PickupAI"),
+  OUTREACH_SENDER_ABN: z.string().optional(),
+  /**
+   * A monitored address that will still work 30 days after any message is sent
+   * — s 17(2) and s 18(2). Must NOT be a noreply address: it doubles as the
+   * reply-based unsubscribe path.
+   */
+  OUTREACH_SENDER_CONTACT_EMAIL: z.string().optional(),
+  OUTREACH_SENDER_CONTACT_PHONE: z.string().optional(),
+  OUTREACH_SENDER_POSTAL_ADDRESS: z.string().optional(),
+  /**
+   * HMAC key for unsubscribe links. Rotating it invalidates every link in every
+   * email already sent, which would break s 18 compliance retroactively — treat
+   * it as permanent once the first campaign goes out.
+   */
+  OUTREACH_UNSUBSCRIBE_SECRET: z.string().min(16).optional(),
+
   // ── Mobile Message (optional — cheap SMS provider) ──────────────────────
   // When all three are set, ALL outbound SMS (marketing + transactional) is
   // sent via Mobile Message instead of Twilio, reducing cost from ~$0.10 to

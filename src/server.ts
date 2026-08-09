@@ -155,6 +155,7 @@ import {
   listTenantSmsLog
 } from "./db/repo.js";
 import type { TenantRow, CallRow, SystemConfigRow, ProspectRow, ChatLogRow, TenantSmsRow } from "./db/repo.js";
+import { verifyUnsubscribeToken } from "./outreach/email-compliance.js";
 import {
   adminLoginPage,
   adminOverviewPage,
@@ -1054,6 +1055,81 @@ async function main() {
     app.get("/terms", injectHead);
     app.get("/privacy", injectHead);
   }
+
+  // ── Email unsubscribe (public, unauthenticated, one click) ────────────────
+  //
+  // s 18 of the Spam Act requires a functional unsubscribe facility, and Spam
+  // Regulations 2021 s 7 forbids making it cost money, require a login, or
+  // require any personal information beyond the address the message went to.
+  // A signed URL satisfies all of that: the recipient clicks once and is done.
+  //
+  // Both GET and POST are mounted. GET is a human clicking the link; POST is
+  // RFC 8058 one-click, which Gmail and Outlook fire from their own native
+  // unsubscribe button without ever showing our page. Missing the POST means
+  // the provider's button silently does nothing — which is exactly the
+  // "unsubscribe process doesn't work" fact pattern behind the $3.96m Latitude
+  // Finance notice, in a different costume.
+  //
+  // Idempotent and never errors at the recipient: an unknown or forged token
+  // still renders "you're unsubscribed" rather than an error page. Telling a
+  // stranger their token is invalid is both useless to them and an oracle for
+  // probing which ids exist.
+  //
+  // Mounted BEFORE express.static so `/u/<token>` cannot collide with a file.
+  const unsubscribeHandler = (req: express.Request, res: express.Response) => {
+    const token = String(req.params.token ?? "");
+    const secret = env.OUTREACH_UNSUBSCRIBE_SECRET;
+
+    if (secret) {
+      const pid = verifyUnsubscribeToken(token, secret);
+      if (pid) {
+        try {
+          const p = getProspectById(db, pid);
+          if (p) {
+            // Same function the SMS STOP handler uses. Suppression is one
+            // cross-channel record on purpose: a person who opts out of email
+            // must never receive an SMS either, and vice versa.
+            markProspectUnsubscribed(db, pid);
+            createOutreachLog(db, {
+              prospect_id: pid,
+              channel: "email_unsubscribe",
+              status: "logged",
+              message: req.method === "POST" ? "one-click (RFC 8058)" : "link click"
+            });
+            log.info({ prospect_id: pid, method: req.method }, "[unsubscribe] honoured email opt-out");
+          } else {
+            log.warn({ prospect_id: pid }, "[unsubscribe] valid token for a prospect that no longer exists");
+          }
+        } catch (err) {
+          // The recipient still sees success. Their opt-out is a legal
+          // obligation on us, not a transaction they should have to retry —
+          // this line existing at all is why the failure gets logged loudly.
+          log.error({ err, prospect_id: pid }, "[unsubscribe] FAILED TO RECORD an opt-out — investigate");
+        }
+      } else {
+        log.warn({ tokenLength: token.length }, "[unsubscribe] token failed verification");
+      }
+    } else {
+      log.error("[unsubscribe] OUTREACH_UNSUBSCRIBE_SECRET is unset — cannot honour opt-outs");
+    }
+
+    if (req.method === "POST") return res.status(200).end();
+    res
+      .status(200)
+      .type("html")
+      .send(
+        `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
+          `<title>Unsubscribed</title>` +
+          `<style>body{font:16px/1.6 system-ui,sans-serif;max-width:34rem;margin:12vh auto;padding:0 1.5rem;color:#222}` +
+          `h1{font-size:1.4rem;margin:0 0 .75rem}p{margin:0 0 .75rem;color:#555}</style>` +
+          `<h1>You're unsubscribed.</h1>` +
+          `<p>We won't email you again, and we've removed you from our SMS list at the same time.</p>` +
+          `<p>Nothing else is needed from you.</p>`
+      );
+  };
+
+  app.get("/u/:token", unsubscribeHandler);
+  app.post("/u/:token", express.urlencoded({ extended: false }), unsubscribeHandler);
 
   // ── Per-recipient SMS link tracker ────────────────────────────────────────
   //

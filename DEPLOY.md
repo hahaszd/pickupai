@@ -71,6 +71,10 @@ In your service → **Variables**, add:
 | `GA_MEASUREMENT_ID` | Optional. GA4 measurement ID |
 | `GOOGLE_SITE_VERIFICATION` | Optional but needed before Search Console will report anything. The token from the "HTML tag" method — the content value only, not the whole tag. Kept in env rather than committed: it is an ownership credential. |
 | `DEMO_POOL_NUMBERS` / `DEMO_POOL_NUMBER_SID` | Optional. Numbers reserved for the call-it-yourself demo |
+| `OUTREACH_SENDER_LEGAL_NAME` / `OUTREACH_SENDER_CONTACT_EMAIL` / `OUTREACH_UNSUBSCRIBE_SECRET` | **All three required before any marketing email can be sent.** The send path refuses loudly until they are set; nothing else breaks without them. `OUTREACH_SENDER_CONTACT_EMAIL` must be a **monitored** mailbox — it is also the reply-based unsubscribe path under s 18, so a `noreply@` address is rejected at send time |
+| `OUTREACH_SENDER_TRADING_NAME` / `OUTREACH_SENDER_ABN` / `OUTREACH_SENDER_CONTACT_PHONE` / `OUTREACH_SENDER_POSTAL_ADDRESS` | Optional, and all of them appear in the message. s 17 asks for clear and accurate identification of the authorising entity; more real detail is strictly better |
+
+> ⚠️ **`OUTREACH_UNSUBSCRIBE_SECRET` is effectively permanent.** Unsubscribe links are HMACs over it, so rotating it invalidates every link in every email already sent — which breaks s 18 compliance retroactively for messages already in people's inboxes. Set it once, before the first campaign, and never change it.
 
 ### Required for safe shutdown — do not skip
 

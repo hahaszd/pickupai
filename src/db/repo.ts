@@ -1368,6 +1368,17 @@ export type ProspectRow = {
   last_contacted_at: string | null;
   next_followup_at: string | null;
   created_at: string;
+  /**
+   * Set when the prospect opts out, on ANY channel — the SMS STOP handler and
+   * the email unsubscribe link both stamp it via `markProspectUnsubscribed`.
+   * Kept independent of `status` so the legal record survives a status change.
+   *
+   * Added to the type on 2026-08-10. It was on the table (schema.ts migration)
+   * and read in production, but absent here, so every read had to go through
+   * `(p as any).unsubscribed_at` — the one field where the compiler most needed
+   * to be watching was the one it could not see.
+   */
+  unsubscribed_at?: string | null;
 };
 
 export type OutreachLogRow = {
