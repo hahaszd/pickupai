@@ -83,16 +83,34 @@ The cost, measured 2026-08-10 on 10 NSW prospects:
 per-page buys the isolation with, and it scales badly: 100 businesses is roughly
 11M tokens.
 
-**Do not optimise this yet.** The obvious cut — give policy/terms pages their own
-agent and bundle the homepage and contact pages — assumes refusals live on policy
-pages, and **that first run found zero refusals in 23 pages**, so there is no
-evidence for where they live. Keep one agent per page until a run turns up real
-refusals, then cut based on where they actually appeared. Optimising against an
-assumption is how the keyword regex got its worthless zero.
+**Two things have been settled by measurement — `scripts/plant-refusal-fixtures.ts`
+builds the known-answer set: three real refusal sentences planted in three
+different page positions, plus one untouched page so a reader that says yes to
+everything scores 3/4.**
 
-Worth testing when there is a batch with known answers: a smaller model. "Does
-this page contain a sentence of this kind" is a narrow task and may not need the
-most capable model available.
+**1. Page position does not matter, so do not skip pages.** The tempting cut is
+to give only policy/terms pages an agent. Tested: the refusal planted in a
+homepage footer and the one on a contact page were caught exactly as readily as
+the one buried mid-way through a long privacy policy. There is no basis for
+skipping non-policy pages. **Read every page.**
+
+**2. Question 1 runs on a cheap model.** Haiku scored **4/4** — all three plants
+found, all three quotes verbatim and confirmed by stage 3, control correctly
+negative. That is the ~10x saving, and note what it is *not*: it does not reduce
+the agent count at all. The answer to "how do we spawn fewer agents" is that you
+do not — you make each one cheap.
+
+**3. But question 2 wants a stronger reader.** On the same page Haiku marked the
+Cloudflare obfuscation placeholder `[email protected]` as a genuine business
+address; the stronger model had excluded it. That is the harmless direction — one
+junk address in a list a human vets anyway — but it is the difference between
+the two questions. If they are ever split, question 1 goes to every page on the
+cheap model, question 2 runs once per prospect over the candidate list.
+
+**The limit of this evidence:** three planted sentences, all written by us. Real
+wording in the wild may be subtler than anything we thought to plant. This shows
+a cheap reader is not blind; it does not prove it is sufficient. Re-run the
+fixtures — and add to them — whenever a real refusal is found in the field.
 
 Give each agent exactly this job:
 

@@ -67,8 +67,38 @@ rate at n=23.
    assumption. Optimising against an assumption is exactly how the keyword regex
    earned its worthless zero.
 
-**Open:** try a smaller model for stage 2 against a batch with known answers —
-"does this page contain a sentence of this kind" is a narrow task.
+**MEASURED the same day, and it overturns the "don't optimise" advice above in
+one direction and confirms it in the other.** `scripts/plant-refusal-fixtures.ts`
+plants three real refusal sentences in three page positions plus one untouched
+control, so a reader that answers yes to everything scores 3/4.
+
+| Fixture | Position | Expected | Haiku |
+|---|---|---|---|
+| plant-a | homepage footer | refusal | ✅ caught, quote verified |
+| plant-b | contact page | refusal | ✅ caught, quote verified |
+| plant-c | buried mid privacy policy | refusal | ✅ caught, quote verified |
+| control | unmodified | clean | ✅ correctly negative |
+
+**Page position does not matter — so the "only read policy pages" cut is dead.**
+A refusal in a homepage footer was caught as readily as one buried in a long
+policy. The caution above was right: that optimisation would have been made on
+an assumption, and the assumption was wrong.
+
+**Stage 2 question 1 moves to Haiku. 4/4, all quotes verbatim.** And note what
+this is *not*: it does not reduce the agent count at all. **The answer to "spawn
+fewer agents" is that you do not — you make each one cheap.** ~10x on price;
+token counts are almost identical (26k vs 33k), so the saving is entirely rate.
+
+**But the two questions want different models.** On the same page Haiku marked
+the Cloudflare placeholder `[email protected]` as a real business address,
+which the stronger model had excluded. Harmless direction — one junk row in a
+list a human vets — but it argues for splitting: question 1 (refusal) on every
+page cheaply, question 2 (whose address) once per prospect over the candidates.
+
+**The limit:** three planted sentences, all written by us, so real wording may be
+subtler than anything we thought to plant. This shows a cheap reader is not
+blind; it does not prove it is sufficient. Add any real refusal found in the
+field to the fixtures.
 
 ### MEASURED: ~62% of NSW tradie sites publish a usable email, and the extraction needs a human
 2026-08-10. Read-only survey, nothing sent, nothing written to `prospects`.
