@@ -1,0 +1,12 @@
+Subject: the 2pm call you couldn't take
+
+Hi {firstName},
+
+You're {onTheJob} and the phone goes. Can't take it. Most callers won't leave a voicemail — they just ring the next {trade} on Google.
+
+That's the problem I'm building PickupAI around: it answers, finds out who's calling and what they need, and texts it to you before they've had time to try anyone else. You ring back when your hands are free.
+
+Still free for the first NSW {trade}s who'll tell me where it falls short — one reply and you'll hear exactly what your callers would hear.
+
+{yourName}
+PickupAI, Sydney

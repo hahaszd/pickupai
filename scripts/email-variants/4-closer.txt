@@ -1,0 +1,9 @@
+Subject: last one from me
+
+Last one from me, {firstName}.
+
+If missed calls aren't a problem at {businessName}, reply "no worries" and I won't email again. If they are, any reply gets you the 60-second recording.
+
+Either way — good luck out there.
+
+{yourName}

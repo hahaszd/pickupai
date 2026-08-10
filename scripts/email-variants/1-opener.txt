@@ -1,0 +1,14 @@
+Subject: who answers your phone when you're on the tools?
+
+G'day {firstName},
+
+Came across {businessName} while looking at {trade}s around {area} — {size_line}. Every call that rings out while you're mid-job is a job that goes to the next {trade} on Google.
+
+I'm building PickupAI: an AI receptionist that answers when you can't, has a proper conversation with the caller, and texts you their name, number and what the job is — straight away.
+
+It's new, and I'm looking for a handful of NSW tradies to use it free and tell me what's wrong with it. No card, no lock-in, cancel by replying.
+
+Worth a listen? I'll send a 60-second recording of it taking a real call.
+
+{yourName}
+Sydney
