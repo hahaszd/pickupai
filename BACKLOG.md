@@ -76,13 +76,19 @@ mechanical: the campaign needed a mobile number, and suppliers and wholesalers
 mostly publish landlines, so `status = 'not_mobile'` filtered them out as a side
 effect. **The texted cohort was cleaner than the table it came from.**
 
-**On message relevance: the concern is real and bigger.** The campaign targeted
-by trade — 395 plumber, 156 electrician, 106 roofer, 61 handyman — and the
-page-read found `trade_type` wrong in **6 of 30** rows: a plumber and a handyman
-and a commercial waterproofer all filed as roofers, plus an **automotive** roof
-liner, a builder, and a solar inspector. **If those messages named the
-recipient's trade, roughly one in five opened on a false premise.** Nobody
-replies "I'm not a roofer" — they delete it.
+**On message relevance: the concern is real but narrower than first recorded —
+RESOLVED same day by reading the variant files.** The page-read found
+`trade_type` wrong in **6 of 30** rows, and the first version of this entry said
+"if those messages named the recipient's trade, roughly one in five opened on a
+false premise." The condition mostly fails: `scripts/variants/README.md` records
+that the trade word was **deliberately removed** from the volume variants
+(`C_cost_framing`, `D_trial`) precisely because they went to a multi-trade
+cohort; only `A_reply_yes` said "Sydney plumbers", aimed at a plumber-labelled
+cohort that is ~80% correctly labelled. So the wrong-trade confound touches one
+variant's share of sends, not the campaign. **`channel-evidence.md`'s
+message-and-offer conclusion survives better than this entry first implied** —
+its real weakness remains what it always was: 8 known humans out of 540
+contacted, one copy family, one offer, cold audience.
 
 **What this does to `docs/channel-evidence.md`.** Its conclusion — *"They read
 them and did not tap"* — still stands, but confidence should drop, for two
