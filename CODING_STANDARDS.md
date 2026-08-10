@@ -54,13 +54,23 @@ and [ADR-0002](docs/adr/0002-critical-writes-flush-synchronously.md).
   inline a credential, not even in `scripts/`. See `SECURITY.md` — this repo has
   already leaked production credentials into git history once.
 
-## Outbound SMS
+## Outbound marketing (SMS and email)
 
 - **Read `LISTS.md` before touching anything that sends.** Australian Spam Act
-  2003 / ACMA; penalties scale to the company.
-- Marketing sends go through the suppression check; the opt-out line is not
+  2003 / ACMA; penalties scale to the company. The Act treats SMS and email
+  identically.
+- Marketing SMS goes through the suppression check; the opt-out line is not
   optional; quiet hours are not optional. `TEST_OVERRIDE_PHONE` is the single
   audited bypass and matches exactly one number.
+- **Marketing email goes only through `src/outreach/email-compliance.ts`** —
+  `emailPreSendCheck` → `buildMarketingEmail` → `auditMarketingEmail`. Bare
+  `sendEmail()` is for transactional owner notifications and must never carry
+  marketing. The email gate deliberately has **no** bypass, not even a test
+  override, and none may be added: the suppression check is the one check that
+  must never be bypassable.
+- Suppression is one cross-channel record (`prospects.unsubscribed_at`, stamped
+  via `markProspectUnsubscribed()`). An opt-out on any channel — SMS STOP,
+  unsubscribe link, reply, or spoken on a phone call — closes every channel.
 
 ## Naming
 

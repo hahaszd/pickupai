@@ -31,7 +31,7 @@ Two clarifications from 2026-08-03, because the absolute version was unusable:
   hot switchboard, a sounding alarm — is written down, not advised on.
 
 Anything customer-facing that claims otherwise is a false claim, not just stale
-copy: `tests/marketing-claims.test.ts` fails CI on eight such phrases across
+copy: `tests/marketing-claims.test.ts` fails CI on a banned-phrase list across
 `public/*.html`, the dashboard, the support bot and the demo scripts.
 
 ## Commands
@@ -49,8 +49,8 @@ copy: `tests/marketing-claims.test.ts` fails CI on eight such phrases across
 
 `npm run check` must stay green — CI (`.github/workflows/ci.yml`) runs exactly
 it, plus `npm run build` and a `docker build` of the deploy image, on every push
-and PR to `main`. Lint reports ~240 warnings and 0 errors; the warnings are a
-known `any` backlog, but **the error count must stay at 0**.
+and PR to `main`. Lint reports a few hundred warnings and 0 errors; the warnings
+are a known `any` backlog, but **the error count must stay at 0**.
 
 `npm audit` is advisory-only in CI (`continue-on-error`) and gated at
 `--audit-level=moderate`. One low esbuild advisory is known and accepted:
@@ -58,7 +58,7 @@ Windows-only dev server, pinned by vitest's dependency range.
 
 ## Architecture
 
-Everything is wired in `src/server.ts` (~4.6k lines — one Express app, all
+Everything is wired in `src/server.ts` (~4.9k lines — one Express app, all
 routes). Route groups, in file order:
 
 - `/twilio/*` — voice + SMS webhooks, all behind `twilioVerify` signature check
@@ -68,6 +68,8 @@ routes). Route groups, in file order:
 - `/stripe/webhook` — **must** stay mounted with `express.raw` before the
   global JSON parser, or signature verification breaks
 - `/`, `/demo`, `/r/:prospectId`, `/api/funnel/event` — marketing funnel
+- `/u/:token` — public one-click email unsubscribe (GET human / POST RFC 8058);
+  stamps the cross-channel suppression record
 
 ### Voice call flow
 
@@ -76,8 +78,9 @@ carrying a one-time stream token → `wss` handler in `server.ts` opens an
 OpenAI Realtime session (`src/realtime/session.ts`) → model calls `save_lead()`
 / `end_call()` tools → lead persisted → owner SMS via `src/twilio/sms.ts`.
 
-- Model defaults to `gpt-realtime-2`; roll back with `OPENAI_REALTIME_MODEL=gpt-realtime-1.5`
-  (no redeploy needed). Reasoning effort via `OPENAI_REALTIME_REASONING_EFFORT`, default `low`.
+- Model defaults to `gpt-realtime-2.1`; roll back with `OPENAI_REALTIME_MODEL=gpt-realtime-2`
+  or `gpt-realtime-1.5` (no redeploy needed). Reasoning effort via
+  `OPENAI_REALTIME_REASONING_EFFORT`, default `low`.
 - `MAX_CALL_DURATION_MS` (default 5 min) force-ends calls the model never closes.
 - Tool-call guards live in `src/realtime/tool-call-guards.ts` and are well covered by tests.
 
@@ -146,14 +149,17 @@ Beyond those:
 
 - **Never commit secrets.** `SECURITY.md` documents a historical leak of
   production Twilio + Neon credentials into git history.
-- **Marketing SMS is legally constrained** — Australian Spam Act 2003 / ACMA,
-  penalties scale to the company. Read `LISTS.md` before touching anything that
-  sends or any prospect list.
+- **Marketing SMS *and email* are legally constrained** — Australian Spam Act
+  2003 / ACMA, penalties scale to the company ($36,400 per consent breach at
+  2026 rates). Read `LISTS.md` before touching anything that sends or any
+  prospect list; the statutory analysis is
+  `docs/research/spam-act-email-outreach-2026-08.md`.
 - **`TWILIO_VALIDATE_SIGNATURE=true` in production.** Off by default for local dev.
 - **Keep Railway at 1 replica**, and keep `RAILWAY_DEPLOYMENT_OVERLAP_SECONDS=0`
   / `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=15` set. See ADR-0001 — without them
   the shutdown handler never runs and deploys silently lose writes.
-- Don't push, deploy, or run outbound-SMS scripts without being asked.
+- Don't push, deploy, or run outbound-messaging scripts (SMS **or** email)
+  without being asked.
 
 ## Agent skills
 
@@ -165,11 +171,15 @@ Configured in `docs/agents/issue-tracker.md`. In routine use here:
   failures that cannot be reasoned out by reading.
 - **`research`** — for ACMA, Twilio AU regulatory and OpenAI API facts, where
   guessing is expensive. Output goes to `docs/research/`.
+- **`email-consent-check`** (`.claude/skills/`, this repo's first project
+  skill) — establishes, address by address, whether a published email may be
+  emailed under the Spam Act's inferred-consent rule. Use it for any outreach
+  list work; never write results back to `prospects` from it.
 
 The issue-tracker-centric skills (`to-tickets`, `triage`, `to-spec`,
 `wayfinder`) are deliberately not set up — see `docs/agents/issue-tracker.md`.
 
-### Before building something the owner specified
+## Before building something the owner specified
 
 Three lines in the reply, every time, **before** the work starts:
 
@@ -203,8 +213,10 @@ things, and "lead" is only ever the third.
 customers, with the raw numbers.** Read it before proposing anything about
 acquisition, and before repeating an experiment. It records, among other
 things, that the 560-SMS campaign produced zero genuine human clicks — the 60
-`link_clicked_at` stamps are carrier link scanners — and that the only real
-user in the product's history arrived organically.
+`link_clicked_at` stamps are carrier link scanners — and that the only signup
+in the product's history arrived organically (and never activated: no number
+provisioned, no calls — see `BACKLOG.md`, "the SMS campaign was NOT sent to
+the wrong people").
 
 **Read `HANDOVER.md` first if it exists** — it is a baton from the previous
 session, not a maintained document, and can be deleted once absorbed.
@@ -236,4 +248,6 @@ record disproved claims too.
 
 `docs/product-workflow.md` (EN) and `docs/产品工作流程说明.md` (CN) are the
 architecture references. `DEPLOY.md` is the Railway runbook. `LISTS.md` is the
-SMS consent register. `docs/launch-runbook-OPERATOR.md` is the launch checklist.
+marketing consent register (SMS **and** email — per-source consent basis, the
+send-day runbook, and the phone-call rules for follow-ups).
+`docs/launch-runbook-OPERATOR.md` is the launch checklist.
