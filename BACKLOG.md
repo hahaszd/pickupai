@@ -20,11 +20,51 @@ rather than being deleted.
 
 A deferral with a documented trigger is P2, however alarming it reads.
 
-Last updated: **2026-08-09**
+Last updated: **2026-08-11**
 
 ---
 
 ## P0
+
+### P1 — the email sequence's payoff does not exist: there is no 60-second recording
+2026-08-11, found while writing the handover. All four approved variants
+(`scripts/email-variants/`) close on the same promise: *"I'll send a 60-second
+recording of it taking a real call."* **No shareable recording of the current
+prompt taking a call exists** — and no real phone call has ever been placed
+against the current prompt at all (open since the 2026-08-09 handover).
+
+One owner phone call to the product produces both things at once: the listen
+test the prompt work has been waiting for (does the TTS say "triple zero"?
+does the new no-advice sentence land warmly?) and the artifact every replier
+gets. **Blocks the send** — a reply that gets silence, or gets a rushed fake,
+burns the only warm contacts this product has. Decide the delivery form too
+(mp3 attached to the reply is simplest; a link reintroduces the tap problem,
+though a requested link is different from a cold one).
+
+### P2 — port this session's acquisition findings into `docs/channel-evidence.md`
+2026-08-11. The file is the canonical what-was-tried record, is two weeks
+stale, and its headline ("1 real customer ever") is now known to be wrong —
+the one organic signup never activated. This session's findings live in
+BACKLOG entries above and must be ported in channel-evidence's own
+numbers-and-method style: the texted-cohort audit (718 distinct prospects,
+99.9% google_places, 1.3% visibly-not-a-tradie floor — `scripts/audit-who-we-texted.ts`),
+the wrong-trade confound and its same-day resolution (volume variants were
+trade-generic), the unreconciled 718-vs-560, the list-quality numbers
+(57% rows with a wrong field / 30% dead sites / 30% end-to-end address yield),
+and the email batch with its pre-registered interpretation rules.
+
+**Also port the channel ranking, which currently lives only in a conversation:**
+every push channel shares one flaw — the pain isn't felt at message-read time
+but at 6pm over a missed call, when what a tradie does is search or ask a mate.
+The only conversion ever recorded came through organic search against a site
+with one indexable page. Ranking by evidence: (1) search/SEO — only channel
+with a conversion, near-zero investment to date; (2) owner cold calls —
+legally cleanest (voice is outside the Spam Act, business numbers are
+DNCR-ineligible), thesis-aligned (the product's premise is that tradies answer
+unknown numbers), and the 23-row dossier pays off most on a call; (3) email —
+built, compliant, running as the multi-touch opener; (4) Facebook groups —
+real but owner-personal, not automatable; (5) SMS — parked until a new message
+hypothesis exists, not proven dead.
 
 ### DONE: 23 verified NSW addresses, and the SMS campaign was NOT sent to the wrong people
 2026-08-10. 90 prospects fetched → 51 with a candidate address → 30 read by
