@@ -15,6 +15,10 @@ current scale (~2–3k prospects, a small number of paying tenants, a ~1–2 MB
 blob) a real per-table Postgres migration would buy an ability we do not yet
 need, at a cost of several days.
 
+> **Measured 2026-08-14: the blob is 3.75 MB** (3,751,936 bytes), not the
+> 1–2 MB estimated when this was written. Still under the 10 MB migration
+> threshold below.
+
 ## Considered options
 
 - **Migrate to native Postgres tables now** (`pg` or `drizzle-orm`). Rejected:
@@ -64,7 +68,7 @@ Migrate when **any** of these is hit:
 |---|---|---|
 | Blob size | > 10 MB | Single reading. The blob only grows, so one sample is already the truth. |
 | Flush duration | p95 > 1 s | Rolling window of 50 flushes, minimum 20 samples, **first 3 flushes after boot excluded**. |
-| Neon usage | at plan limit | Manual — check the Neon dashboard. |
+| Neon usage | at plan limit | Manual — check the Neon dashboard. **FIRED 2026-08-14** — see below. |
 
 These are instrumented in `flush()` and alert once per process by SMS to
 `OWNER_PHONE_NUMBER` on threshold crossing — a deferral whose exit signal is
@@ -78,6 +82,25 @@ a megabyte. The first implementation alerted on any single flush over the
 threshold and duly fired on the very next deploy at 1282 ms, with a blob
 nowhere near the size that would justify migrating. One slow flush is noise;
 a slow 95th percentile is the blob genuinely getting expensive.
+
+**The Neon trigger fired first, and on a cost this ADR did not model.** On
+2026-08-14 a Neon alert put `neon-fuchsia-ocean` at 4 GB of its 5 GB monthly
+public network transfer, with the blob at 3.75 MB and both other thresholds
+comfortably unmet.
+
+The blind spot is worth naming, because it survives the migration decision.
+This document reasoned that "the binding variable is `blob size × flush
+frequency`" — that is, **writes**. But Neon bills *egress only*, so flushes
+are free and the entire bill is `blob size × process count`: `pgLoad` pulls the
+whole database once per process, and every operator script is a process, not
+just the server. Nothing instrumented that path — `onFlush` watches writes.
+The penalty is also worse than a bill: the free plan **suspends compute** at
+100%, and `openDb` throws rather than falling back, so production stops
+booting.
+
+Cheaper than migrating, in order: gzip the blob in `pgSave`/`pgLoad`; cache it
+locally for scripts keyed on `updated_at`; prune `analytics_events` /
+`chat_logs`. Tracked in `BACKLOG.md`.
 
 **`calls` is the first table to move** when that day comes: transcripts are
 append-only, read per-call, never aggregated, and are the dominant growth term.

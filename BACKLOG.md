@@ -20,11 +20,75 @@ rather than being deleted.
 
 A deferral with a documented trigger is P2, however alarming it reads.
 
-Last updated: **2026-08-11**
+Last updated: **2026-08-14**
 
 ---
 
 ## P0
+
+### P1 — Neon egress is at 80% and a suspend takes production offline, not just slow
+2026-08-14, from a Neon alert: `neon-fuchsia-ocean` has used 4 GB of its 5 GB
+monthly **public network transfer** allowance.
+
+**Neon counts egress only** — data sent *out* of the database
+([usage metrics](https://neon.com/docs/introduction/usage-metrics)). Blob
+*writes* are free; blob *reads* are the whole bill. And the free-plan penalty
+is not an overage charge: *"when you run out of CU-hours or public network
+transfer, your compute is suspended until the next billing period or until you
+upgrade."*
+
+A suspend is a hard outage, not degradation. `openDb` deliberately throws
+rather than falling back to local SQLite when `DATABASE_URL` is set
+(`src/db/db.ts:132–155`, the 2026-05-08 lesson), so **production would fail to
+boot entirely**.
+
+**Measured 2026-08-14:** blob = **3,751,936 bytes (3.75 MB)**, whole Neon
+database = 13 MB, `funnel_events` = 19 rows. So 4 GB ÷ 3.75 MB ≈ **1,070
+whole-blob reads** this period.
+
+**The mechanism is confirmed and it is architectural.** `SELECT data FROM
+sqlite_blob` is the *only* egress path of any size in the entire system — the
+one runtime `db.pg` use is a funnel-event INSERT (`src/server.ts:1237`), which
+is ingress. That read happens once per **process**, and every process pays it:
+
+- each production boot (`src/server.ts:731`) — Railway's `ON_FAILURE` restart
+  policy means crash restarts count too;
+- **each run of any operator script.** 6 scripts call `openDb`; a further 19
+  `.mjs` scripts issue the raw `SELECT data` themselves. Verified they read
+  once per run, not per row — the loops are clean. But last week was the
+  email-consent work: iterating on a script means running it dozens of times,
+  at 3.75 MB each.
+
+Unconfirmed: the split between production restarts and script runs. Two
+owner-only readings settle it — the Neon console's **daily** egress graph
+(a flat ~43 MB/day says restarts; spikes on the consent-check days say
+scripts) and Railway's restart count. Also needed: **the period reset date**,
+which decides whether this is urgent or already over.
+
+**Not P0** because no tenant is live to lose a call. The cost is that a
+suspend blocks the deploy the email send depends on — the unsubscribe endpoint
+must be live before the first send or every link 404s.
+
+Cheapest fixes, ranked — none is the ADR-0001 migration:
+
+1. **Free, today: stop running operator scripts against Neon until reset.**
+   Only `send-email-batch.ts` genuinely needs a run.
+2. **gzip the blob in `pgSave`/`pgLoad`** (~30 lines). A mostly-text SQLite
+   blob should compress several-fold; detect the `1f 8b` magic on read so old
+   uncompressed rows still load. Cuts every future read by that factor.
+   Measure the real ratio before claiming one.
+3. **Local blob cache for scripts**, keyed on `sqlite_blob.updated_at`
+   (an integer's worth of egress) — repeated runs then transfer nothing.
+   Writers must not use a stale cache; use `updated_at` as an optimistic
+   concurrency check.
+4. Prune `analytics_events` / `chat_logs` to shrink the blob at the source.
+
+This is the **third** ADR-0001 migration trigger, and the first to actually
+fire: "Neon usage — at plan limit". Blob size (3.75 MB) is still well under
+the 10 MB threshold, and no slow-flush alert has fired. Worth noting the ADR
+did not anticipate *this* cost shape: it reasoned about `blob size × flush
+frequency` (writes), and the bill turned out to be `blob size × process
+count` (reads).
 
 ### P1 — the email sequence's payoff does not exist: there is no 60-second recording
 2026-08-11, found while writing the handover. All four approved variants
