@@ -59,11 +59,46 @@ is ingress. That read happens once per **process**, and every process pays it:
   email-consent work: iterating on a script means running it dozens of times,
   at 3.75 MB each.
 
-Unconfirmed: the split between production restarts and script runs. Two
-owner-only readings settle it — the Neon console's **daily** egress graph
-(a flat ~43 MB/day says restarts; spikes on the consent-check days say
-scripts) and Railway's restart count. Also needed: **the period reset date**,
-which decides whether this is urgent or already over.
+**The script theory was measured and is wrong — it accounts for ~3%.**
+Counting real Bash executions in the six session transcripts under
+`~/.claude/projects/-Users-zhidongsun-My-projects-Pickup-AI/`: 236 script
+runs, of which only ~36 reach Neon (`tenant-profile` 14,
+`collect-email-evidence` 12, `send-email-batch` 3, the two audits 2 each,
+three `.mjs` writers 1 each) ≈ **135 MB of the 4 GB**.
+
+Ruled out as well:
+
+- **`scripts/run-eval.ts` — 134 of the 236 runs, and it never opens a
+  database.** Its only `repo.js` reference is `import type { TenantRow }`
+  (`src/testing/eval/runner.ts:3`), erased at compile time. Worth recording
+  because `env-bootstrap.ts` sets `SQLITE_PATH` but does **not** clear
+  `DATABASE_URL`, and `src/env.ts:17` runs `dotenv.config()` whenever
+  `VITEST` is unset — so the production connection string *is* in scope
+  during an eval. Nothing currently uses it. That is one `openDb()` call
+  away from being untrue; see the same warning at `src/env.ts:14`.
+- **Unit tests** — `tests/setup-env.ts` deletes `DATABASE_URL` (line 49).
+- **A background-job crash loop** — there is no `unhandledRejection`
+  handler, so an unhandled rejection would kill the process and Railway's
+  `ON_FAILURE` policy would restart it into a fresh 3.75 MB read. But all
+  three interval jobs wrap their bodies in `try/catch`
+  (`src/server.ts:4774`, `4791`, `4471`), so they are not the source.
+
+**~97% of the 4 GB is therefore still unexplained**, and the repo cannot
+explain it. Three owner-only checks, in order:
+
+1. **Is PickupAI even the only consumer of this Neon project?** The alert is
+   per *project* (`neon-fuchsia-ocean`), not per database. Another branch,
+   another app, or a Vercel integration sharing it would not show up
+   anywhere in this repo.
+2. **Railway restart count / how often `[db] Loaded SQLite snapshot from
+   PostgreSQL` appears in the logs.** 1,070 boots over 13 days is one every
+   ~17 minutes — a restart loop that only Railway can show.
+3. **The Neon console's daily egress graph, and the period reset date** —
+   which decides whether this is urgent or already behind us.
+
+Do not add an alert or an optimisation until one of those three lands. The
+mechanism below is certain; the *volume* is not attributed, and optimising an
+unattributed cost is guessing.
 
 **Not P0** because no tenant is live to lose a call. The cost is that a
 suspend blocks the deploy the email send depends on — the unsubscribe endpoint
