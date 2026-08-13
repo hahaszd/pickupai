@@ -46,68 +46,71 @@ boot entirely**.
 database = 13 MB, `funnel_events` = 19 rows. So 4 GB ÷ 3.75 MB ≈ **1,070
 whole-blob reads** this period.
 
-**The mechanism is confirmed and it is architectural.** `SELECT data FROM
-sqlite_blob` is the *only* egress path of any size in the entire system — the
-one runtime `db.pg` use is a funnel-event INSERT (`src/server.ts:1237`), which
-is ingress. That read happens once per **process**, and every process pays it:
+**PickupAI is not what spent it. Attributable: ~139 MB, or 3.5%.** Three
+hypotheses were built and each was measured and killed:
 
-- each production boot (`src/server.ts:731`) — Railway's `ON_FAILURE` restart
-  policy means crash restarts count too;
-- **each run of any operator script.** 6 scripts call `openDb`; a further 19
-  `.mjs` scripts issue the raw `SELECT data` themselves. Verified they read
-  once per run, not per row — the loops are clean. But last week was the
-  email-consent work: iterating on a script means running it dozens of times,
-  at 3.75 MB each.
+1. **Operator scripts.** `SELECT data FROM sqlite_blob` is the only egress
+   path of any size in the system (the one runtime `db.pg` use is a
+   funnel-event INSERT, `src/server.ts:1237` — ingress, therefore free), and
+   every process pays 3.75 MB for it. But counting real Bash executions in
+   the six surviving session transcripts: 236 script runs, only ~36 of which
+   reach Neon ≈ **135 MB**. All 25 blob-reading scripts were checked and read
+   once per run, not per row. The one exception — `test-stop-flow.mjs` wraps
+   its read in `fetchProspect()`, called 4× per run — was never executed.
+2. **A production restart loop.** Railway's `ON_FAILURE` policy plus the
+   absence of an `unhandledRejection` handler makes this plausible on paper.
+   Killed by `GET /version`, which exposes `BUILD_TIME` — set at module load,
+   so it is really the process start time. Live value:
+   **`startedAt: 2026-07-29T07:37:44Z` — one single process start, 15.6 days
+   of continuous uptime.** All three interval jobs also wrap their bodies in
+   `try/catch` (`src/server.ts:4774`, `4791`, `4471`).
+3. **Flush volume, i.e. Neon counting writes.** Killed twice over: the
+   authoritative doc says *"All outbound client traffic counts toward network
+   transfer, also known as egress"* and only Scale-plan private networking
+   counts both directions; and polling `sqlite_blob.updated_at` for 100 s
+   observed **zero** flushes, with the last write 16 hours earlier. The app
+   is idle.
 
-**The script theory was measured and is wrong — it accounts for ~3%.**
-Counting real Bash executions in the six session transcripts under
-`~/.claude/projects/-Users-zhidongsun-My-projects-Pickup-AI/`: 236 script
-runs, of which only ~36 reach Neon (`tenant-profile` 14,
-`collect-email-evidence` 12, `send-email-batch` 3, the two audits 2 each,
-three `.mjs` writers 1 each) ≈ **135 MB of the 4 GB**.
+Also ruled out: **`scripts/run-eval.ts`** — 134 of the 236 runs, and it never
+opens a database (its only `repo.js` reference is `import type { TenantRow }`,
+`src/testing/eval/runner.ts:3`, erased at compile time). Worth recording
+anyway, because `env-bootstrap.ts` sets `SQLITE_PATH` but does **not** clear
+`DATABASE_URL`, and `src/env.ts:17` runs `dotenv.config()` whenever `VITEST`
+is unset — so the production connection string *is* in scope during an eval.
+One `openDb()` call away from being untrue; same warning as `src/env.ts:14`.
+**Unit tests** are clean — `tests/setup-env.ts:49` deletes `DATABASE_URL`.
+No external replication either: the only slot is Neon's internal
+`wal_proposer_slot` (physical), and `pg_stat_replication` is empty.
 
-Ruled out as well:
+**The leading explanation is a second consumer: Council Beacon** (owner,
+2026-08-14, mid-investigation — it also uses Neon). Egress is billed per
+*project*, so this only explains the bill if Council Beacon connects to
+`neon-fuchsia-ocean` itself, not merely to the same Neon account. The
+question to settle, in order:
 
-- **`scripts/run-eval.ts` — 134 of the 236 runs, and it never opens a
-  database.** Its only `repo.js` reference is `import type { TenantRow }`
-  (`src/testing/eval/runner.ts:3`), erased at compile time. Worth recording
-  because `env-bootstrap.ts` sets `SQLITE_PATH` but does **not** clear
-  `DATABASE_URL`, and `src/env.ts:17` runs `dotenv.config()` whenever
-  `VITEST` is unset — so the production connection string *is* in scope
-  during an eval. Nothing currently uses it. That is one `openDb()` call
-  away from being untrue; see the same warning at `src/env.ts:14`.
-- **Unit tests** — `tests/setup-env.ts` deletes `DATABASE_URL` (line 49).
-- **A background-job crash loop** — there is no `unhandledRejection`
-  handler, so an unhandled rejection would kill the process and Railway's
-  `ON_FAILURE` policy would restart it into a fresh 3.75 MB read. But all
-  three interval jobs wrap their bodies in `try/catch`
-  (`src/server.ts:4774`, `4791`, `4471`), so they are not the source.
+1. **Does Council Beacon's connection string point at `neon-fuchsia-ocean`?**
+   Compare the host, not the account. If yes, the 96.5% is almost certainly
+   its, and PickupAI needs no optimisation at all.
+2. **If yes, what in it reads that much** — Neon's own list of egress sources
+   is query result sets, `pg_dump`, logical replication, read-replica
+   queries, and Postgres log export to a monitoring service.
+3. **The Neon console's daily egress graph and the period reset date** —
+   which also decides whether this is urgent or already behind us.
 
-**~97% of the 4 GB is therefore still unexplained**, and the repo cannot
-explain it. Three owner-only checks, in order:
-
-1. **Is PickupAI even the only consumer of this Neon project?** The alert is
-   per *project* (`neon-fuchsia-ocean`), not per database. Another branch,
-   another app, or a Vercel integration sharing it would not show up
-   anywhere in this repo.
-2. **Railway restart count / how often `[db] Loaded SQLite snapshot from
-   PostgreSQL` appears in the logs.** 1,070 boots over 13 days is one every
-   ~17 minutes — a restart loop that only Railway can show.
-3. **The Neon console's daily egress graph, and the period reset date** —
-   which decides whether this is urgent or already behind us.
-
-Do not add an alert or an optimisation until one of those three lands. The
-mechanism below is certain; the *volume* is not attributed, and optimising an
-unattributed cost is guessing.
+Do not optimise PickupAI until that lands. Three plausible mechanisms in this
+repo were each certain-looking and each wrong by an order of magnitude; the
+fourth guess does not deserve more trust than the first three.
 
 **Not P0** because no tenant is live to lose a call. The cost is that a
 suspend blocks the deploy the email send depends on — the unsubscribe endpoint
 must be live before the first send or every link 404s.
 
-Cheapest fixes, ranked — none is the ADR-0001 migration:
+Fixes, **only if Council Beacon turns out not to be the cause** — and none of
+them is the ADR-0001 migration. At 139 MB per period PickupAI is using ~3% of
+the allowance, so on current evidence the correct amount of work here is zero:
 
-1. **Free, today: stop running operator scripts against Neon until reset.**
-   Only `send-email-batch.ts` genuinely needs a run.
+1. **Free: stop running operator scripts against Neon until reset.** Worth
+   ~135 MB. Only `send-email-batch.ts` genuinely needs a run.
 2. **gzip the blob in `pgSave`/`pgLoad`** (~30 lines). A mostly-text SQLite
    blob should compress several-fold; detect the `1f 8b` magic on read so old
    uncompressed rows still load. Cuts every future read by that factor.
