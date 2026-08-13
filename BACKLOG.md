@@ -46,6 +46,14 @@ boot entirely**.
 database = 13 MB, `funnel_events` = 19 rows. So 4 GB ÷ 3.75 MB ≈ **1,070
 whole-blob reads** this period.
 
+**Unverified premise, and it is load-bearing.** Everything below measures the
+database `DATABASE_URL` points at — endpoint **`ep-long-mountain-a75ui4v2`**
+(pooler), region `ap-southeast-2`, database `neondb`. Nobody has checked that
+this is the endpoint belonging to the alerted project `neon-fuchsia-ocean`;
+Neon hostnames carry the endpoint id, not the project display name, so it
+only resolves in the console. If they do **not** match, PickupAI is not in
+the alerted project at all and its share of the 4 GB is 0%, not 3.5%.
+
 **PickupAI is not what spent it. Attributable: ~139 MB, or 3.5%.** Three
 hypotheses were built and each was measured and killed:
 
