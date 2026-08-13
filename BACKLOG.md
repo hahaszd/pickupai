@@ -26,116 +26,6 @@ Last updated: **2026-08-14**
 
 ## P0
 
-### P1 — Neon egress is at 80% and a suspend takes production offline, not just slow
-2026-08-14, from a Neon alert: `neon-fuchsia-ocean` has used 4 GB of its 5 GB
-monthly **public network transfer** allowance.
-
-**Neon counts egress only** — data sent *out* of the database
-([usage metrics](https://neon.com/docs/introduction/usage-metrics)). Blob
-*writes* are free; blob *reads* are the whole bill. And the free-plan penalty
-is not an overage charge: *"when you run out of CU-hours or public network
-transfer, your compute is suspended until the next billing period or until you
-upgrade."*
-
-A suspend is a hard outage, not degradation. `openDb` deliberately throws
-rather than falling back to local SQLite when `DATABASE_URL` is set
-(`src/db/db.ts:132–155`, the 2026-05-08 lesson), so **production would fail to
-boot entirely**.
-
-**Measured 2026-08-14:** blob = **3,751,936 bytes (3.75 MB)**, whole Neon
-database = 13 MB, `funnel_events` = 19 rows. So 4 GB ÷ 3.75 MB ≈ **1,070
-whole-blob reads** this period.
-
-**Unverified premise, and it is load-bearing.** Everything below measures the
-database `DATABASE_URL` points at — endpoint **`ep-long-mountain-a75ui4v2`**
-(pooler), region `ap-southeast-2`, database `neondb`. Nobody has checked that
-this is the endpoint belonging to the alerted project `neon-fuchsia-ocean`;
-Neon hostnames carry the endpoint id, not the project display name, so it
-only resolves in the console. If they do **not** match, PickupAI is not in
-the alerted project at all and its share of the 4 GB is 0%, not 3.5%.
-
-**PickupAI is not what spent it. Attributable: ~139 MB, or 3.5%.** Three
-hypotheses were built and each was measured and killed:
-
-1. **Operator scripts.** `SELECT data FROM sqlite_blob` is the only egress
-   path of any size in the system (the one runtime `db.pg` use is a
-   funnel-event INSERT, `src/server.ts:1237` — ingress, therefore free), and
-   every process pays 3.75 MB for it. But counting real Bash executions in
-   the six surviving session transcripts: 236 script runs, only ~36 of which
-   reach Neon ≈ **135 MB**. All 25 blob-reading scripts were checked and read
-   once per run, not per row. The one exception — `test-stop-flow.mjs` wraps
-   its read in `fetchProspect()`, called 4× per run — was never executed.
-2. **A production restart loop.** Railway's `ON_FAILURE` policy plus the
-   absence of an `unhandledRejection` handler makes this plausible on paper.
-   Killed by `GET /version`, which exposes `BUILD_TIME` — set at module load,
-   so it is really the process start time. Live value:
-   **`startedAt: 2026-07-29T07:37:44Z` — one single process start, 15.6 days
-   of continuous uptime.** All three interval jobs also wrap their bodies in
-   `try/catch` (`src/server.ts:4774`, `4791`, `4471`).
-3. **Flush volume, i.e. Neon counting writes.** Killed twice over: the
-   authoritative doc says *"All outbound client traffic counts toward network
-   transfer, also known as egress"* and only Scale-plan private networking
-   counts both directions; and polling `sqlite_blob.updated_at` for 100 s
-   observed **zero** flushes, with the last write 16 hours earlier. The app
-   is idle.
-
-Also ruled out: **`scripts/run-eval.ts`** — 134 of the 236 runs, and it never
-opens a database (its only `repo.js` reference is `import type { TenantRow }`,
-`src/testing/eval/runner.ts:3`, erased at compile time). Worth recording
-anyway, because `env-bootstrap.ts` sets `SQLITE_PATH` but does **not** clear
-`DATABASE_URL`, and `src/env.ts:17` runs `dotenv.config()` whenever `VITEST`
-is unset — so the production connection string *is* in scope during an eval.
-One `openDb()` call away from being untrue; same warning as `src/env.ts:14`.
-**Unit tests** are clean — `tests/setup-env.ts:49` deletes `DATABASE_URL`.
-No external replication either: the only slot is Neon's internal
-`wal_proposer_slot` (physical), and `pg_stat_replication` is empty.
-
-**The leading explanation is a second consumer: Council Beacon** (owner,
-2026-08-14, mid-investigation — it also uses Neon). Egress is billed per
-*project*, so this only explains the bill if Council Beacon connects to
-`neon-fuchsia-ocean` itself, not merely to the same Neon account. The
-question to settle, in order:
-
-1. **Does Council Beacon's connection string point at `neon-fuchsia-ocean`?**
-   Compare the host, not the account. If yes, the 96.5% is almost certainly
-   its, and PickupAI needs no optimisation at all.
-2. **If yes, what in it reads that much** — Neon's own list of egress sources
-   is query result sets, `pg_dump`, logical replication, read-replica
-   queries, and Postgres log export to a monitoring service.
-3. **The Neon console's daily egress graph and the period reset date** —
-   which also decides whether this is urgent or already behind us.
-
-Do not optimise PickupAI until that lands. Three plausible mechanisms in this
-repo were each certain-looking and each wrong by an order of magnitude; the
-fourth guess does not deserve more trust than the first three.
-
-**Not P0** because no tenant is live to lose a call. The cost is that a
-suspend blocks the deploy the email send depends on — the unsubscribe endpoint
-must be live before the first send or every link 404s.
-
-Fixes, **only if Council Beacon turns out not to be the cause** — and none of
-them is the ADR-0001 migration. At 139 MB per period PickupAI is using ~3% of
-the allowance, so on current evidence the correct amount of work here is zero:
-
-1. **Free: stop running operator scripts against Neon until reset.** Worth
-   ~135 MB. Only `send-email-batch.ts` genuinely needs a run.
-2. **gzip the blob in `pgSave`/`pgLoad`** (~30 lines). A mostly-text SQLite
-   blob should compress several-fold; detect the `1f 8b` magic on read so old
-   uncompressed rows still load. Cuts every future read by that factor.
-   Measure the real ratio before claiming one.
-3. **Local blob cache for scripts**, keyed on `sqlite_blob.updated_at`
-   (an integer's worth of egress) — repeated runs then transfer nothing.
-   Writers must not use a stale cache; use `updated_at` as an optimistic
-   concurrency check.
-4. Prune `analytics_events` / `chat_logs` to shrink the blob at the source.
-
-This is the **third** ADR-0001 migration trigger, and the first to actually
-fire: "Neon usage — at plan limit". Blob size (3.75 MB) is still well under
-the 10 MB threshold, and no slow-flush alert has fired. Worth noting the ADR
-did not anticipate *this* cost shape: it reasoned about `blob size × flush
-frequency` (writes), and the bill turned out to be `blob size × process
-count` (reads).
-
 ### P1 — the email sequence's payoff does not exist: there is no 60-second recording
 2026-08-11, found while writing the handover. All four approved variants
 (`scripts/email-variants/`) close on the same promise: *"I'll send a 60-second
@@ -175,6 +65,49 @@ unknown numbers), and the 23-row dossier pays off most on a call; (3) email —
 built, compliant, running as the multi-touch opener; (4) Facebook groups —
 real but owner-personal, not automatable; (5) SMS — parked until a new message
 hypothesis exists, not proven dead.
+
+### ANSWERED: the Neon alert was never PickupAI's — it was Council Beacon's project
+2026-08-14. A Neon email said `neon-fuchsia-ocean` had used 4 GB of its 5 GB
+monthly public network transfer. **That project is not PickupAI's.** Checked
+in the Neon console:
+
+| | PickupAI | the alerted project |
+|---|---|---|
+| org | `hahaszd@gmail.com` | **`Vercel: hahaszd's projects`** |
+| project | `pickupai` | `neon-fuchsia-ocean` (Council Beacon) |
+| endpoint | `ep-long-mountain-a75ui4v2` | `ep-small-meadow-a72xuvz7` |
+| network transfer, since Aug 1 | **0.08 / 5 GB** | 4.03 / 5 GB |
+
+PickupAI is at **1.6% of its allowance** and needs no work. The cause on the
+other side was already found and fixed there hours earlier — Council Beacon
+full-table-scanned `updates` on every request, ~8 MB a time
+(`City council info web`, `e239e6c`, merged `ddf055a`, pushed 2026-08-14
+09:25). A suspend there would not touch PickupAI: different project, separate
+allowance.
+
+**What this cost, and the lesson.** Three hypotheses were built about *this*
+repo and each measured and killed — operator scripts (~135 MB of 4 GB), a
+production restart loop (`GET /version` proved a single process start and
+15.6 days of uptime), and write volume (Neon bills outbound only, and polling
+`updated_at` for 100 s saw zero flushes). All three were wasted: the premise
+that the alerted project was ours was never checked, and it was checkable in
+about a minute in the console. **Identify the thing before explaining it.**
+The other repo had already disproven the shared-database theory in its own
+backlog (`8ded1a0`) — a finding that existed, in writing, and was re-derived
+here from scratch because nothing links the two projects' notes.
+
+Facts worth keeping from the dig:
+
+- The blob is **3.75 MB** (ADR-0001 said 1–2 MB; corrected there).
+- Neon bills **egress only**, so `onFlush` instruments the half that is not
+  charged for; the real term is `blob size × process count`, not
+  `blob size × flush frequency`. Recorded in ADR-0001.
+- `scripts/run-eval.ts` never opens a database, but `env-bootstrap.ts` sets
+  `SQLITE_PATH` without clearing `DATABASE_URL` while `src/env.ts:17` runs
+  `dotenv.config()` — so the production connection string *is* in scope
+  during an eval. One `openDb()` call away from being a real problem; see
+  the same warning at `src/env.ts:14`.
+
 
 ### DONE: 23 verified NSW addresses, and the SMS campaign was NOT sent to the wrong people
 2026-08-10. 90 prospects fetched → 51 with a candidate address → 30 read by
