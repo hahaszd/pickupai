@@ -87,19 +87,37 @@ JSON-LD, so Google may surface them. It does **not** block the email send: the
 four variants in `scripts/email-variants/` carry no links at all. A replier who
 searches for the product will land on it, though.
 
-**Fix, ranked — mine except where marked:**
+**DONE 2026-08-17 — the copy and the guard. `npm run check` green: 0 lint
+errors, 496 passed + 6 skipped.**
 
-1. Delete the false claims from `pricing.html`, the three trade pages (body
-   **and** JSON-LD) and `demo.html`. Safe and unambiguous — they describe
-   capabilities that do not exist.
-2. Rewrite the guard so it fails on **shape** on every surface, not phrases on
-   some: any customer-facing text that asserts the product grades, flags,
-   prioritises or detects urgency/emergency, and any demo line where the
-   assistant characterises the caller's situation or asks them to act.
-   Calibrate it against these known-bad lines before trusting it.
-3. **Owner decision:** the four demo MP3s need regenerating, which costs TTS
-   spend. Until then, the honest options are to pull those players or accept
-   that four audio files contradict the prompt.
+*The guard first, deliberately*, so the fix list came from the rule rather than
+from what one person could remember. It found 45 violations across 7 files —
+including 16 in the homepage's `DEMO_META`, which nobody had mentioned, and a
+whole "safety" section on the electricians page still promising the AI tells a
+shock victim **to see a doctor that day** and tells callers **to get away from
+the switchboard**, both of which `session.ts:383-386` forbids by name.
+
+Rewritten copy states what the product does: it writes down the caller's own
+words and hands them over, and the tradie decides. Two rounds of calibration
+were needed and both mattered:
+
+- **False negatives.** The guard's own first draft still missed *"sending the
+  caller away from the outlet and telling **them** to call 000"* because it
+  only looked for "the caller".
+- **False positives, which are the more dangerous kind** — a guard tuned only
+  against bad lines gets "fixed" by deleting the honest denial. `Oh no,` read
+  as a negation and exempted a demo line; `urgencyBadge(level)` in the
+  dashboard is honest code; *"it tells them the outage is the distributor's"*
+  is a referral `session.ts:812` **requires**. So the rule now separates an
+  instruction from a statement, and a second calibration test asserts the
+  guard does **not** flag six lines of honest copy.
+
+**Still open — P2, owner decision, the one thing code cannot fix:** the four
+demo MP3s are unchanged. `scripts/generate-demos.ts` no longer contains the
+banned lines, but **the served audio was rendered on 2026-08-03 and still
+says them.** Regenerating costs TTS spend. Until it happens the honest options
+are to pull those four players or to accept that the audio contradicts both
+the prompt and the page it sits on.
 
 ### P1 — the email sequence's payoff does not exist: there is no 60-second recording
 2026-08-11, found while writing the handover. All four approved variants

@@ -36,12 +36,12 @@
           {
             "@type": "Question",
             "name": "Can it tell a dangerous fault from a simple power outage?",
-            "acceptedAnswer": { "@type": "Answer", "text": "Yes. It listens for sparks, a burning smell, an electrical fire, a power outage, a shock or a live wire and flags the lead as an emergency so it stands out in your texts. A power point that's just stopped working with no smell, smoke or damage comes through as a normal job." }
+            "acceptedAnswer": { "@type": "Answer", "text": "It does not try to, and that is deliberate. Someone in real danger rings 000, not an electrician. It asks what is happening and writes the answer down word for word, so a burning smell off the switchboard does not read like half the house having no power, and sends it to you. You know the board and the house; it knows a phone call." }
           },
           {
             "@type": "Question",
             "name": "What does it do if someone's had a shock?",
-            "acceptedAnswer": { "@type": "Answer", "text": "It tells them not to touch the appliance or switch again, that anyone who's taken a shock from mains power should see a doctor that day even if they feel fine, and to hang up and call 000 if they feel faint, short of breath, or their heart is racing. It never tells someone who's just been shocked to go back to the switchboard." }
+            "acceptedAnswer": { "@type": "Answer", "text": "It writes down what they told you and gets their number. It does not tell them what to touch, it does not tell them whether they are hurt, and it does not tell them to see a doctor — a machine that cannot see the person is in no position to say. If the caller's own words describe a fire, a gas smell or someone badly hurt, it says once that this sounds like one for triple zero, asks for the best number in the same breath, and lets them go." }
           },
           {
             "@type": "Question",
@@ -88,7 +88,7 @@
 
       <div class="demo">
         <h3>Sparking power outlet — safety concern</h3>
-        <p style="font-size:.9rem;margin-bottom:0">A genuine hazard. Listen for it sending the caller away from the outlet and telling them to call 000 rather than touch anything.</p>
+        <p style="font-size:.9rem;margin-bottom:0">A sparking outlet, in the caller's own words. Listen for how little it adds to them.</p>
         <audio controls preload="none" src="/demos/electrician-emergency.mp3">Your browser can't play audio.</audio>
       </div>
       <div class="demo">
@@ -123,9 +123,9 @@
     </section>
 
     <section>
-      <h2>Emergencies get flagged, and the rest don't</h2>
-      <p>A receptionist that treats every enquiry as urgent is one you stop reading. PickupAI flags a lead as an emergency when the caller describes sparks, a burning smell, an electrical fire, a power outage, a shock, or a live wire — and sends a second text a couple of minutes later if you haven't rung back yet.</p>
-      <p>Everything else — a power point that's stopped working, a light fitting that needs replacing — comes through as a normal job, so the word EMERGENCY still means something at 2am.</p>
+      <h2>It writes it down. You decide.</h2>
+      <p>PickupAI does not sort your jobs for you. It has never seen your run, your suburb or your Tuesday — so it writes down what the caller actually said, word for word, and puts that in your hand seconds after they hang up.</p>
+      <p>Reading it takes you two seconds, and nobody had to guess on your behalf.</p>
     </section>
 
     <section>
@@ -134,10 +134,10 @@
         <p><strong>It won't quote.</strong> Ever. An electrical price depends on what's actually wrong, and a robot's guess becomes a number you're held to at the door. It gets the job details and leaves the pricing to you.</p>
       </div>
       <div class="callout warn">
-        <p><strong>It won't tell a caller to open or operate a switchboard.</strong> If someone describes smoke, sparking, buzzing or heat at the switchboard, meter box or a power point, it tells them to get away from it now and call 000 — not to go near it, let alone touch anything.</p>
+        <p><strong>It won't tell a caller to open or operate a switchboard.</strong> It won't tell them to stay away from one either. Someone describing smoke, sparking or heat at the meter box gets their words written down and sent to you as they said them &mdash; the only line it ever adds is triple zero, and only when the caller reports fire, gas, or a person hurt.</p>
       </div>
       <div class="callout warn">
-        <p><strong>It won't send someone who's just taken a shock back to the switchboard.</strong> It tells them to leave the appliance or switch alone, to see a doctor that day even if they feel fine, and to call 000 straight away if they're feeling faint, short of breath or their heart's racing.</p>
+        <p><strong>It won't tell a caller they're hurt, or that they're fine.</strong> A shock that has already happened gets written down in the caller's own words and sent to you &mdash; not diagnosed, and not turned into medical advice by a machine that cannot see the person it is talking to.</p>
       </div>
       <div class="callout warn">
         <p><strong>It won't book you a callout for a fault that isn't yours.</strong> If the caller's neighbours have lost power too, it tells them the outage is the electricity network's problem, not something you attend — so you're not driving out to a job you can't bill for.</p>
@@ -151,11 +151,11 @@
       <h2>Common questions from electricians</h2>
       <details>
         <summary>Can it tell a dangerous fault from a simple power outage?</summary>
-        <p>Yes. It listens for sparks, a burning smell, an electrical fire, a power outage, a shock or a live wire and flags the lead as an emergency so it stands out in your texts. A power point that's just stopped working with no smell, smoke or damage comes through as a normal job.</p>
+        <p>It doesn't try to, and that's deliberate. Someone in real danger rings 000, not an electrician. It asks what's happening and writes the answer down word for word &mdash; <em>there's a burning smell coming off the switchboard</em> does not read like <em>the back half of the house has no power</em> &mdash; and sends it to you. You know the board and the house; it knows a phone call.</p>
       </details>
       <details>
         <summary>What does it do if someone's had a shock?</summary>
-        <p>It tells them not to touch the appliance or switch again, that anyone who's taken a shock from mains power should see a doctor that day even if they feel fine, and to hang up and call 000 if they feel faint, short of breath, or their heart is racing. It never tells someone who's just been shocked to go back to the switchboard.</p>
+        <p>It writes down what they told you and gets their number. It does not tell them what to touch, it does not tell them whether they're hurt, and it does not tell them to see a doctor &mdash; a machine that can't see the person is in no position to say. If the caller's own words describe a fire, a gas smell, or someone badly hurt, it says once that this sounds like one for triple zero, asks for the best number in the same breath, and lets them go.</p>
       </details>
       <details>
         <summary>What does it ask an electrical caller?</summary>

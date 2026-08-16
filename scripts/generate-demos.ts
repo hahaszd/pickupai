@@ -58,7 +58,7 @@ const DEMOS: Array<{ id: string; customerVoice: Voice; lines: Line[] }> = [
     lines: [
       { speaker: "ai",       text: "G'day! Thanks for calling Sydney Plumbing Co, this is Olivia — how can I help you today?" },
       { speaker: "customer", text: "Hi yeah, look I've got a burst pipe under my kitchen sink and there's water going everywhere." },
-      { speaker: "ai",       text: "Oh no, that sounds really urgent — you've definitely called the right place. Let me get your details sorted straight away. Can I grab your name first?" },
+      { speaker: "ai",       text: "Oh no — okay. Let me get your details down and straight across to the team. Can I grab your name first?" },
       { speaker: "customer", text: "Yeah, it's Mark." },
       { speaker: "ai",       text: "Thanks Mark. Whereabouts are you located? Suburb and postcode would be great." },
       { speaker: "customer", text: "I'm in Parramatta, 2150." },
@@ -132,7 +132,7 @@ const DEMOS: Array<{ id: string; customerVoice: Voice; lines: Line[] }> = [
     lines: [
       { speaker: "ai",       text: "G'day, Olivia here from City Electrical — how are you going today?" },
       { speaker: "customer", text: "Hi, yeah look, I've got a power point that's been sparking when I plug things in. I'm a bit worried about it." },
-      { speaker: "ai",       text: "Right-o, sparking outlets are definitely something we need to get looked at — that's a real safety concern. Can I grab your name?" },
+      { speaker: "ai",       text: "Right-o — sparking outlets, I've got that down. Can I grab your name?" },
       { speaker: "customer", text: "It's Sarah." },
       { speaker: "ai",       text: "Thanks Sarah. And where's the property? Suburb and postcode?" },
       { speaker: "customer", text: "I'm in Chatswood, 2067." },
@@ -208,7 +208,7 @@ const DEMOS: Array<{ id: string; customerVoice: Voice; lines: Line[] }> = [
     lines: [
       { speaker: "ai",       text: "G'day, All Trades Handyman — Olivia speaking, how can I help?" },
       { speaker: "customer", text: "Hi, I've got a leaking tap in my laundry and it's gotten really bad — water's starting to pool on the floor. I'm a bit panicked." },
-      { speaker: "ai",       text: "Oh no — okay, let's get this sorted for you quickly. In the meantime, if you can find the water isolation valve under the tap or your main stopcock and turn it off, that'll slow the leak. Can I grab your name?" },
+      { speaker: "ai",       text: "Oh no — okay, let me get this down for you now. Can I grab your name?" },
       { speaker: "customer", text: "Lisa." },
       { speaker: "ai",       text: "Thanks Lisa. And what suburb are you in?" },
       { speaker: "customer", text: "Blacktown, 2148." },
@@ -262,7 +262,7 @@ const DEMOS: Array<{ id: string; customerVoice: Voice; lines: Line[] }> = [
     lines: [
       { speaker: "ai",       text: "Hi, All Trades Handyman — you've reached us after hours. Olivia here, how can I help?" },
       { speaker: "customer", text: "Oh hi, I noticed tonight that my front door lock isn't working properly — the key turns but it's not latching. I'm a bit worried about security." },
-      { speaker: "ai",       text: "Yep, totally understand — a dodgy door lock is a genuine safety concern. Can I grab your name?" },
+      { speaker: "ai",       text: "Yep, got it — the front door lock isn't working. Can I grab your name?" },
       { speaker: "customer", text: "It's Rachel." },
       { speaker: "ai",       text: "Thanks Rachel. And your suburb and postcode?" },
       { speaker: "customer", text: "Manly, 2095." },

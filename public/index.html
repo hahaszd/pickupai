@@ -426,8 +426,8 @@
       <p>The moment the call ends, you get an SMS with everything you need to call them back and book the job.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon" aria-hidden="true">🚨</div>
-      <h3>Flags emergencies</h3>
+      <div class="feature-icon" aria-hidden="true">✍️</div>
+      <h3>Their words, not your guess</h3>
       <p>Burst pipes, gas leaks, flooding — the AI writes down what the caller actually said, word for word, and sends it straight to you. You decide what's urgent.</p>
     </div>
     <div class="feature-card">
@@ -752,22 +752,22 @@
 
   // ── Interactive demo selector ──────────────────────────────────────────────
   const DEMO_META = {
-    "plumber-emergency":     { label: "Plumber · Emergency",      title: "Burst pipe under the kitchen sink",           note: "AI flags the call as urgent, collects all details, and assures someone will get back to them as soon as possible." },
+    "plumber-emergency":     { label: "Plumber · Emergency",      title: "Burst pipe under the kitchen sink",           note: "The caller's own account of what is happening, plus address and number, in your phone before they have hung up." },
     "plumber-quote":         { label: "Plumber · Quote request",  title: "Bathroom renovation — requesting a quote",     note: "AI collects job scope, suburb, and contact details so you can follow up with a price." },
     "plumber-followup":      { label: "Plumber · Follow-up",      title: "Checking in after a previous job",            note: "AI handles a returning customer, acknowledges the previous work, and writes it down for you." },
-    "plumber-afterhours":    { label: "Plumber · After hours",    title: "Blocked drain — not an emergency",            note: "AI captures the details and lets the caller know you'll be in touch next business day." },
-    "electrician-emergency": { label: "Electrician · Emergency",  title: "Sparking power outlet — safety concern",      note: "AI identifies the safety hazard, treats it as urgent, and gathers all contact details." },
-    "electrician-quote":     { label: "Electrician · Quote request",      title: "Adding power points to a converted garage",   note: "AI takes the job scope and confirms you'll call back with pricing." },
-    "electrician-followup":  { label: "Electrician · Follow-up",  title: "Chasing up a switchboard inspection quote",   note: "AI acknowledges the missed follow-up and marks it as a priority for you." },
-    "electrician-afterhours":{ label: "Electrician · After hours",title: "Lights flickering throughout the house",      note: "AI collects details, gives safety advice, and promises a morning callback." },
-    "handyman-emergency":    { label: "Handyman · Emergency",     title: "Leaking tap flooding the laundry",            note: "AI gives immediate practical advice, marks it as urgent, and promises a fast callback." },
-    "handyman-quote":        { label: "Handyman · Quote request", title: "Fence panels + leaky bathroom tap",           note: "AI takes a multi-job inquiry and lets the caller know you'll call back with a quote." },
-    "handyman-followup":     { label: "Handyman · Follow-up",     title: "Following up on a deck repair quote",         note: "AI writes down the follow-up and lets them know the team will be in touch." },
-    "handyman-afterhours":   { label: "Handyman · After hours",   title: "Front door lock not working",                 note: "AI notes the security concern, gives immediate advice, and promises a morning callback." },
-    "roofer-emergency":      { label: "Roofer · Emergency",       title: "Roof leaking heavily during rain",            note: "AI flags it as urgent, gives practical advice to limit damage, and promises a fast callback." },
+    "plumber-afterhours":    { label: "Plumber · After hours",    title: "Blocked drain — not an emergency",            note: "AI captures the details after hours and commits you to nothing — when you ring back stays your call." },
+    "electrician-emergency": { label: "Electrician · Emergency",  title: "Sparking power outlet",                       note: "The caller describes a sparking outlet; the AI writes that down as said and takes their number." },
+    "electrician-quote":     { label: "Electrician · Quote request",      title: "Adding power points to a converted garage",   note: "AI takes the job scope and the contact details, and leaves pricing to you." },
+    "electrician-followup":  { label: "Electrician · Follow-up",  title: "Chasing up a switchboard inspection quote",   note: "AI names the original quote the caller is chasing and puts it back in front of you." },
+    "electrician-afterhours":{ label: "Electrician · After hours",title: "Lights flickering throughout the house",      note: "AI collects the details after hours and promises nothing on your behalf." },
+    "handyman-emergency":    { label: "Handyman · Emergency",     title: "Leaking tap flooding the laundry",            note: "A tap flooding the laundry, in the caller's words, with the address and a number to ring." },
+    "handyman-quote":        { label: "Handyman · Quote request", title: "Fence panels + leaky bathroom tap",           note: "AI takes a two-job enquiry and writes both down separately so neither gets merged into the other." },
+    "handyman-followup":     { label: "Handyman · Follow-up",     title: "Following up on a deck repair quote",         note: "AI writes down the follow-up and names the quote it refers to." },
+    "handyman-afterhours":   { label: "Handyman · After hours",   title: "Front door lock not working",                 note: "A front door that will not lock, recorded as the caller described it, at the hour they rang." },
+    "roofer-emergency":      { label: "Roofer · Emergency",       title: "Roof leaking heavily during rain",            note: "Water through the ceiling, in the caller's words, with the address and a number to ring back." },
     "roofer-quote":          { label: "Roofer · Quote request",   title: "Full roof replacement — requesting a quote",  note: "AI collects property details and suburb for an on-site measure and quote." },
-    "roofer-followup":       { label: "Roofer · Follow-up",       title: "Chasing a roof quote from last week",         note: "AI marks it as a priority and lets them know the team will follow up." },
-    "roofer-afterhours":     { label: "Roofer · After hours",     title: "Missing tiles spotted after a storm",         note: "AI captures the concern and promises a morning callback to get an inspection arranged." },
+    "roofer-followup":       { label: "Roofer · Follow-up",       title: "Chasing a roof quote from last week",         note: "AI ties the call to last week's quote and puts it back in your list." },
+    "roofer-afterhours":     { label: "Roofer · After hours",     title: "Missing tiles spotted after a storm",         note: "AI captures the concern after a storm and leaves the timing to you." },
   };
 
   let currentTrade    = "plumber";
