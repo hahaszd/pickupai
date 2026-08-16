@@ -26,6 +26,81 @@ Last updated: **2026-08-16**
 
 ## P0
 
+### P1 — we are still selling emergency flagging, and the demo audio still does the banned thing
+2026-08-17, spotted by the owner reading the live site. **`npm run check` is
+green, and `tests/marketing-claims.test.ts` passes, while all of the below is
+live.** That test exists precisely to stop this, and it caught none of it.
+
+**The product side is genuinely gone** — verified, not assumed:
+
+- `save_lead` no longer writes `urgency_level` (no reference left in
+  `src/realtime/session.ts`; the column survives in `schema.ts:42` as dead
+  weight, with `repo.ts:388/413/568/763` commenting out every read of it).
+- The `(EMERGENCY)` SMS header: gone from `src/twilio/sms.ts`.
+- The emergency follow-up SMS: gone. PRINCIPLES.md:23-24 lists all three as
+  already killed.
+- The prompt is explicit: *"This business does not handle emergencies and
+  neither do you"* (`session.ts:364`) and **"Never say a situation is or is
+  not dangerous, urgent, or serious"** (`session.ts:392`).
+
+**The marketing still sells every one of them:**
+
+| Where | Claim |
+|---|---|
+| `public/pricing.html:96` | *"Emergency flagging, with a follow-up nudge if you haven't rung back"* — **in the $149/month feature list**; both halves deleted from the product |
+| plumbers / electricians / roofers pages, ×3 each incl. **JSON-LD FAQ** (line 39) | *"flags the lead as an emergency so it stands out in your texts"*, *"sends a second text a couple of minutes later"* |
+| `public/demo.html:111` | *"gets the address and urgency"* |
+| `ai-receptionist-for-plumbers.html:91` | *"Listen for it telling the caller where the mains tap is"* — the audio does not say it, and the prompt forbids it |
+| `ai-receptionist-for-roofers.html:91` | *"giving the one safety tip that matters before anyone arrives"* |
+
+**And the demo audio a prospect hears today does the banned thing.** The MP3s
+were generated 2026-08-03 12:36–12:39, minutes *after* the shape-guard commit
+`1a0e828` at 12:35, so these lines are in the served files:
+
+- `plumber-emergency.mp3` — *"Oh no, that sounds **really urgent**"*
+- `electrician-emergency.mp3` — *"that's a **real safety concern**"*
+- `handyman-afterhours.mp3` — *"a dodgy door lock is a **genuine safety concern**"*
+- `handyman-emergency.mp3` — *"if you can find the water isolation valve under
+  the tap or your main stopcock **and turn it off**"*
+
+The first three are the assistant telling the caller what it thinks their
+situation is — Principle 1's exact prohibition. The fourth asks the caller to
+do something to the property, banned by PRINCIPLES.md §8.
+
+**Why the guard missed all of it, which is the part worth keeping.** The
+commit that built it is titled *"seventeen more lines my phrase-sweep missed,
+and a shape-based guard"* — the lesson was recorded and then only half
+applied:
+
+1. **The HTML surfaces are still checked by a phrase list.** `FORBIDDEN` bans
+   `detects? emergenc`, `emergency detection`, `urgency level`, and
+   `flags? (them|it) as (high )?priorit`. The pages say *"flags **the lead** as
+   **an emergency**"* and *"Emergency **flagging**"*. Missed by wording alone.
+2. **The demo `SHAPES` check is itself a literal alternation.** It bans
+   `turn the water off`; the line says *"turn **it** off"*. And **no shape
+   covers the assistant declaring a situation urgent or a safety concern** —
+   the single most central prohibition in the whole product.
+
+**Exposure.** Misleading representation under ACL s 18/s 29 to the tradie who
+*buys* — the framing the test file itself uses — and the FAQ claims sit in
+JSON-LD, so Google may surface them. It does **not** block the email send: the
+four variants in `scripts/email-variants/` carry no links at all. A replier who
+searches for the product will land on it, though.
+
+**Fix, ranked — mine except where marked:**
+
+1. Delete the false claims from `pricing.html`, the three trade pages (body
+   **and** JSON-LD) and `demo.html`. Safe and unambiguous — they describe
+   capabilities that do not exist.
+2. Rewrite the guard so it fails on **shape** on every surface, not phrases on
+   some: any customer-facing text that asserts the product grades, flags,
+   prioritises or detects urgency/emergency, and any demo line where the
+   assistant characterises the caller's situation or asks them to act.
+   Calibrate it against these known-bad lines before trusting it.
+3. **Owner decision:** the four demo MP3s need regenerating, which costs TTS
+   spend. Until then, the honest options are to pull those players or accept
+   that four audio files contradict the prompt.
+
 ### P1 — the email sequence's payoff does not exist: there is no 60-second recording
 2026-08-11, found while writing the handover. All four approved variants
 (`scripts/email-variants/`) close on the same promise: *"I'll send a 60-second
