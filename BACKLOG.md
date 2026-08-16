@@ -66,6 +66,53 @@ built, compliant, running as the multi-touch opener; (4) Facebook groups —
 real but owner-personal, not automatable; (5) SMS — parked until a new message
 hypothesis exists, not proven dead.
 
+### CHECKED 2026-08-16: email auth is correctly configured — the gap is reporting, not authentication
+Checked before the first send, because a batch that lands in spam produces an
+unreadable result rather than a negative one.
+
+| Record | Value | Verdict |
+|---|---|---|
+| SPF (apex) | `v=spf1 include:_spf.mx.cloudflare.net ~all` | Cloudflare Email Routing — **inbound only**, does not authorise Resend |
+| SPF (`send.` subdomain) | `v=spf1 include:amazonses.com ~all` | ✅ Resend's standard setup; the Return-Path lives here, so SPF passes and aligns with the org domain under relaxed alignment |
+| DKIM | `resend._domainkey` present, RSA key | ✅ (record opens with `p=`, no `v=DKIM1;` — permitted, `v` is RECOMMENDED not required) |
+| DMARC | `v=DMARC1; p=none;` | Valid, and enough to satisfy bulk-sender rules — but **no `rua=`** |
+| MX | Cloudflare Email Routing | `hello@` and the contact address can forward to a real mailbox |
+
+**So the batch will authenticate.** The apex SPF looking wrong is a red
+herring: Resend signs and bounces on `send.getpickupai.com.au`, which is what
+alignment tests.
+
+**The one real gap: `p=none` with no `rua=` means zero aggregate reports.** If
+the 23 messages do land in spam, there is no data to say why — which defeats
+the point of a 23-address test. **P2, one DNS TXT change in Cloudflare, owner
+or owner-authorised:** add `rua=mailto:<a monitored address>` to the DMARC
+record. Worth doing before the send, not after.
+
+Untested and only testable once the address is chosen: that
+`OUTREACH_SENDER_CONTACT_EMAIL` actually receives through Cloudflare Email
+Routing. It is the reply-based opt-out, so it failing is an s 18 failure, not
+an inconvenience.
+
+### DONE 2026-08-16: the consent evidence is no longer on one laptop
+`data/email-evidence/` (3.2 MB, 352 files) now has its own git history and is
+pushed to **`hahaszd/pickupai-email-evidence` — verified PRIVATE**.
+
+It could not go in the main repo: `hahaszd/pickupai` is **public**, so that
+would republish 23 identifiable tradies' addresses as a ready-made list, in a
+history that cannot be rewritten. The addresses were collected on the basis
+that each business published its own address without a statement against
+unsolicited email; compiling them into a public artefact is a different act
+from reading them where they were published.
+
+Checked before pushing: no credentials in the evidence. The files that match
+`password|secret|token` are scraped privacy-policy prose ("passwords and other
+security information for authentication"), and nothing matches an API-key or
+connection-string shape.
+
+Side benefit: the nested repo means that if the `.gitignore` entry is ever
+removed, git records a gitlink rather than committing the files into the public
+repo.
+
 ### ANSWERED: the Neon alert was never PickupAI's — it was Council Beacon's project
 2026-08-14. A Neon email said `neon-fuchsia-ocean` had used 4 GB of its 5 GB
 monthly public network transfer. **That project is not PickupAI's.** Checked
@@ -508,8 +555,61 @@ commercial."*
 **PickupAI sends welcome, onboarding-nudge, trial-expiry and lead-notification
 SMS to tenants.** Any of those that promotes an upgrade — or links to a page
 that does — is a commercial electronic message needing s 17 and s 18
-compliance. **Nobody has audited them against that.** That audit is the
-actionable item; it is cheap and needs no owner decision.
+compliance.
+
+**AUDITED 2026-08-16. Two structural defects, both confirmed by reading the
+send path, not inferred.**
+
+Every tenant message goes through `sendTenantSms` (`src/server.ts:474`), which
+calls `sendOwnerSms` directly. Ten message types, four of them commercial:
+
+| Message | Where | Commercial? |
+|---|---|---|
+| Nudge 72h — *"3 days… Every missed call is a potential job lost!"* | `server.ts:4443` | **Yes** — trial-conversion pitch |
+| Trial expired / subscription ended — *"Reactivate within 7 days to keep this number: /dashboard/upgrade"* | `server.ts:~399` | **Yes** — links to the pay page |
+| Cancelling — *"Changed your mind? Log in to reactivate"* | `server.ts:~957` | **Yes** — retention offer |
+| Payment failed — *"update your payment method at /dashboard/upgrade"* | `server.ts:~983` | **Grey** — ACMA: a link to commercial content likely makes the message commercial |
+| Nudge 1h / 24h, activation, reactivation | `4443`, `~923`, `~442` | Service/factual |
+| Lead notification (`formatOwnerSms`) | `twilio/sms.ts:165` | No — it is the product |
+| Admin free-text (`/admin/users/:id/send-sms`) | `server.ts:~2565` | **Whatever the operator types** — unbounded, nothing enforced |
+
+**Defect A — no unsubscribe statement on any tenant SMS.** `appendOptOutLine()`
+exists and is applied on *both* prospect-marketing paths (`renderMarketingSms`
+`server.ts:2787`, admin prospect SMS `server.ts:3058`). `sendTenantSms` never
+calls it. s 18 requires the message itself to **state** the facility; a STOP
+that happens to work is not compliance.
+
+**Defect B — a tenant's STOP is silently dropped.** `processInboundSms`
+(`server.ts:~1990`) resolves the sender with `getProspectByPhone` and returns
+`"no_prospect"` when there is no match. Tenants live in `tenants`, not
+`prospects`. So a paying customer who replies STOP gets no suppression, no
+`outreach_log` row, nothing — the s 18 facility does not exist on this channel
+at all.
+
+**s 17** is thin rather than absent: the messages carry the trading name
+"PickupAI" and `hello@getpickupai.com.au`, but no legal entity and no ABN —
+the same gap the email path already closed with `OUTREACH_SENDER_LEGAL_NAME` /
+`OUTREACH_SENDER_ABN`. Contact validity ≥30 days is plausible (`hello@` routes
+via Cloudflare Email Routing) but has never been tested end to end.
+
+**The shape of the mistake is worth more than the defects.** The path to
+*strangers* is carefully compliant; the path to *paying customers* — where
+consent is strongest — has no s 17/18 handling at all, because consent was
+treated as the whole question. Neither s 17 nor s 18 has a consent defence.
+
+**Real exposure today is near zero** (one tenant ever, inactive), which is
+exactly why it is cheap to fix now rather than after customers exist.
+
+**Remaining work — P2, mine, ~1 hour, one owner decision inside it:**
+
+1. Append a compliant opt-out line in `sendTenantSms` so it cannot be
+   forgotten per-message.
+2. Extend `processInboundSms` to fall back to a tenant lookup and record the
+   opt-out.
+3. **Owner decision:** a tenant who texts STOP — do they also stop receiving
+   *lead notifications*? Legally they need not (those are not commercial), but
+   a carrier-level STOP silences everything regardless. This is the sibling of
+   the existing "Split operational alerting from marketing SMS" item.
 
 Related and already known: `LISTS.md`'s hosted opt-out shortlink is the
 mitigation for the exact Latitude fact pattern (alphanumeric sender IDs cannot
