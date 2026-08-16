@@ -112,12 +112,30 @@ were needed and both mattered:
   instruction from a statement, and a second calibration test asserts the
   guard does **not** flag six lines of honest copy.
 
-**Still open — P2, owner decision, the one thing code cannot fix:** the four
-demo MP3s are unchanged. `scripts/generate-demos.ts` no longer contains the
-banned lines, but **the served audio was rendered on 2026-08-03 and still
-says them.** Regenerating costs TTS spend. Until it happens the honest options
-are to pull those four players or to accept that the audio contradicts both
-the prompt and the page it sits on.
+**The audio is regenerated too, 2026-08-17.** Four MP3s re-rendered from the
+corrected scripts — `plumber-emergency`, `electrician-emergency`,
+`handyman-emergency`, `handyman-afterhours`. Cost $0.046 (3,077 characters,
+OpenAI `tts-1` at $15/1M). Git shows exactly those four modified and the other
+twelve untouched.
+
+Two things the regeneration itself exposed:
+
+- **The script silently refused to overwrite.** `generateDemo()` skipped any
+  id whose MP3 already existed, so the header's own instruction — *"editing
+  this file does NOT change what a visitor hears… Regenerate them"* — could be
+  followed to the letter and do nothing. Now takes `--force`, and an optional
+  list of ids, because TTS is non-deterministic and re-rendering all sixteen
+  would rewrite twelve checked-in binaries for no change in content.
+- **Two more audible defects, found by reading the generation transcript**
+  rather than the source: `electrician-emergency` closed a sparking-outlet
+  call with *"all sorted!"* when nothing had been done, and
+  `handyman-afterhours` answered a caller who volunteered to use a door chain
+  with *"Good thinking."* — the assistant endorsing a safety measure, which is
+  advice wearing a compliment. Both fixed and re-rendered.
+
+**Unverified:** nobody has listened to the four files. The generation log
+printed the corrected lines and the binaries changed, which is evidence the
+right script was rendered — not evidence of how it sounds.
 
 ### P1 — the email sequence's payoff does not exist: there is no 60-second recording
 2026-08-11, found while writing the handover. All four approved variants

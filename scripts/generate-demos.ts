@@ -140,7 +140,7 @@ const DEMOS: Array<{ id: string; customerVoice: Voice; lines: Line[] }> = [
       { speaker: "customer", text: "0412 345 678." },
       { speaker: "ai",       text: "Brilliant. Just to be upfront, I'm an AI receptionist, so I can't confirm a booking or tell you how quickly someone can get there — but I've written down exactly what you've told me and it's going straight to the team at City Electrical. Is there anything else?" },
       { speaker: "customer", text: "No, that's all. Thanks for your help." },
-      { speaker: "ai",       text: "No worries at all Sarah — all sorted! it's all with the team now. Have a good one!" },
+      { speaker: "ai",       text: "No worries at all Sarah — it's all with the team now. Have a good one!" },
     ],
   },
 
@@ -270,7 +270,7 @@ const DEMOS: Array<{ id: string; customerVoice: Voice; lines: Line[] }> = [
       { speaker: "customer", text: "0411 777 888." },
       { speaker: "ai",       text: "Perfect, I've written down that the front door won't lock. I'm an AI so I can't send anyone out or tell you what to do in the meantime — but the team's got all of this now. Anything else you'd like me to pass on?" },
       { speaker: "customer", text: "Yeah there's a chain, I'll put that on. Thanks." },
-      { speaker: "ai",       text: "Good thinking. It's all with the team now Rachel — take care, cheers!" },
+      { speaker: "ai",       text: "No worries at all. It's all with the team now Rachel — take care, cheers!" },
     ],
   },
 
@@ -375,9 +375,14 @@ async function ttsChunk(text: string, voice: Voice): Promise<Buffer> {
 async function generateDemo(demo: typeof DEMOS[0]): Promise<void> {
   const outPath = path.join(OUT_DIR, `${demo.id}.mp3`);
 
-  // Skip if already generated (re-run safety)
-  if (fs.existsSync(outPath)) {
-    console.log(`  ⏭  Skipping ${demo.id}.mp3 — already exists`);
+  // Skip if already generated (re-run safety). Pass --force to re-render.
+  //
+  // This default is why the header's "Regenerate them" instruction could be
+  // followed and still do nothing: a script whose whole purpose is to bring
+  // the audio back in line with the script silently refuses to overwrite. On
+  // 2026-08-17 four MP3s were still speaking lines deleted from this file.
+  if (fs.existsSync(outPath) && !process.argv.includes("--force")) {
+    console.log(`  ⏭  Skipping ${demo.id}.mp3 — already exists (--force to re-render)`);
     return;
   }
 
@@ -409,14 +414,30 @@ async function main() {
     process.exit(1);
   }
   fs.mkdirSync(OUT_DIR, { recursive: true });
-  console.log(`Output → ${OUT_DIR}`);
-  console.log(`Generating ${DEMOS.length} demo files…`);
 
-  for (const demo of DEMOS) {
+  // Regenerate a subset by id: `npx tsx scripts/generate-demos.ts plumber-emergency …`
+  //
+  // TTS output is not deterministic, so re-rendering a scenario whose script
+  // has not changed still rewrites its MP3 — and these files are checked in.
+  // Without this, fixing one line churns sixteen binaries and the diff stops
+  // showing which demo actually changed.
+  const only = process.argv.slice(2).filter(a => !a.startsWith("-"));
+  const unknown = only.filter(id => !DEMOS.some(d => d.id === id));
+  if (unknown.length) {
+    console.error(`❌  No such demo id: ${unknown.join(", ")}`);
+    console.error(`    Available: ${DEMOS.map(d => d.id).join(", ")}`);
+    process.exit(1);
+  }
+  const todo = only.length ? DEMOS.filter(d => only.includes(d.id)) : DEMOS;
+
+  console.log(`Output → ${OUT_DIR}`);
+  console.log(`Generating ${todo.length} of ${DEMOS.length} demo files…`);
+
+  for (const demo of todo) {
     await generateDemo(demo);
   }
 
-  console.log(`\n🎉  Done! ${DEMOS.length} files in public/demos/`);
+  console.log(`\n🎉  Done! ${todo.length} file(s) written to public/demos/`);
 }
 
 main().catch(err => { console.error("Fatal:", err); process.exit(1); });
