@@ -20,7 +20,7 @@ rather than being deleted.
 
 A deferral with a documented trigger is P2, however alarming it reads.
 
-Last updated: **2026-08-14**
+Last updated: **2026-08-16**
 
 ---
 
@@ -518,7 +518,12 @@ load-bearing, not a nicety. If `MOBILE_MSG_OPT_OUT_LINK` were ever unset in
 production under an alpha tag, the `hello@getpickupai.com.au` fallback is the
 whole defence.
 
-### P2 — `LISTS.md` needs the email section, and two corrections to the phone one
+### DONE (`7029376`) — `LISTS.md` needed the email section, and two corrections to the phone one
+Shipped 2026-08-11: `LISTS.md` now carries `email-2026-08` as a rated source,
+"Email sending path — how s 16/17/18 are enforced in code", and the send-day
+runbook. Left marked open until 2026-08-16; the record below is kept because
+it is the statutory reasoning, not the task.
+
 The email consent section was already on the list. The research adds two things
 to fix in the **existing** phone analysis while writing it:
 
