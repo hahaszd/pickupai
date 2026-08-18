@@ -1,83 +1,90 @@
-# Handover — 2026-08-11
+# Handover — 2026-08-19
 
 A baton, not a document to maintain. **Delete it once absorbed.** Replaces the
-2026-08-09 handover: its email track was completed this session end to end;
-everything else it held is in `BACKLOG.md`.
+2026-08-11 handover, whose email-track status is unchanged and whose two open
+warnings are now in `BACKLOG.md`.
 
 ## Where things stand
 
-- **Everything is committed locally. Nothing has been pushed or deployed.**
-  `npm run check` green: 500 tests (494 + 6 skipped judge probes), 0 lint
-  errors. Both actions are owner-gated.
-- **The deploy gap is load-bearing.** The email path — `/u/:token` unsubscribe
-  (GET + RFC 8058 POST), the compliance module — exists only locally.
-  Production must be deployed **before** the first send, or every unsubscribe
-  link in every sent email 404s: a non-functional s 18 facility, the exact
-  Latitude Finance fact pattern.
-- The first cold-email batch is fully prepared and **not sent**:
-  - 23 verified addresses: `data/email-evidence/consent-register-2026-08-10.json`
-  - merge fields (signature: Simon): `data/email-evidence/batch-2026-08.json`
-  - approved copy ×4 + sequence rules: `scripts/email-variants/`
-  - send script (dry-run default, five per-recipient checks):
-    `scripts/send-email-batch.ts` — 23/23 rendered clean; exact previews in
-    `data/email-evidence/preview-1-opener/`
-- **Everything under `data/email-evidence/` is gitignored and exists on one
-  laptop only.** It is the discharge of the s 16(5) consent burden. Back it up
-  before sending — LISTS.md runbook item 7.
+- **Everything committed. 80 commits unpushed. Nothing deployed.** `npm run
+  check` green: 30 files, 496 passed + 6 skipped, 0 lint errors.
+- **The marketing-claims work is finished and committed** (`6892eae`,
+  `b9b601b`, `ee515fb`). The site no longer sells emergency flagging, urgency
+  grading, safety advice or a chase-up text; the guard now matches on shape and
+  is calibrated in both directions; the four contradicting demo MP3s were
+  re-rendered for $0.046. **Nobody has listened to the audio** — the generation
+  log printed the corrected lines, which is not the same thing.
+- **The cold-email batch is unchanged: fully prepared, not sent.** Same 23
+  addresses, same four variants, same send script. See the 2026-08-11 detail in
+  `LISTS.md` § "Send-day runbook (email)" and `scripts/email-variants/README.md`.
+- **The consent evidence is off the single laptop**: `data/email-evidence/`
+  is now its own git history, pushed to `hahaszd/pickupai-email-evidence`,
+  **verified private**. It could not go in this repo — `hahaszd/pickupai` is
+  public.
+- **Email auth checked and it passes.** Resend signs and bounces on
+  `send.getpickupai.com.au`; SPF and DKIM align. Only gap is DMARC `p=none`
+  with **no `rua=`**, so a batch that lands in spam would teach us nothing.
+- **The Neon "80% of your allowance" alert was not ours.** It named
+  `neon-fuchsia-ocean` — Council Beacon's project, in the Vercel-linked org.
+  PickupAI is `pickupai` / `ep-long-mountain-a75ui4v2`, at 0.08 of 5 GB.
+  Allowances are per project; nothing to do. Recorded in `DEPLOY.md`.
 
-## The next task: send the batch — after the blocker and the owner list
+## The next task: still the send
 
-**The blocker is BACKLOG P1 (2026-08-11): every email promises "a 60-second
-recording of it taking a real call", and no such recording exists.** It pairs
-with the oldest open item — no real phone call has ever been placed against
-the current prompt. One owner call produces both: the listen test (does the
-TTS say "triple zero"? does the no-advice sentence land warmly?) and the
-artifact every replier receives.
+Blockers, shorter than they were:
 
-Send-day order is written down — `LISTS.md` § "Send-day runbook (email)" and
-`scripts/email-variants/README.md`: env vars → deploy → back up evidence →
-re-run the dry-run (footers become real) and read all 23 previews → `--send`,
-whole batch in **one** day → check the contact mailbox daily → follow-ups per
-the README (`--variant 2-bump / 3-pain / 4-closer`, `--exclude` repliers,
-reply-unsubscribes honoured same day).
+1. **The 60-second recording** (BACKLOG P1) — every email promises one and none
+   exists. The same owner phone call produces it *and* the listen test the
+   prompt has never had. Owner only.
+2. **Three env vars**, one of which needs a decision: is
+   `OUTREACH_SENDER_LEGAL_NAME` a personal ABN or a company?
+3. **Push + deploy**, which must precede the send or every unsubscribe link
+   404s.
+4. **DMARC `rua=`** — one Cloudflare TXT record. Cheap, and worth having before
+   the send rather than after.
 
-After the send, highest-value non-send work: the `channel-evidence.md` port
-(BACKLOG P2 — the file is two weeks stale and its "1 real customer" headline
-is now known false), then the eval items long in BACKLOG (judge accuracy,
-five uncovered prompt branches).
+Highest-value non-send work, and it is mine: the **s 17 / s 18 SMS fix**
+(BACKLOG, P2, ~1 hour). Audited this session — `sendTenantSms` never appends an
+opt-out line although both prospect paths do, and `processInboundSms` drops a
+tenant's STOP entirely because it resolves senders via `getProspectByPhone`.
+One owner decision sits inside it: does a tenant's STOP also silence their lead
+notifications?
 
 ## What to be careful of
 
-- **The session's recurring error shape: false zeros from a reader that read
-  nothing.** Three instances — a keyword regex over JS-rendered pages whose
-  body never rendered, PDFs saved as undecodable byte dumps, and
-  ligature-broken PDF text where "marke�ng" defeated `/marketing/`. Each
-  looked exactly like "checked: clean". A zero counts only when the reader
-  demonstrably read the text. The rule is now written into LISTS.md and the
-  `email-consent-check` skill; apply it to every new batch.
-- **A cheap model's validation transfers only to the exact question
-  validated.** Haiku went 4/4 on refusal detection while inventing two email
-  addresses in the same run. The protection is structural — readers may only
-  classify script-extracted candidates, and stage 3 literal-matches every
-  address and quote against the saved pages. Do not relax it for speed.
-- **Operator transcription is a failure surface.** The batch file deliberately
-  contains no addresses; the send script joins register↔batch on prospect_id
-  and refuses on mismatch. Keep that property when the batch grows.
+**Three times this session a check existed, passed, and had never looked at the
+thing it was guarding.**
+
+- `marketing-claims.test.ts` was green for a fortnight while the site sold four
+  deleted capabilities. It matched phrases; the copy had been reworded.
+- `generate-demos.ts` skipped any MP3 that already existed — so its own header
+  instruction, *"Regenerate them"*, could be followed exactly and do nothing.
+- I explained a Neon bill three different ways, measuring and killing each,
+  before checking whether the bill was even ours.
+
+Same family as the last handover's "false zeros from a reader that read
+nothing", and worth carrying as one rule: **a passing check is a claim about
+the checker until you have watched it fail on purpose.** When rewriting a
+guard, calibrate both directions — the cheapest way to make one green is to
+delete the honest copy it flagged, and this one did flag five honest denials.
 
 ## Waiting on the owner
 
-1. **Env vars** (asked 2026-08-11, answer was "稍后设置"):
-   `OUTREACH_SENDER_LEGAL_NAME` — what is the legal entity, personal ABN or
-   company? — plus `OUTREACH_SENDER_CONTACT_EMAIL` (monitored; it is the
-   reply-based opt-out; noreply is rejected) and `OUTREACH_UNSUBSCRIBE_SECRET`
-   (≥16 chars, **permanent once the first send goes out**). Values into
-   `.env` / Railway, never into the repo.
-2. **SPF / DKIM / DMARC on the sending domain** — never checked; without it
-   the batch lands in spam and the result is unreadable.
-3. **Authorize push + deploy** (deploy must precede send — see above).
-4. **The real phone call** — standing since 2026-08-09, and it now also
-   produces the recording the emails promise (BACKLOG P1).
-5. Before the first follow-up call: verify the Telemarketing Standard's
-   permitted hours (flagged in LISTS.md — the instrument is confirmed in
-   force but its text defeated automated fetching), or simply call weekday
-   10:00–16:00, inside any plausible window.
+1. **Env vars** (asked 2026-08-11, answer was "稍后设置") —
+   `OUTREACH_SENDER_LEGAL_NAME` (the decision above),
+   `OUTREACH_SENDER_CONTACT_EMAIL` (monitored; it is the reply-based opt-out,
+   noreply is rejected), `OUTREACH_UNSUBSCRIBE_SECRET` (≥16 chars, **permanent
+   once the first send goes out**). Into `.env` / Railway, never the repo.
+2. **Authorise push + deploy.** 80 commits; deploy precedes send.
+3. **The real phone call** — standing since 2026-08-09; produces the recording.
+4. **Listen to the four regenerated demos** — plumber-emergency,
+   electrician-emergency, handyman-emergency, handyman-afterhours. If a line
+   sounds wrong, edit and `npx tsx scripts/generate-demos.ts --force <id>`.
+5. **Shall I add DMARC `rua=` in Cloudflare?** DNS is a config change, so I did
+   not do it unasked.
+6. **Ring Western Sealants** (`+61407878427`, ~7:30am or ~4:30pm) — the only
+   real signup this product has had. The question that matters is how they
+   found us; it is still the only acquisition path in evidence.
+7. **Tenant STOP semantics** for the s 17 fix (see above).
+8. Before the first follow-up call: the Telemarketing Standard's permitted
+   hours, or simply call weekday 10:00–16:00.

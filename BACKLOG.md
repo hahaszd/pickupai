@@ -133,6 +133,13 @@ Two things the regeneration itself exposed:
   with *"Good thinking."* — the assistant endorsing a safety measure, which is
   advice wearing a compliment. Both fixed and re-rendered.
 
+**Left alone on purpose:** three demo lines still open a sentence with a
+lowercase *"it's all with the team now"*, residue of an earlier phrase sweep
+(`generate-demos.ts:87, 219, 255`). Capitalisation does not change the spoken
+words, so re-rendering for it would spend on three binaries that sound
+identical. Fix them the next time those scenarios are re-rendered for a real
+reason.
+
 **Unverified:** nobody has listened to the four files. The generation log
 printed the corrected lines and the binaries changed, which is evidence the
 right script was rendered — not evidence of how it sounds.
