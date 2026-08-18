@@ -175,6 +175,24 @@ and persists the whole database as a single exported blob:
   PostgreSQL (a free Neon database is enough). Survives container restarts
   without a volume. This is the recommended production setup.
 
+### Which Neon project this actually is
+
+Worth writing down, because getting it wrong cost a session. The Neon account
+`hahaszd@gmail.com` holds **two organisations**, and PickupAI is not in the one
+you land on from a Vercel-flavoured link:
+
+| | PickupAI | the other one |
+|---|---|---|
+| org | `hahaszd@gmail.com` | `Vercel: hahaszd's projects` |
+| project | **`pickupai`** | `neon-fuchsia-ocean` (Council Beacon) |
+| endpoint | **`ep-long-mountain-a75ui4v2`** | `ep-small-meadow-a72xuvz7` |
+
+Neon hostnames carry the endpoint id, never the project display name, so the
+only way to match a console page to a connection string is that endpoint. Usage
+alerts and the 5 GB free network-transfer allowance are **per project**: a
+suspend on one does not touch the other. Confirm the endpoint before acting on
+any Neon email.
+
 ### The multi-instance caveat
 
 Every flush overwrites the entire blob. If you scale Railway past **one
