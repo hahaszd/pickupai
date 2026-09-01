@@ -20,11 +20,104 @@ rather than being deleted.
 
 A deferral with a documented trigger is P2, however alarming it reads.
 
-Last updated: **2026-08-16**
+Last updated: **2026-09-01**
 
 ---
 
 ## P0
+
+### P0 — the deployed prompt still gives safety advice, and a real customer's number went live today
+2026-09-01, found while reading four SMS alerts the owner forwarded. Production
+runs `origin/main` (**2026-07-29**); 81 commits are unpushed, and they include
+the 276-line `src/realtime/session.ts` change that deleted urgency grading and
+all safety advice. **That deletion has never been deployed.** Read out of
+`git show origin/main:src/realtime/session.ts`, the live prompt still says:
+
+- *"Turn the water off at the mains tap — usually near the water meter out the front"* (plumber)
+- *"Please get everyone away from it now and call 000. Don't open the switchboard"* (electrician)
+- *"tell them to turn that circuit off at the switchboard and not touch the switch"* (roofer)
+
+plus `emergencyKeywords`, `emergencySafetyTip` and urgency grading throughout.
+`PRINCIPLES.md` records all of it as deleted on purpose. The line that replaced
+it — *"Never say a situation is or is not dangerous, urgent, or serious"*
+(`session.ts:392`) — is on this laptop only.
+
+**What changed today is the audience.** Tenant `aawa` (carpenter, 08 8472 8935)
+signed up, put a card on file, was provisioned **02 5944 1492** and was sent the
+call-forwarding activation code. Callers reaching that number now get the
+pre-deletion prompt. Until today the gap was theoretical; it is not any more.
+
+The marketing half is live too, verified by `curl` rather than assumed —
+`https://www.getpickupai.com.au/pricing.html` still returns *"Emergency
+flagging, with a follow-up nudge if you haven't rung back"*. The fix for that
+shipped in `b9b601b` / `ee515fb` and is in the same unpushed set. **A person
+put a card on file against a claim we deleted three weeks ago.**
+
+**Fix: push + deploy.** `npm run check` green 2026-09-01 (30 files, 496 passed,
+0 lint errors). Confirm `RAILWAY_DEPLOYMENT_OVERLAP_SECONDS=0` and
+`RAILWAY_DEPLOYMENT_DRAINING_SECONDS=15` are still set first — ADR-0001's
+silent-write-loss scenario needs a deploy *and* writes worth losing, and today
+is the first time both are true. Owner authorisation required; not done unasked.
+
+### P1 — do not migrate to Postgres on the strength of the 2026-09-01 flush alert
+2026-09-01. The alert read `flush p95 is 6336ms over the last 20 writes
+(threshold 1000ms)`. Three things about it, before anyone starts ADR-0001's
+migration:
+
+- **20 is `FLUSH_MIN_SAMPLES`.** It fired at the earliest moment it
+  mathematically could. Nearest-rank p95 of 20 samples is the 2nd-largest, so
+  two slow flushes are enough to trip it.
+- **No blob-size alert came with it.** That check is single-sample and lives in
+  the same `onFlush` (`server.ts:697`), so the blob is still under 10 MB.
+- **It arrived in the same burst as the signup** — the first real write
+  activity in weeks.
+
+Hypothesis, not yet measured: this is the boot-warmup false alarm the ADR
+already documents (the 1282 ms one), displaced to *resume*.
+`FLUSH_WARMUP_SAMPLES` excludes the first 3 flushes after boot, but Neon's free
+tier suspends compute after ~5 minutes idle, and this product is idle for days
+at a time. A long-lived process that wakes a suspended database pays the
+wake-up on its first writes every time, and nothing excludes those.
+
+**The decisive read is `/health/detailed` → `persistence`** (blob bytes and the
+flush distribution); it needs admin auth against production. Measure before
+believing. If the hypothesis holds, the fix is to the *guard* — exclude flushes
+that follow an idle gap, not just those that follow boot — not to the database.
+
+Same family as the handover's standing rule, from the other side: a *failing*
+check is a claim about the checker until you have watched it fail for the
+reason it claims.
+
+### P2 — the owner gets two "New trial started" SMS per signup
+2026-09-01, observed directly: two near-identical texts for tenant `aawa`.
+`server.ts:848` (Stripe `checkout.session.completed` webhook) and
+`server.ts:4202` (the `/stripe/success` browser return) each send one, neither
+aware of the other. Costs two SMS and trains the owner to skim the alerts that
+matter. The 4202 path carries the provisioned number, so that is the one to
+keep.
+
+### P2 — a South Australian tradie was given a Sydney phone number
+2026-09-01. `aawa` is on 08 8472 8935 (Adelaide); provisioning handed them
+02 5944 1492. The search order in `server.ts:235-238` is hardcoded
+`+612 → +613 → any AU local → AU mobile` and never looks at the tenant's own
+area code. Their callers see an interstate number, which is a trust cost for a
+local trade. Not a code defect — a product decision nobody has made on purpose.
+
+### Acquisition: the second organic signup ever, and the first to activate
+2026-09-01, for `docs/channel-evidence.md`. Two cautions so this is not
+misread later:
+
+- **The "(demo)" in the signup SMS is not attribution.** It is a literal in
+  `server.ts:3375`; every signup carries it, because a new tenant starts at
+  `payment_status = "demo"`.
+- **An 08 number will not match a prospect row** — that list is NSW — so the
+  `outreach_log` conversion row will have no `variant`. Absence of attribution
+  here is not evidence of an organic arrival; it is guaranteed by the data.
+
+What makes this one matter: the only previous signup (Western Sealants) never
+provisioned a number and never took a call. This one has a number and the
+activation code. **How they found us is still the only acquisition question
+with any evidence behind it — ask them before the trial ends.**
 
 ### P1 — we are still selling emergency flagging, and the demo audio still does the banned thing
 2026-08-17, spotted by the owner reading the live site. **`npm run check` is
