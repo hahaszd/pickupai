@@ -427,6 +427,53 @@ today raises that bar slightly by accident — an OTP-harvester now has to suppl
 real AU mobile — but it was built for a different reason and should not be
 mistaken for a fraud control.
 
+**The card, from Stripe 2026-09-01 — the mismatch is decisive.** Visa credit,
+issuer **JPMORGAN CHASE BANK N.A.**, `Origin: United States`, billing address
+country **AU**, cardholder name `daved`, email the disposable
+`gold208@emalupe.com`, no phone. `CVC check: Passed` — which proves nothing
+about ownership, since a carder holds the full card face; note what is absent,
+an **AVS result**, because no street or postcode was supplied at all. A supposed
+Adelaide carpenter, on a US-issued card, with an AU billing country, browsing
+from EG and transacting from an AU hosting range. Three countries.
+
+**Nothing has been charged.** The payment method is a SetupIntent
+(`seti_1UAkkwJBqC7ozhze6sucnjmx`) — card on file for a 14-day trial. That is the
+one piece of good news and it expires: if the trial converts, a $149 charge on a
+likely-stolen card becomes a chargeback — the $149, plus a dispute fee, plus the
+hit to the account's dispute ratio. **Cancelling now costs nothing.** Do not
+charge it "to test"; that realises the risk instead of measuring it.
+
+Blocklist material for Radar: fingerprint `8kz83DZECv7tC4q9`, domain
+`emalupe.com`.
+
+**Scope checked, and it is a one-off, not a campaign.** Four tenants have ever
+existed: two are the owner's own test accounts, one is Western Sealants
+(2026-07-26, still `demo`, never activated), one is this. One `emalupe` address.
+`aawa` is also the only active tenant whose phone is not a mobile — the admin
+query proposed above would have flagged exactly this row and nothing else.
+
+**The uncomfortable line for `docs/channel-evidence.md`:** `aawa` is the only
+tenant in the product's history ever to reach `trial`, and it is fraudulent. The
+count of real paying customers remains **zero**.
+
+### P2 (NOT NOW, and the reason is the point) — verify a mobile before provisioning a number
+2026-09-01. Today's fraud needed a disposable email, a card, and 110 seconds to
+obtain a live Australian phone number. Nothing at signup verifies anything a
+human has to hold.
+
+The control that fits is an SMS code **gating number provisioning, not signup** —
+let people sign up and hear the demo, that is the funnel; gate only the step that
+costs money and can be abused. It would also close the landline problem
+permanently, because a code cannot be delivered to a landline.
+
+**Deliberately not built, and this is the estimate that says so:** ~2–3 hours
+against **four tenants in five months**. Manually approving each signup is ten
+minutes a month. Build this when signup volume makes manual approval annoying —
+before that it trades three hours for a button pressed once a month. The trigger
+is volume, not another incident.
+
+
+
 ### P1 — `calls.transcript` has never contained a single word anyone said
 2026-09-01, found while trying to read the thirteen calls. The column holds
 **only** `[lead]` JSON snapshots and `[event]` tool markers. Across the entire
