@@ -26,7 +26,7 @@ Last updated: **2026-09-01**
 
 ## P0
 
-### P0 — the deployed prompt still gives safety advice, and a real customer's number went live today
+### DEPLOYED 2026-09-01 (`a0d6d88`) — the prompt that gives safety advice is off production
 2026-09-01, found while reading four SMS alerts the owner forwarded. Production
 runs `origin/main` (**2026-07-29**); 81 commits are unpushed, and they include
 the 276-line `src/realtime/session.ts` change that deleted urgency grading and
@@ -59,6 +59,23 @@ put a card on file against a claim we deleted three weeks ago.**
 silent-write-loss scenario needs a deploy *and* writes worth losing, and today
 is the first time both are true. Owner authorisation required; not done unasked.
 
+**Done 2026-09-01.** Pushed `9d20ebe..a0d6d88` (82 commits); Railway rebuilt and
+the new image was serving within ~30 s. Verified end-to-end rather than from a
+green tick: `pricing.html` no longer returns the emergency-flagging line, the
+plumbers / electricians / roofers / demo pages return **0** hits across all five
+banned phrases, and the four corrected MP3s match their local byte size exactly
+at `/demos/*.mp3`. Same image serves the prompt, so `session.ts:392` is live.
+
+**Two things this deploy did NOT verify.** (1) The prompt is server-side; no
+HTTP check reaches it. The only real test is a call, which is the standing P1
+that also produces the 60-second recording. (2)
+`RAILWAY_DEPLOYMENT_OVERLAP_SECONDS` / `DRAINING_SECONDS` could not be read —
+no `railway` CLI on this machine — so whether the shutdown handler ran, and
+whether tenant `aawa`'s trial status and number binding survived, is unconfirmed.
+Check `/admin/users/90ae8eb1-03d7-4587-9b0b-175e4a98d8ae`: `payment_status`
+should be `trial` with `02 5944 1492` bound. Repairable from admin if not — the
+number exists on the Twilio account regardless.
+
 ### P1 — do not migrate to Postgres on the strength of the 2026-09-01 flush alert
 2026-09-01. The alert read `flush p95 is 6336ms over the last 20 writes
 (threshold 1000ms)`. Three things about it, before anyone starts ADR-0001's
@@ -87,6 +104,15 @@ that follow an idle gap, not just those that follow boot — not to the database
 Same family as the handover's standing rule, from the other side: a *failing*
 check is a claim about the checker until you have watched it fail for the
 reason it claims.
+
+### P2 — every push to `main` is a deploy, and a deploy is now downtime a customer can feel
+2026-09-01, learned by doing it. Railway builds from GitHub on any push to
+`main`, with no path filter, so a docs-only commit costs the same
+30–60 s outage as a code change (`OVERLAP_SECONDS=0`, ADR-0001's deliberate
+trade). That was free when nobody was calling. With a live tenant it means
+**batch documentation commits and push them with code, or add a path filter /
+`[skip ci]`-equivalent.** This entry itself is committed unpushed for that
+reason.
 
 ### P2 — the owner gets two "New trial started" SMS per signup
 2026-09-01, observed directly: two near-identical texts for tenant `aawa`.
