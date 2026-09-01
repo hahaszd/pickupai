@@ -98,21 +98,48 @@ show `delivered` vs `undelivered` for those SIDs. Check that before assuming.
 Then: validate mobile format at signup (`04*` / `+614*`), and for this customer,
 ring him and get a mobile — he cannot be told by SMS that SMS does not reach him.
 
-### P0 — Mobile Message returns 403 on every send, so all SMS is silently on the expensive path
-2026-09-01. Distinct from the landline problem above, and it affects **every**
-tenant and every prospect message:
+### NOT A BUG 2026-09-01 — the Mobile Message 403s were intended, already documented, and already fixed
+Filed as a P0 by me and wrong on three counts; kept as a record because the
+correction is more useful than the entry was.
+
+**It is deliberate.** The owner zeroed the Mobile Message account credit while
+the project had no customers, so every API call 403s by design. Twilio is the
+intended path.
+
+**It was already written down** — `DEPLOY.md:56`, *"Mobile Message is off by
+decision as of 2026-07-29"*. I claimed the repo had no record of it after a
+`grep` whose output `head -8` had truncated. A truncated search is not a
+negative result.
+
+**It was already fixed by the 16:26 deploy.** The code running when those logs
+were written (2026-07-29) selected the provider on credentials alone, so it
+tried Mobile Message on every send and ate a 403 each time.
+`isMobileMessageConfigured()` now requires `SMS_PROVIDER === "mobilemessage"`
+(`sms/mobile-message.ts:20`), and that variable is not set in Railway — so as of
+today Mobile Message is not called at all.
+
+**The one thing that genuinely changed, and it makes the landline P0 harder to
+see.** Mobile Message was the component that rejected the customer's landline
+out loud:
 
 ```
-Mobile Message API error   status=403
-Mobile Message send failed; falling back to Twilio  reason="http_403"  to=+61420955412
+Mobile Message send failed; falling back to Twilio
+  reason="Invalid phone number format"  to=+61884728935
 ```
 
-`+61420955412` is a valid mobile, so this is not a formatting problem — it is
-auth or credit on the Mobile Message account. Every send in the log falls back
-to Twilio. The cheap AU SMS provider is, in production, contributing nothing but
-a failed request before each message. Check the Mobile Message account status
-and API credentials. The fallback is working exactly as designed, which is why
-this has been invisible.
+That line is now gone, because the provider is no longer called. Twilio accepts
+a landline destination and fails at the carrier, asynchronously and quietly. **We
+have lost the loudest signal that a tenant's phone cannot receive SMS, at the
+same moment we acquired a tenant whose phone cannot receive SMS.** The validation
+in the landline entry above is therefore not optional — it is now the only thing
+that would catch this.
+
+**Trigger for turning Mobile Message back on:** the decision's premise was "no
+customers", and that premise expired today. At ~$0.02/msg against Twilio AU's
+~$0.05, one tenant does not justify it. Revisit at a message volume where the
+difference is worth the `/mobilemsg/*` webhook surface — and re-read
+`MOBILEMSG_WEBHOOK_SECRET` in `DEPLOY.md:57` before flipping it, because turning
+the provider on turns those endpoints on too.
 
 ### DECIDED 2026-09-01 — AI calls are not recorded at all; the code that tried has been deleted
 2026-09-01. Every call logged `start recording failed` with Twilio error

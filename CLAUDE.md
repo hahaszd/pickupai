@@ -62,7 +62,11 @@ Everything is wired in `src/server.ts` (~4.9k lines — one Express app, all
 routes). Route groups, in file order:
 
 - `/twilio/*` — voice + SMS webhooks, all behind `twilioVerify` signature check
-- `/mobilemsg/*` — Mobile Message SMS webhooks (the cheap AU SMS provider)
+- `/mobilemsg/*` — Mobile Message SMS webhooks. **Off by owner decision since
+  2026-07-29**: the account credit was zeroed while there were no customers, so
+  the API 403s by design and Twilio carries every message. The routes only
+  activate when `SMS_PROVIDER=mobilemessage`; credentials alone are not enough.
+  See `DEPLOY.md` §`SMS_PROVIDER`.
 - `/admin/*`, `/api/admin/*` — admin panel, `adminGuard` / `adminHtmlAuth`
 - `/dashboard/*` — tenant owner UI, `dashAuth` (cookie session)
 - `/stripe/webhook` — **must** stay mounted with `express.raw` before the
