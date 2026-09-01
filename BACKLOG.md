@@ -76,6 +76,114 @@ Check `/admin/users/90ae8eb1-03d7-4587-9b0b-175e4a98d8ae`: `payment_status`
 should be `trial` with `02 5944 1492` bound. Repairable from admin if not — the
 number exists on the Twilio account regardless.
 
+### P0 — the first paying customer's phone is a LANDLINE, so every SMS the product sends him is undeliverable
+2026-09-01, from the deployment logs. `aawa` signed up with owner_phone
+**08 8472 8935** — an Adelaide geographic landline, not a mobile. Mobile Message
+rejects it outright on every single send:
+
+```
+Mobile Message send failed; falling back to Twilio
+  reason="Invalid phone number format"  to=+61884728935
+```
+
+Twilio accepts the fallback and no send error is logged, but an AU geographic
+landline does not receive SMS on most carriers. That covers **the welcome SMS,
+the personalised demo SMS, the trial-started SMS carrying the call-forwarding
+activation code, and every lead notification** — nine of them in fifteen minutes.
+**SMS to the owner is the entire product.** For this customer it is silently
+dead, and nothing in signup validates that owner_phone can receive a text.
+
+Not yet confirmed, and it decides the response: Twilio's own message log will
+show `delivered` vs `undelivered` for those SIDs. Check that before assuming.
+Then: validate mobile format at signup (`04*` / `+614*`), and for this customer,
+ring him and get a mobile — he cannot be told by SMS that SMS does not reach him.
+
+### P0 — Mobile Message returns 403 on every send, so all SMS is silently on the expensive path
+2026-09-01. Distinct from the landline problem above, and it affects **every**
+tenant and every prospect message:
+
+```
+Mobile Message API error   status=403
+Mobile Message send failed; falling back to Twilio  reason="http_403"  to=+61420955412
+```
+
+`+61420955412` is a valid mobile, so this is not a formatting problem — it is
+auth or credit on the Mobile Message account. Every send in the log falls back
+to Twilio. The cheap AU SMS provider is, in production, contributing nothing but
+a failed request before each message. Check the Mobile Message account status
+and API credentials. The fallback is working exactly as designed, which is why
+this has been invisible.
+
+### P0 — call recording fails on 13 of 13 calls, and it is the artifact the email campaign promises
+2026-09-01. Every call logged `start recording failed` with Twilio error
+**21220 "Requested resource is not eligible for recording"** — thirteen for
+thirteen, no exceptions.
+
+This connects to an item already in this file: the email sequence's payoff is
+*"I'll send a 60-second recording of it taking a real call."* That recording was
+blocked on making a call. **It is also blocked on recording being broken**, which
+nobody knew, because no real call had been placed. Making the owner call would
+have produced silence and looked like a fluke. Fix 21220 first — it is a
+`<Record>` / REST-timing eligibility problem, not a credential one.
+
+### P1 — the new customer's first fifteen minutes: 13 calls, 9 with no lead saved, all on the old prompt
+2026-09-01, 06:03–06:18 UTC (15:33–16:18 ACST), i.e. between his signup and our
+deploy 27 minutes later. Thirteen inbound calls to `+61 2 5944 1492`:
+
+| From | Count |
+|---|---|
+| `anonymous` (caller ID withheld) | 4 |
+| `+1 415 723 4000` | 4 |
+| `+1 906 261 4679` | 2 |
+| `+61 8 8309 6599`, `+61 8 8122 1345`, `+61 8 8130 3787` (Adelaide) | 3 |
+
+Nine ended in `created fallback lead — save_lead was never called`; four
+produced a real `lead updated`. Three of the Adelaide numbers called within
+20 seconds of each other and lasted 7–26 seconds each.
+
+Two readings, and they need separating before anyone "fixes" the prompt: a brand
+new AU number attracts scanner and robocall traffic within minutes, in which case
+9 fallback leads is the system behaving correctly with nothing to record — or
+the customer was testing and the assistant failed him nine times out of thirteen.
+The US numbers and the withheld IDs point at the first; the Adelaide cluster
+points at the second. **The transcripts are in `calls.transcript` and will settle
+it.** Do that before drawing any conclusion about `save_lead`.
+
+### He signed up on the claims we deleted 27 minutes later
+2026-09-01, and it is a customer-facing fact, not an irony. The log shows his
+path: `/` at 05:47:24 → 12 minutes on site → **played
+`/demos/plumber-emergency.mp3`** at 05:59:09 → `/dashboard/signup` → POST at
+06:00:04. At that moment the MP3 still opened with *"Oh no, that sounds really
+urgent"* and the pricing page still sold *"Emergency flagging, with a follow-up
+nudge"*. The deploy that removed both landed at 06:26:58.
+
+So he bought a product that flags emergencies and chases you up, and now owns one
+that does neither by design. **He must be told before he discovers it** — it is
+the honest version of the same principle that motivated the deletion.
+
+### ANSWERED 2026-09-01: he found us through Google organic search
+The acquisition question from `docs/channel-evidence.md`, settled from the
+deploy logs rather than inferred:
+
+```
+05:47:24  GET /   referer=https://www.google.com/   (via Chrome's prefetch proxy)
+05:59:09  GET /demos/plumber-emergency.mp3
+05:59:09  GET /dashboard/signup
+06:00:04  POST /dashboard/signup
+```
+
+Landing page was the homepage, not a trade page. **Organic search is now the
+only channel in this product's history that has produced an activating
+customer** — against 560 SMS that produced zero genuine human clicks. Search
+Console (verified on the apex) will give the actual query for 2026-09-01; GA4
+`G-4NLQMTKYVC` will corroborate source/medium. Port both into
+`docs/channel-evidence.md` with the numbers.
+
+One caution for whoever reads this later: the session shows two client IPs —
+`62.139.218.133` browsing, then `217.79.116.224` from `/dashboard/signup`
+onward. Most likely one person changing networks, but it is not proven, and no
+conclusion here depends on it.
+
 ### P0 — every request logs its full headers, so session cookies and the admin password are in the Railway logs
 2026-09-01, found while looking for the new customer's referrer. `src/server.ts:213`
 is `pino({ level: "info" })` and `:1024` is `app.use(pinoHttp({ logger: log }))` —
