@@ -328,7 +328,7 @@ So he bought a product that flags emergencies and chases you up, and now owns on
 that does neither by design. **He must be told before he discovers it** — it is
 the honest version of the same principle that motivated the deletion.
 
-### RETRACTED, and now a P0 fraud question: "he found us through Google" was my error
+### ANSWERED 2026-09-01 — not a customer: a fraudulent signup harvesting voice OTP codes
 2026-09-01. I told the owner the acquisition question was settled — organic
 Google search. **It is not settled, and the shape of the evidence is worse than
 unsettled.** Recorded in full because the retraction matters more than the claim.
@@ -384,6 +384,80 @@ into `docs/channel-evidence.md`.** The claim I nearly put there — "organic
 search is the only channel in this product's history to produce an activating
 customer" — would have become the single most load-bearing sentence in the
 acquisition record, on the strength of a prefetch.
+
+**SETTLED, by the assistant's own written record.** Four of the thirteen calls —
+every one from `+1 415 723 4000` — were classified by the AI itself:
+
+```
+next_action: "Spam call detected - unsolicited request for validation code"
+next_action: "IGNORE - robocall requesting validation code"
+next_action: "SPAM - unsolicited validation code request"
+next_action: "No action needed - spam caller requesting validation code"
+```
+
+`caller_intent: "spam"` on all four. And `tenants.owner_email` is
+**`gold208@emalupe.com`** — a disposable-mailbox domain.
+
+So the shape is complete: a disposable email, a keyboard-mash business name, a
+landline in the phone field, browsing from EG and transacting from an AU hosting
+range, then **thirteen calls in the fifteen minutes after provisioning**, four of
+them voice-OTP robocalls. Several leads carry `lead_status: "called_back"`,
+which is a dashboard action — somebody was logged in watching them arrive.
+
+**This was never an acquisition event.** It is someone renting an Australian
+number that answers, for free, on a 14-day trial, to receive verification codes.
+`docs/channel-evidence.md` must not record it as a signup; the honest line is
+that the product's only organic signup is still Western Sealants.
+
+**Owner actions, and they are time-sensitive because the number is live:**
+
+1. **Stripe** — refund/cancel, and look at the card country and Radar score;
+   a card used here is likely stolen and worth reporting rather than just voiding.
+2. **Suspend the tenant and release `+61 2 5944 1492`.** It is being used for
+   OTP fraud right now, it costs ~$6/month, and a number used this way can get
+   flagged by carriers — which is a reputational problem for every future number
+   bought on that Twilio account.
+3. Neither is mine to do: both are outward-facing and irreversible.
+
+**What this says about signup defences, for later, not now:** nothing at signup
+costs an attacker anything. No email verification (a disposable mailbox passed),
+no mobile verification, and the card was enough to provision a real phone number
+within 110 seconds of account creation. The mobile-number validation shipped
+today raises that bar slightly by accident — an OTP-harvester now has to supply a
+real AU mobile — but it was built for a different reason and should not be
+mistaken for a fraud control.
+
+### P1 — `calls.transcript` has never contained a single word anyone said
+2026-09-01, found while trying to read the thirteen calls. The column holds
+**only** `[lead]` JSON snapshots and `[event]` tool markers. Across the entire
+production database — **107 calls, 28 with any transcript at all, largest 1505
+bytes** — there is not one line of dialogue. The 23 rows matching "caller" match
+the field *names* `caller_intent` / `caller_sentiment`, not a speaker label.
+
+Three things follow, and they are each bigger than the missing feature:
+
+- **The dashboard shows this to the tradie under a heading that says
+  "Transcript"** (`dashboard/pages.ts:1042`). What they actually read is
+  `[event] end_call_invoked {"callSid":"CA…"}`.
+- **Eight of the thirteen leads say `issue_summary: "Call ended without details
+  - check recording"`.** There is no recording — there never was, 21220 failed
+  13/13 — and as of today the recording code is deleted. The product instructs
+  the tradie to check something that has never existed.
+- **ADR-0001's growth model rests on this column.** It reasons that
+  "`calls.transcript` … appends 5–15 times per call, so total network cost grows
+  roughly with the square of cumulative call volume". The largest transcript ever
+  written is 1.5 KB and the blob is 3.63 MB. **Transcripts are not the growth
+  driver the ADR assumes**, which bears directly on today's flush-p95 alert:
+  whatever is making the blob expensive, it is not this.
+
+Decide before building: PRINCIPLES says the receptionist "writes it down
+faithfully and passes it on". Today the faithful record is the **lead fields** —
+`issue_summary` in the caller's substance if not their words. That may be
+sufficient and honest. If it is, the column and the dashboard heading are the
+lie and should go. If it is not, verbatim capture is a real feature with its own
+disclosure question, the same one that just retired call recording.
+
+
 
 ### P0 — every request logs its full headers, so session cookies and the admin password are in the Railway logs
 2026-09-01, found while looking for the new customer's referrer. `src/server.ts:213`
