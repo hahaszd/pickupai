@@ -114,7 +114,7 @@ a failed request before each message. Check the Mobile Message account status
 and API credentials. The fallback is working exactly as designed, which is why
 this has been invisible.
 
-### P0 — call recording fails on 13 of 13 calls, and it is the artifact the email campaign promises
+### DECIDED 2026-09-01 — AI calls are not recorded at all; the code that tried has been deleted
 2026-09-01. Every call logged `start recording failed` with Twilio error
 **21220 "Requested resource is not eligible for recording"** — thirteen for
 thirteen, no exceptions.
@@ -165,6 +165,35 @@ a broken feature into a legal exposure.
 Note for the 60-second email artifact: an owner ringing his own service and
 recording himself is a much smaller consent question than recording third-party
 callers — but only if no third party is on the call.
+
+**Resolved by deletion, not by fixing it — owner's call, 2026-09-01.** "AI 接
+电话，不需要录音." Removing it settles the race, the disclosure question and the
+research task at once, and it agrees with `PRINCIPLES.md`: the faithful record
+is the **transcript**. Audio adds nothing to "write it down and pass it on" and
+adds legal weight.
+
+Removed: `startCallRecording()` at `server.ts:1835`, its import, and
+`src/twilio/recording.ts`. `npm run check` green (496 passed, 0 errors).
+
+**Deliberately kept — and it is a different thing.** The three other uses of
+`/twilio/voice/recording` are the **voicemail fallback** for when the AI is
+unavailable (`twiml.ts:28`, `vr.record()` after *"leave your name, number and a
+quick message after the tone"*). A voicemail discloses itself by construction,
+so it carries none of the problem above. The `calls.recording_url` /
+`recording_sid` columns, the lead page's player and the recording proxy all stay
+for it — the player now renders only when a voicemail exists, which is correct.
+Columns kept as dead weight follows the `urgency_level` precedent: a schema
+change on whole-blob persistence buys nothing and risks a migration.
+
+**Left alone, flagged not fixed:** `/dashboard/demo-status` (`server.ts:3942`)
+has no caller anywhere in the frontend, and now that only voicemails populate
+`recording_url` it would present a voicemail as *"your AI taking a real call"*.
+Dead and slightly wrong; removing it was outside what was asked.
+
+**The 60-second email artifact still needs an answer.** It never depended on this
+feature working — the owner ringing his own service and recording his own handset
+is a smaller consent question than recording third parties, and needs no product
+code. That is now the only route to it.
 
 ### P1 — the new customer's first fifteen minutes: 13 calls, 9 with no lead saved, all on the old prompt
 2026-09-01, 06:03–06:18 UTC (15:33–16:18 ACST), i.e. between his signup and our

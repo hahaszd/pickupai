@@ -177,7 +177,6 @@ import { twilioValidateMiddleware } from "./twilio/verify.js";
 import { buildAbsoluteUrl, getCallSid, shouldWarmTransferNow } from "./twilio/flow.js";
 import { newVoiceResponse, connectStreamTwiml, sayFriendly, voicemailFallbackTwiml } from "./twilio/twiml.js";
 import { getOrInitCallState, setCallState, clearCallState, listCallStates } from "./twilio/state.js";
-import { startCallRecording } from "./twilio/recording.js";
 import { decideOwnerSms, formatOwnerSms, isUnreachableNumber, NO_SMS_INTENTS, ownerSmsWouldSayNothing, sendOwnerSms, generateForwardingCode, FIRST_CALL_CELEBRATION_PREFIX, buildCallerConfirmationSms } from "./twilio/sms.js";
 import { isEmailConfigured, sendEmail, formatLeadEmail } from "./utils/email.js";
 import { localiseDemo } from "./utils/demo-localise.js";
@@ -1832,7 +1831,14 @@ async function main() {
       }
     }
 
-    startCallRecording(callSid).catch((err) => log.warn({ err }, "start recording failed"));
+    // No audio recording of AI calls, on purpose. The faithful record is the
+    // transcript; audio adds nothing to "write it down and pass it on" and adds
+    // a disclosure obligation, because nothing in the greeting tells the caller
+    // they are being recorded. The REST call that used to sit here also never
+    // worked -- it ran inside this webhook, before the TwiML answered the call,
+    // so Twilio rejected all 13 of the first customer's calls with 21220
+    // ("not eligible for recording"). Voicemail is different and stays: the
+    // caller is asked to leave a message, which is disclosure by construction.
 
     if (!env.OPENAI_API_KEY) {
       log.warn({ callSid, tenantId: tenant.tenant_id }, "OPENAI_API_KEY not set — serving voicemail fallback");
