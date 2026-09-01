@@ -126,6 +126,46 @@ nobody knew, because no real call had been placed. Making the owner call would
 have produced silence and looked like a fluke. Fix 21220 first — it is a
 `<Record>` / REST-timing eligibility problem, not a credential one.
 
+**The cause, from the timestamps — it is a race, not config.** Three log lines,
+one second apart, on the first call:
+
+```
+06:03:27  [diag] /twilio/voice/incoming HIT      Twilio asks for the TwiML
+06:03:28  start recording failed  code=21220     we ask for a recording here
+06:03:29  [diag] /media-stream WS OPENED         the call is answered here
+```
+
+`startCallRecording` is called at `server.ts:1835`, **inside the
+`/twilio/voice/incoming` handler** — before the TwiML that answers the call has
+even been returned. The call is still `ringing`; Twilio's REST recording API
+needs `in-progress`. 13/13 identical failures is the evidence: a credential or
+quota problem is intermittent, a timing problem is not. Fix is to move the call
+into the media-stream `start` handler.
+
+**Two dashboard features have therefore never worked, silently.**
+`/dashboard/demo-status` (`server.ts:3942`) selects calls where
+`recording_url IS NOT NULL` and so returns `{status:"pending"}` forever — the
+"hear your AI take a real call" poll can never become ready. The recording
+player on the lead detail page (`dashboard/pages.ts:1032`) never renders.
+
+**BLOCKED ON A LEGAL QUESTION, AND THE BUG HAS BEEN PROTECTING US.** The prompt
+never tells the caller the call is recorded — checked `session.ts`, the only two
+matches for "record" are about writing the caller's words down. So the code
+attempts to record **every** inbound call with **no disclosure to the caller**.
+Had 21220 not failed every time, we would be holding undisclosed recordings of
+Australian callers.
+
+Australian call recording sits under the Telecommunications (Interception and
+Access) Act 1979 plus **state** listening/surveillance-devices law, and the
+state rules differ. The tenant is in SA; his callers can be anywhere. Per
+`CLAUDE.md` this is exactly the class of fact to `research` rather than guess.
+**Resolve disclosure first, then fix the race.** Fixing the race alone converts
+a broken feature into a legal exposure.
+
+Note for the 60-second email artifact: an owner ringing his own service and
+recording himself is a much smaller consent question than recording third-party
+callers — but only if no third party is on the call.
+
 ### P1 — the new customer's first fifteen minutes: 13 calls, 9 with no lead saved, all on the old prompt
 2026-09-01, 06:03–06:18 UTC (15:33–16:18 ACST), i.e. between his signup and our
 deploy 27 minutes later. Thirteen inbound calls to `+61 2 5944 1492`:
