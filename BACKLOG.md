@@ -76,7 +76,7 @@ Check `/admin/users/90ae8eb1-03d7-4587-9b0b-175e4a98d8ae`: `payment_status`
 should be `trial` with `02 5944 1492` bound. Repairable from admin if not — the
 number exists on the Twilio account regardless.
 
-### P0 — the first paying customer's phone is a LANDLINE, so every SMS the product sends him is undeliverable
+### P0 (code FIXED 2026-09-01, the customer is not) — a landline passed signup, so every SMS to him is undeliverable
 2026-09-01, from the deployment logs. `aawa` signed up with owner_phone
 **08 8472 8935** — an Adelaide geographic landline, not a mobile. Mobile Message
 rejects it outright on every single send:
@@ -97,6 +97,44 @@ Not yet confirmed, and it decides the response: Twilio's own message log will
 show `delivered` vs `undelivered` for those SIDs. Check that before assuming.
 Then: validate mobile format at signup (`04*` / `+614*`), and for this customer,
 ring him and get a mobile — he cannot be told by SMS that SMS does not reach him.
+
+**Fixed in code 2026-09-01.** The rule already existed and was simply never
+applied to tenants: `isAuMobile()` has sat in `utils/phone.ts` since before this,
+and `server.ts:2826` already refuses to SMS a non-mobile **prospect** with
+reason `not_au_mobile`. Signup guarded on `isValidAuPhone()` instead, whose
+regex is `0[2-9]\d{8}` — every geographic landline in the country.
+
+The UI made it worse than a missing check. The field is labelled *"Your mobile
+number — for SMS job alerts"*, and the client-side validator used the same
+permissive regex, so when he typed his landline the form answered
+**"✓ Valid Australian number"**. He was told he had done it right.
+
+Now `validateOwnerPhone()` (`utils/phone.ts`), applied at **all four** paths
+that can write `owner_phone`, not just the one that was asked about:
+
+| Path | Was |
+|---|---|
+| `POST /dashboard/signup` (`:3323`) | `isValidAuPhone` — accepted landlines |
+| `POST /dashboard/settings` (`:4283`) | same hole; a tenant could switch to a landline after signup and silence their own leads |
+| `POST /admin/tenants` (`:2238`) | **no phone validation at all** |
+| `POST /admin/users/:id` (`:2445`) | no validation **and** no `toE164Au`, so it stored whatever was typed |
+
+The two rejections are deliberately distinct: a landline is not a typo, so
+"invalid number" would make someone retype the same number. It now says what SMS
+requires and why. 5 tests in `tests/phone.test.ts`, calibrated both ways —
+mobiles in every accepted format, landlines from every state, and junk — and
+verified by running the function against the real number: `08 8472 8935 →
+REJECT (not_mobile)`. `npm run check` green, 501 passed.
+
+**Still open, and it is not code:** the existing tenant's number is already in
+the database. Only a phone call fixes that.
+
+**Recommended next, flagged not built (outside what was asked):** now that
+Mobile Message no longer rejects landlines out loud, nothing detects an
+*existing* tenant whose phone cannot receive SMS. A single query —
+`tenants WHERE active = 1 AND owner_phone NOT LIKE '+614%'` — surfaced on the
+admin dashboard would be the replacement signal, and would have caught this on
+day one.
 
 ### NOT A BUG 2026-09-01 — the Mobile Message 403s were intended, already documented, and already fixed
 Filed as a P0 by me and wrong on three counts; kept as a record because the

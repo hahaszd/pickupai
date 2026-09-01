@@ -180,7 +180,7 @@ import { getOrInitCallState, setCallState, clearCallState, listCallStates } from
 import { decideOwnerSms, formatOwnerSms, isUnreachableNumber, NO_SMS_INTENTS, ownerSmsWouldSayNothing, sendOwnerSms, generateForwardingCode, FIRST_CALL_CELEBRATION_PREFIX, buildCallerConfirmationSms } from "./twilio/sms.js";
 import { isEmailConfigured, sendEmail, formatLeadEmail } from "./utils/email.js";
 import { localiseDemo } from "./utils/demo-localise.js";
-import { formatAuPhone, toE164Au, isValidAuPhone, isAuMobile } from "./utils/phone.js";
+import { formatAuPhone, toE164Au, isAuMobile, validateOwnerPhone } from "./utils/phone.js";
 import { createCrmExporters, exportLeadToCrm } from "./crm/index.js";
 import { RealtimeSession } from "./realtime/session.js";
 import { persistLeadPatch } from "./realtime/lead-persist.js";
@@ -2235,11 +2235,15 @@ async function main() {
     if (!name || !twilio_number || !owner_phone) {
       return res.status(400).json({ error: "name, twilio_number, and owner_phone are required" });
     }
+    const adminPhoneCheck = validateOwnerPhone(owner_phone as string);
+    if (!adminPhoneCheck.ok) {
+      return res.status(400).json({ error: adminPhoneCheck.message, reason: adminPhoneCheck.reason });
+    }
 
     try {
       const tenant = createTenant(db, {
         name, trade_type: trade_type ?? "tradie", ai_name, twilio_number,
-        owner_phone: toE164Au(owner_phone), owner_email, password, business_hours_start,
+        owner_phone: adminPhoneCheck.e164, owner_email, password, business_hours_start,
         business_hours_end, timezone,
         enable_warm_transfer: enable_warm_transfer ? 1 : 0,
         service_area: service_area ?? undefined
@@ -2433,12 +2437,23 @@ async function main() {
     const tenant = getTenantById(db, req.params.id);
     if (!tenant) return res.status(404).send("User not found");
     const b = req.body ?? {};
+    // This path stored whatever was typed: no E.164 normalisation and no check
+    // that the number can receive SMS, so an operator fixing an account could
+    // silently break it in the same way signup used to.
+    let editPhoneE164 = tenant.owner_phone;
+    if (b.owner_phone && String(b.owner_phone).trim() !== tenant.owner_phone) {
+      const editPhoneCheck = validateOwnerPhone(b.owner_phone as string);
+      if (!editPhoneCheck.ok) {
+        return res.redirect(`/admin/users/${req.params.id}?flash=${encodeURIComponent("✗ " + editPhoneCheck.message)}`);
+      }
+      editPhoneE164 = editPhoneCheck.e164;
+    }
     updateTenant(db, req.params.id, {
       name: b.name || tenant.name,
       trade_type: b.trade_type || tenant.trade_type,
       ai_name: b.ai_name || tenant.ai_name,
       twilio_number: b.twilio_number || tenant.twilio_number,
-      owner_phone: b.owner_phone || tenant.owner_phone,
+      owner_phone: editPhoneE164,
       owner_email: b.owner_email || null,
       business_hours_start: b.business_hours_start || tenant.business_hours_start,
       business_hours_end: b.business_hours_end || tenant.business_hours_end,
@@ -3305,9 +3320,10 @@ async function main() {
       }
       resolvedTradeType = typed;
     }
-    if (!isValidAuPhone(owner_phone as string)) {
-      trackEvent("signup_validation_failed", { payload: { reason: "invalid_phone" } });
-      return res.send(signupPage("Please enter a valid Australian phone number (e.g. 0412 345 678 or +61412345678).", prefill));
+    const ownerPhoneCheck = validateOwnerPhone(owner_phone as string);
+    if (!ownerPhoneCheck.ok) {
+      trackEvent("signup_validation_failed", { payload: { reason: ownerPhoneCheck.reason } });
+      return res.send(signupPage(ownerPhoneCheck.message, prefill));
     }
     const phoneE164 = toE164Au(owner_phone as string);
 
@@ -4262,10 +4278,13 @@ setTimeout(function(){window.location.href='/dashboard/welcome';},500);
     if (!b.name || !b.owner_phone) {
       return res.send(settingsPage(tenant, "Business name and phone are required."));
     }
-    if (!isValidAuPhone(b.owner_phone as string)) {
-      return res.send(settingsPage(tenant, "Please enter a valid Australian phone number (e.g. 0412 345 678 or +61412345678)."));
+    // Same rule as signup: changing the number to a landline after the fact
+    // silences every lead notification just as effectively as signing up with one.
+    const settingsPhoneCheck = validateOwnerPhone(b.owner_phone as string);
+    if (!settingsPhoneCheck.ok) {
+      return res.send(settingsPage(tenant, settingsPhoneCheck.message));
     }
-    const settingsPhoneE164 = toE164Au(b.owner_phone as string);
+    const settingsPhoneE164 = settingsPhoneCheck.e164;
     const SETTINGS_VALID_TRADES = new Set(["plumber","electrician","roofer","handyman","painter","carpenter","tiler","builder","other"]);
     if (b.trade_type && !SETTINGS_VALID_TRADES.has(b.trade_type)) {
       return res.send(settingsPage(tenant, "Please select a valid trade type."));

@@ -95,3 +95,39 @@ export function isAuMobile(raw: string): boolean {
   if (!raw || !String(raw).trim()) return false;
   return /^\+614\d{8}$/.test(toE164Au(raw));
 }
+
+/**
+ * The one rule for a tenant's own phone number: it must be able to receive an
+ * SMS, because the owner SMS *is* the product — a lead the tradie never gets is
+ * a lead that did not happen.
+ *
+ * Split from `isValidAuPhone` deliberately. That predicate accepts `0[2-9]…`,
+ * which includes every geographic landline, and it was what guarded signup: on
+ * 2026-09-01 a carpenter signed up with an Adelaide landline, the form told him
+ * "✓ Valid Australian number", and the welcome SMS, the demo, the forwarding
+ * activation code and nine lead notifications were all sent somewhere that
+ * cannot receive them. Nothing failed loudly; the account simply did nothing.
+ *
+ * The two rejections are distinguished on purpose. A caller who typed a
+ * landline has not made a typo, so "invalid number" reads as nonsense and they
+ * retype the same thing — they need to be told what SMS requires and why.
+ */
+export type OwnerPhoneCheck =
+  | { ok: true; e164: string }
+  | { ok: false; reason: "not_a_number" | "not_mobile"; message: string };
+
+export const OWNER_PHONE_NOT_A_NUMBER =
+  "Please enter a valid Australian mobile number (e.g. 0412 345 678 or +61412345678).";
+export const OWNER_PHONE_NOT_MOBILE =
+  "That looks like a landline. PickupAI texts every job straight to you, so it has to be an Australian mobile — one starting 04.";
+
+export function validateOwnerPhone(raw?: string | null): OwnerPhoneCheck {
+  const value = (raw ?? "").trim();
+  if (!value || !isValidAuPhone(value)) {
+    return { ok: false, reason: "not_a_number", message: OWNER_PHONE_NOT_A_NUMBER };
+  }
+  if (!isAuMobile(value)) {
+    return { ok: false, reason: "not_mobile", message: OWNER_PHONE_NOT_MOBILE };
+  }
+  return { ok: true, e164: toE164Au(value) };
+}

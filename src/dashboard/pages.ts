@@ -383,20 +383,31 @@ export function signupPage(error?: string, prefill: Record<string, string> = {})
       var hint = document.getElementById('phone-hint');
       var form = phoneInput.closest('form');
       function strip(v){ return v.replace(/[\\s\\-()]+/g,''); }
+      // Mobile only, matching validateOwnerPhone() on the server. The old
+      // regex accepted 0[2-9]…, so it greeted a landline with a green tick.
       function isValid(v){
         var d = strip(v);
-        return /^(\\+?61[2-9]\\d{8}|0[2-9]\\d{8}|[2-9]\\d{8})$/.test(d);
+        return /^(\\+?614\\d{8}|04\\d{8}|4\\d{8})$/.test(d);
+      }
+      function looksLikeLandline(v){
+        var d = strip(v);
+        return /^(\\+?61[2378]\\d{8}|0[2378]\\d{8})$/.test(d);
+      }
+      function badPhoneMessage(v){
+        return looksLikeLandline(v)
+          ? 'That looks like a landline. We text every job straight to you, so it has to be a mobile — one starting 04.'
+          : 'Enter a valid Australian mobile, e.g. 0412 345 678 or +61412345678';
       }
       phoneInput.addEventListener('blur', function(){
         var v = phoneInput.value.trim();
         if(!v){ hint.style.display='none'; return; }
         if(isValid(v)){
-          hint.textContent='✓ Valid Australian number';
+          hint.textContent='✓ Valid Australian mobile';
           hint.style.color='#16a34a';
           hint.style.display='block';
           phoneInput.style.borderColor='';
         } else {
-          hint.textContent='Enter a valid AU number, e.g. 0412 345 678 or +61412345678';
+          hint.textContent=badPhoneMessage(v);
           hint.style.color='#dc2626';
           hint.style.display='block';
           phoneInput.style.borderColor='#dc2626';
@@ -406,7 +417,7 @@ export function signupPage(error?: string, prefill: Record<string, string> = {})
         var v = phoneInput.value.trim();
         if(!isValid(v)){
           e.preventDefault();
-          hint.textContent='Enter a valid AU number, e.g. 0412 345 678 or +61412345678';
+          hint.textContent=badPhoneMessage(v);
           hint.style.color='#dc2626';
           hint.style.display='block';
           phoneInput.style.borderColor='#dc2626';

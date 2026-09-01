@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatAuPhone, isAuMobile } from "../src/utils/phone.js";
+import { formatAuPhone, isAuMobile, validateOwnerPhone } from "../src/utils/phone.js";
 
 describe("formatAuPhone", () => {
   it("formats a mobile number (+61) to local style", () => {
@@ -74,5 +74,56 @@ describe("isAuMobile", () => {
   it("rejects empty or whitespace", () => {
     expect(isAuMobile("")).toBe(false);
     expect(isAuMobile("   ")).toBe(false);
+  });
+});
+
+describe("validateOwnerPhone — a tenant's number must be able to receive SMS", () => {
+  it("accepts AU mobiles in every format we normalise, returning E.164", () => {
+    for (const raw of ["0412 345 678", "0412345678", "+61412345678", "61412345678", "412345678", "0412-345-678"]) {
+      const r = validateOwnerPhone(raw);
+      expect(r.ok, `expected ${raw} to be accepted`).toBe(true);
+      if (r.ok) expect(r.e164).toBe("+61412345678");
+    }
+  });
+
+  // The case that actually happened: an Adelaide landline passed signup on
+  // 2026-09-01 and every SMS to that account went nowhere.
+  it("rejects the landline that got through, and says why", () => {
+    const r = validateOwnerPhone("08 8472 8935");
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toBe("not_mobile");
+      expect(r.message).toMatch(/landline/i);
+      expect(r.message).toMatch(/04/);
+    }
+  });
+
+  it("rejects a landline from every state, not just 08", () => {
+    for (const raw of ["02 5944 1492", "03 9123 4567", "07 3123 4567", "08 8472 8935", "+61285551234"]) {
+      const r = validateOwnerPhone(raw);
+      expect(r.ok, `expected ${raw} to be rejected`).toBe(false);
+      if (!r.ok) expect(r.reason).toBe("not_mobile");
+    }
+  });
+
+  // A landline is not a typo, so it must not be reported as one — otherwise the
+  // person retypes the same number and hits the same wall.
+  it("distinguishes a landline from something that is not a number at all", () => {
+    const junk = validateOwnerPhone("not a phone");
+    expect(junk.ok).toBe(false);
+    if (!junk.ok) {
+      expect(junk.reason).toBe("not_a_number");
+      expect(junk.message).not.toMatch(/landline/i);
+    }
+    for (const raw of ["", "   ", "12345", "1300 123 456", "+1 415 723 4000"]) {
+      const r = validateOwnerPhone(raw);
+      expect(r.ok, `expected ${raw} to be rejected`).toBe(false);
+      if (!r.ok) expect(r.reason).toBe("not_a_number");
+    }
+  });
+
+  it("handles null and undefined without throwing", () => {
+    expect(validateOwnerPhone(null).ok).toBe(false);
+    expect(validateOwnerPhone(undefined).ok).toBe(false);
   });
 });
