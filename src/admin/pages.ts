@@ -186,6 +186,10 @@ function provisionBadge(status: string | null | undefined): string {
     case "success": return `<span class="badge badge-active">Success</span>`;
     case "pending": return `<span class="badge badge-trial">Pending</span>`;
     case "failed":  return `<span class="badge badge-expired" style="border-color:#dc2626;color:#dc2626">Failed</span>`;
+    // A paid account waiting on a human must not look like one that never
+    // started — that is the whole point of holding it (see AUTO_PROVISION_NUMBERS).
+    case "awaiting_approval":
+      return `<span class="badge badge-trial" style="border-color:#d97706;color:#d97706">Awaiting your approval</span>`;
     default:        return `<span class="badge badge-none">Not started</span>`;
   }
 }

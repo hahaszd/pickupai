@@ -456,7 +456,7 @@ query proposed above would have flagged exactly this row and nothing else.
 tenant in the product's history ever to reach `trial`, and it is fraudulent. The
 count of real paying customers remains **zero**.
 
-### P2 (NOT NOW, and the reason is the point) — verify a mobile before provisioning a number
+### DONE 2026-09-01 — auto-provisioning is off; a paid signup now waits for a human
 2026-09-01. Today's fraud needed a disposable email, a card, and 110 seconds to
 obtain a live Australian phone number. Nothing at signup verifies anything a
 human has to hold.
@@ -471,6 +471,30 @@ against **four tenants in five months**. Manually approving each signup is ten
 minutes a month. Build this when signup volume makes manual approval annoying —
 before that it trades three hours for a button pressed once a month. The trigger
 is volume, not another incident.
+
+**Amended the same day, because that estimate priced the wrong risk.** It counted
+money — $6/month, three hours of work — and missed that the number is registered
+to **our** Twilio account and our regulatory identity. A number used for fraud
+puts the carrier complaint, a possible Twilio account suspension, and ACMA's
+interest on us, not on the person who took it. Suspension would take the whole
+product offline. That is not a $6 exposure.
+
+**Shipped instead: `AUTO_PROVISION_NUMBERS`, default `false`.** Cheaper than
+verification and it removes the property that made the product attractive —
+being an *unattended* number dispenser. A completed checkout now starts the
+trial, stamps `provision_status = "awaiting_approval"`, tells the tenant their
+number is being set up (that SMS branch already existed), and SMSes the owner to
+approve at `/admin/users/:id`, where `auto-provision` already does the buying.
+Both provisioning paths are gated — the `checkout.session.completed` webhook and
+the `/stripe/success` browser return — because either can fire first.
+
+`provisionBadge()` gained an `awaiting_approval` case. Without it a paid account
+waiting on a human rendered as **"Not started"**, identical to one that never
+paid: the same silent state this whole day was spent on.
+
+Costs nothing in delay while there are no real customers waiting. The trigger to
+turn it on is signup volume — and at that point the control is verifying the
+owner's mobile before provisioning, not simply flipping this back.
 
 
 

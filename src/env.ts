@@ -52,6 +52,29 @@ const envSchema = z.object({
     .default("false")
     .transform((v) => v === "true"),
 
+  /**
+   * Buy a Twilio number automatically the moment Stripe checkout completes.
+   *
+   * **Default off, deliberately.** On 2026-09-01 a fraudulent signup — disposable
+   * mailbox, US-issued card with an AU billing country, keyboard-mash business
+   * name — went from account creation to owning a live Australian number in 110
+   * seconds, and used it to receive voice OTP codes. The number was registered
+   * under OUR Twilio account and OUR regulatory identity, so the carrier and
+   * ACMA trail leads here, not to them; the ~$6/month was the smallest part of
+   * it. Auto-provisioning is what made the product an unattended number
+   * dispenser.
+   *
+   * With this off, checkout still starts the trial and the tenant is told their
+   * number is being set up; the owner gets an SMS and approves it in the admin
+   * panel. Turn it back on when signup volume makes that approval annoying —
+   * the honest control at that point is verifying the owner's mobile before
+   * provisioning, not simply re-enabling this.
+   */
+  AUTO_PROVISION_NUMBERS: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+
   ADMIN_TOKEN: z.string().optional(),
   /**
    * Which provider sends outbound SMS. Defaults to twilio.

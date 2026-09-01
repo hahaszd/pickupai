@@ -469,6 +469,40 @@ async function releaseTwilioNumber(twilioNumber: string): Promise<boolean> {
   }
 }
 
+/**
+ * Hold a paid signup at the door instead of handing it a phone number.
+ *
+ * A number is the one thing a signup can take that is expensive, externally
+ * visible, and registered to us rather than to the person who asked for it —
+ * see `AUTO_PROVISION_NUMBERS` in env.ts for the signup that proved it. This
+ * stamps the account as waiting and asks the owner to approve in admin, where
+ * `/admin/users/:id/auto-provision` already does the buying.
+ *
+ * Never throws: a failed notification must not fail the checkout that triggered
+ * it. The account is stamped first, so an SMS that never arrives still leaves
+ * the state visible in the admin panel.
+ */
+async function requestNumberApproval(
+  db: import("./db/db.js").Db,
+  tenant: { tenant_id: string; name: string; owner_phone: string },
+  source: string
+): Promise<void> {
+  updateTenant(db, tenant.tenant_id, {
+    provision_status: "awaiting_approval",
+    provision_error: null
+  } as any);
+  log.info({ tenantId: tenant.tenant_id, source }, "number provisioning held for owner approval");
+  if (!env.OWNER_PHONE_NUMBER) return;
+  try {
+    await sendOwnerSms(db,
+      `PickupAI: ${tenant.name} (${formatAuPhone(tenant.owner_phone)}) paid and is WAITING FOR A NUMBER.\n` +
+      `Check them, then provision: ${env.PUBLIC_BASE_URL}/admin/users/${tenant.tenant_id}`
+    );
+  } catch (err) {
+    log.warn({ err, tenantId: tenant.tenant_id }, "number-approval SMS failed");
+  }
+}
+
 /** Send SMS to a tenant's owner and log it in tenant_sms_log. */
 async function sendTenantSms(
   db: import("./db/db.js").Db,
@@ -850,7 +884,9 @@ async function main() {
               } catch (e) { log.warn({ e }, "founder trial notification SMS failed"); }
             }
 
-            if (isPendingNumber(existing.twilio_number) && !provisionInFlight.has(tenantId)) {
+            if (isPendingNumber(existing.twilio_number) && !env.AUTO_PROVISION_NUMBERS) {
+              await requestNumberApproval(db, existing, "checkout_webhook");
+            } else if (isPendingNumber(existing.twilio_number) && !provisionInFlight.has(tenantId)) {
               provisionInFlight.add(tenantId);
               log.info({ tenantId }, "checkout.session.completed: number pending, triggering background provisioning");
               updateTenant(db, tenantId, { provision_status: "pending", provision_error: null } as any);
@@ -4177,7 +4213,11 @@ async function main() {
         // before this browser redirect (which would leave payment_status = "trial"
         // and cause the old code to skip provisioning entirely).
         let twilioNumber: string | null = null;
-        if (isPendingNumber(tenant.twilio_number)) {
+        if (isPendingNumber(tenant.twilio_number) && !env.AUTO_PROVISION_NUMBERS) {
+          // Held for approval. twilioNumber stays null, which the SMS below
+          // already handles — the tenant is told their number is being set up.
+          await requestNumberApproval(db, tenant, "stripe_success");
+        } else if (isPendingNumber(tenant.twilio_number)) {
           log.info({ tenantId: tenant.tenant_id }, "stripe-success: number still pending, attempting provisioning");
           updateTenant(db, tenant.tenant_id, { provision_status: "pending", provision_error: null } as any);
           const result = await provisionAuNumber(tenant.name);
