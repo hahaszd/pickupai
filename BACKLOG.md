@@ -76,6 +76,72 @@ Check `/admin/users/90ae8eb1-03d7-4587-9b0b-175e4a98d8ae`: `payment_status`
 should be `trial` with `02 5944 1492` bound. Repairable from admin if not — the
 number exists on the Twilio account regardless.
 
+### P0 — every request logs its full headers, so session cookies and the admin password are in the Railway logs
+2026-09-01, found while looking for the new customer's referrer. `src/server.ts:213`
+is `pino({ level: "info" })` and `:1024` is `app.use(pinoHttp({ logger: log }))` —
+no `redact`, no custom serializers. `pino-http` falls back to
+`pino-std-serializers.req`, which serialises `req.headers` **wholesale**.
+Verified by running the serializer rather than by reading its docs:
+
+```
+keys: id,method,url,headers,remoteAddress,remotePort
+headers logged: {"referer":"…","cookie":"pk_sess=SECRETSESSIONTOKEN",
+                 "authorization":"Basic YWRtaW46cGFzcw=="}
+```
+
+So every completed request writes, at `info`: the `dashAuth` session cookie
+(which *is* the tenant login — `getTenantBySessionToken` needs nothing else),
+the `Authorization` header on `/admin/*`, and the Twilio signature header.
+Anyone with Railway log access, plus anything logs are ever exported to, holds
+live credentials for every tenant dashboard and the admin panel. `SECURITY.md`
+documents a previous credential leak; this is the same class, still open.
+
+**Fix:** `redact: ['req.headers.cookie','req.headers.authorization','req.headers["x-twilio-signature"]']`
+on the pino instance, or a `customLogLevel`/serializer that keeps only method,
+url, status and referer. Cheap. Then rotate: admin credential, and every
+`tenants.session_token` (a rotation logs tenants out, which today is one person).
+
+**Do not delete the logs before reading them** — see the entry below; they are
+also the only definitive record of how the first activating customer arrived.
+
+### P1 — how did tenant `aawa` find us? Four instruments, ranked, and two that cannot answer
+2026-09-01, the acquisition question from `docs/channel-evidence.md` — the only
+one with any evidence behind it.
+
+**Can answer:**
+
+1. **GA4 `G-4NLQMTKYVC` is live** (confirmed in the served homepage; set via
+   `GA_MEASUREMENT_ID`). `/stripe/success` fires a `purchase` event with
+   `transaction_id` = the Stripe session id and value 149 AUD (`server.ts:4215`),
+   so today has exactly one. Acquisition → Traffic acquisition for 2026-09-01,
+   or an exploration on Session source/medium + landing page. Site traffic is
+   near zero, so the converting session is readable individually. Standard
+   reports lag a few hours; Realtime only covers 30 minutes.
+2. **Railway logs, and they are definitive but time-sensitive.** Because of the
+   header-logging defect above, his first request logged its `Referer`
+   verbatim. The signup predates today's deploy, so it is the **previous**
+   deployment's log stream. Retention is finite — pull it before fixing the
+   logging or letting it roll.
+3. **Search Console is verified** — `google-site-verification=GVYeoGnrSW3AExwPqsGxUf5Nokl4QokBY3fq8oIJgDk`
+   on the apex TXT. If GA says organic search, GSC → Performance for today is
+   the difference between "google" and *which words he typed*.
+4. **Ask him.** Highest yield and there is a real pretext: he is mid-trial and
+   may not have dialled the forwarding code yet.
+
+**Cannot answer, and the reason is structural:**
+
+- `tenants` has **no source column** (`schema.ts:2-18`). Nothing about origin is
+  stored at signup.
+- **`/api/funnel/event` returns 204 unless the `pid` is an existing prospect**
+  (`server.ts:1231-1234`). The funnel only records people who arrived through a
+  `/r/:prospectId` campaign link. **It is blind to organic arrivals by
+  construction — it can only measure the channel we already know about**, which
+  is exactly the wrong shape for the question the product keeps asking.
+- UTM parameters are only ever *written* by our own SMS redirect
+  (`server.ts:1179-1182`), never read or stored.
+- The `outreach_log` variant will be null, and that is **not** evidence: an 08
+  number cannot match a NSW prospect list.
+
 ### P1 — do not migrate to Postgres on the strength of the 2026-09-01 flush alert
 2026-09-01. The alert read `flush p95 is 6336ms over the last 20 writes
 (threshold 1000ms)`. Three things about it, before anyone starts ADR-0001's
