@@ -328,28 +328,62 @@ So he bought a product that flags emergencies and chases you up, and now owns on
 that does neither by design. **He must be told before he discovers it** — it is
 the honest version of the same principle that motivated the deletion.
 
-### ANSWERED 2026-09-01: he found us through Google organic search
-The acquisition question from `docs/channel-evidence.md`, settled from the
-deploy logs rather than inferred:
+### RETRACTED, and now a P0 fraud question: "he found us through Google" was my error
+2026-09-01. I told the owner the acquisition question was settled — organic
+Google search. **It is not settled, and the shape of the evidence is worse than
+unsettled.** Recorded in full because the retraction matters more than the claim.
+
+**What I got wrong.** I chained three things that are not one chain:
 
 ```
-05:47:24  GET /   referer=https://www.google.com/   (via Chrome's prefetch proxy)
-05:59:09  GET /demos/plumber-emergency.mp3
-05:59:09  GET /dashboard/signup
-06:00:04  POST /dashboard/signup
+05:47:24  GET /.well-known/traffic-advice          ip=66.249.93.204        UA "Chrome Privacy Preserving Prefetch Proxy"
+05:47:24  GET /   referer=https://www.google.com/  ip=2001:4860:7:170c::ff  ← GOOGLE's IP, not a visitor's
+05:47:24  GET /chat-widget.js                      ip=62.139.218.133        ← a browser
 ```
 
-Landing page was the homepage, not a trade page. **Organic search is now the
-only channel in this product's history that has produced an activating
-customer** — against 560 SMS that produced zero genuine human clicks. Search
-Console (verified on the apex) will give the actual query for 2026-09-01; GA4
-`G-4NLQMTKYVC` will corroborate source/medium. Port both into
-`docs/channel-evidence.md` with the numbers.
+The only request carrying `referer=google.com` came from **Google's own prefetch
+proxy**. A prefetch fires when a result is *shown*, not when it is clicked. I
+presented a prefetch as a click.
 
-One caution for whoever reads this later: the session shows two client IPs —
-`62.139.218.133` browsing, then `217.79.116.224` from `/dashboard/signup`
-onward. Most likely one person changing networks, but it is not proven, and no
-conclusion here depends on it.
+**What the User-Agents and Cloudflare's own geo actually show — two parties:**
+
+| IP | `cf-ipcountry` | Browser | Accept-Language | Activity |
+|---|---|---|---|---|
+| `62.139.218.133` | **EG** | Chrome/152 | `en-GB, ar-EG, ar` | 05:47:24–05:59:09: browsed 12 min, played `plumber-emergency.mp3`, opened signup |
+| `217.79.116.224` | **AU** (CDNEXT Sydney, a hosting/CDN range) | **Edge**/152 | `en-US, en` | 05:59:29–06:18:12: 82 requests — the signup POST, demo, checkout, everything after |
+
+Browsing and signing up are **different browsers with different language
+profiles in different countries, 20 seconds apart**. My BACKLOG note allowed
+"most likely one person changing networks"; a network change does not change
+Chrome into Edge or drop Arabic from the header.
+
+**The full shape, with every fact from today side by side:**
+
+- business name `aawa` — keyboard mash
+- `owner_phone` is a **landline**, not the signer's mobile
+- browsing from EG, transacting from an AU **hosting** range, not a residential ISP
+- **13 inbound calls in 15 minutes** of provisioning the number: 4 from `+1 415 723 4000`, 2 from `+1 906 261 4679`, 4 with caller ID withheld, 3 from Adelaide landlines
+- 9 of those 13 saved no lead
+
+None of that is explained by "an Australian carpenter found us on Google". It is
+consistent with someone confirming that a fresh Australian number answers.
+**Stated as the leading hypothesis, not a conclusion** — an Egypt-based owner of
+an Australian business, signing up over a work VPN, is not impossible.
+
+**What settles it, in order of decisiveness — the first two are the owner's:**
+
+1. **Stripe** — card issuing country, billing postcode, Radar risk score, and
+   the email on the customer. One screen.
+2. **The signup email** on `/admin/users/90ae8eb1-03d7-4587-9b0b-175e4a98d8ae` —
+   disposable domain or not.
+3. **The 13 transcripts** in `calls.transcript` — what the callers actually said.
+   Mine to read, and it also settles the separate `save_lead` question.
+
+**Until one of those comes back, nothing about this signup should be written
+into `docs/channel-evidence.md`.** The claim I nearly put there — "organic
+search is the only channel in this product's history to produce an activating
+customer" — would have become the single most load-bearing sentence in the
+acquisition record, on the strength of a prefetch.
 
 ### P0 — every request logs its full headers, so session cookies and the admin password are in the Railway logs
 2026-09-01, found while looking for the new customer's referrer. `src/server.ts:213`
