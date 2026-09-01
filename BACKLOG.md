@@ -76,6 +76,39 @@ Check `/admin/users/90ae8eb1-03d7-4587-9b0b-175e4a98d8ae`: `payment_status`
 should be `trial` with `02 5944 1492` bound. Repairable from admin if not — the
 number exists on the Twilio account regardless.
 
+### P1 — production went 34 days stale and nothing told anyone; the request had no channel
+2026-09-01, asked by the owner ("为什么这一次我发现有大量的commit都没有push"). Not a
+malfunction — traced and it is the configured guardrail working:
+
+| When | What |
+|---|---|
+| 2026-07-27 15:50 | `CLAUDE.md` gains *"Don't push, deploy… without being asked"* |
+| 2026-07-29 11:48 | `0bb7d12` moves `Bash(git push:*)` from allow to **`ask`** — "keep git push gated" |
+| 2026-07-29 12:06–17:37 | four more pushes: the owner was in the session, approving each |
+| 2026-07-30 → 2026-09-01 | every session obeyed the rule; nobody was asked; **81 commits, 34 days** |
+
+`.git/hooks/` is empty and the `hooks` block in `.claude/settings.json` only
+intercepts paid evals. Nothing was broken. Each handover did record it — 08-11
+listed "Authorize push + deploy" under waiting-on-the-owner, 08-19 said "80
+commits unpushed. Nothing deployed." When it was finally asked today it took 30
+seconds.
+
+**The defect is the channel, not the rule.** The request lived only in
+`HANDOVER.md` and `BACKLOG.md` — files read when a session starts and someone
+opens them. Compare the persistence thresholds in ADR-0001, which get an **SMS**.
+The riskier condition is the silent one, and it cost exactly what it was always
+going to cost: a customer signed up against marketing claims that had been
+deleted three weeks earlier and were still live.
+
+**Cheap fix, materials already present.** The deploy log's top-level JSON
+carries `commit`, so the running process knows its own revision. Reuse
+`alertFounder()`: on boot, and once a week, SMS if the deployed commit's date is
+more than N days behind. It is the same shape as the flush alert — *a deferral
+whose exit signal is invisible is not a decision, it is forgetting* — applied to
+the deploy itself. Needs a decision on N (14 days?) and on whether the check
+compares against GitHub's `main` or just the commit's own age (the latter needs
+no token and no network).
+
 ### P0 (code FIXED 2026-09-01, the customer is not) — a landline passed signup, so every SMS to him is undeliverable
 2026-09-01, from the deployment logs. `aawa` signed up with owner_phone
 **08 8472 8935** — an Adelaide geographic landline, not a mobile. Mobile Message
