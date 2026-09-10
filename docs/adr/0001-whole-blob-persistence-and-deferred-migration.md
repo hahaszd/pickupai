@@ -103,6 +103,24 @@ which is the half Neon does not charge for. At present the numbers are far
 too small to matter (~37 whole-blob reads ≈ 139 MB), so this is a note about
 the *metric*, not a call to build anything.
 
+**MEASURED 2026-09-01, and it falsifies the growth model above.** This document
+reasons that `calls.transcript` "appends 5–15 times per call, so total network
+cost grows roughly with the square of cumulative call volume". Read out of
+production: **107 calls, 28 with any transcript, largest 1505 bytes**, against a
+3.63 MB blob. The column holds only `[lead]` JSON snapshots and `[event]` tool
+markers — never a word of dialogue (see `BACKLOG.md`). **Transcripts are not
+what makes the blob expensive**, so the trigger this document watches is
+watching the wrong term.
+
+This matters directly to the first real firing of the duration trigger, also
+2026-09-01: `flush p95 6336ms` at exactly `FLUSH_MIN_SAMPLES`, with no
+accompanying size alert, in the same burst as a signup. Before anyone starts the
+migration on the strength of it, read the `BACKLOG.md` entry — the leading
+hypothesis is that the warm-up exclusion guards *boot* but not Neon's
+compute *resume*, which a nearly idle service hits constantly. **`/health/detailed`
+→ `persistence` settles it.** If transcripts were the assumed driver and they are
+not, the honest position is that nothing here currently measures what does.
+
 Also worth knowing for whenever the real trigger does fire: the free-plan
 penalty is not an overage charge, it is **compute suspension** until the next
 billing period — and `openDb` throws rather than falling back to local SQLite,

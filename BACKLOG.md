@@ -109,7 +109,7 @@ the deploy itself. Needs a decision on N (14 days?) and on whether the check
 compares against GitHub's `main` or just the commit's own age (the latter needs
 no token and no network).
 
-### P0 (code FIXED 2026-09-01, the customer is not) — a landline passed signup, so every SMS to him is undeliverable
+### DONE 2026-09-01 — a landline passed signup; validated in code, and the account is gone
 2026-09-01, from the deployment logs. `aawa` signed up with owner_phone
 **08 8472 8935** — an Adelaide geographic landline, not a mobile. Mobile Message
 rejects it outright on every single send:
@@ -159,8 +159,13 @@ mobiles in every accepted format, landlines from every state, and junk — and
 verified by running the function against the real number: `08 8472 8935 →
 REJECT (not_mobile)`. `npm run check` green, 501 passed.
 
-**Still open, and it is not code:** the existing tenant's number is already in
-the database. Only a phone call fixes that.
+**Closed 2026-09-01, not by a phone call.** The account was fraudulent, so there
+was nobody to ring: tenant deactivated via `/admin/users/:id/toggle-active`
+(the running server did the write — a script writing the blob would have
+clobbered it), Twilio number `+61259441492` released and verified gone, Stripe
+trial cancelled by the owner, card fingerprint and email domain blocklisted.
+The admin query for existing non-mobile tenants is still worth having, and now
+returns zero rows.
 
 **Recommended next, flagged not built (outside what was asked):** now that
 Mobile Message no longer rejects landlines out loud, nothing detects an
@@ -293,7 +298,7 @@ feature working — the owner ringing his own service and recording his own hand
 is a smaller consent question than recording third parties, and needs no product
 code. That is now the only route to it.
 
-### P1 — the new customer's first fifteen minutes: 13 calls, 9 with no lead saved, all on the old prompt
+### ANSWERED 2026-09-01 — the 13 calls were OTP spam, not a product failure
 2026-09-01, 06:03–06:18 UTC (15:33–16:18 ACST), i.e. between his signup and our
 deploy 27 minutes later. Thirteen inbound calls to `+61 2 5944 1492`:
 
@@ -558,7 +563,7 @@ url, status and referer. Cheap. Then rotate: admin credential, and every
 **Do not delete the logs before reading them** — see the entry below; they are
 also the only definitive record of how the first activating customer arrived.
 
-### P1 — how did tenant `aawa` find us? Four instruments, ranked, and two that cannot answer
+### SUPERSEDED — how did `aawa` find us? Answered below: they were not a customer
 2026-09-01, the acquisition question from `docs/channel-evidence.md` — the only
 one with any evidence behind it.
 
@@ -665,7 +670,7 @@ provisioned a number and never took a call. This one has a number and the
 activation code. **How they found us is still the only acquisition question
 with any evidence behind it — ask them before the trial ends.**
 
-### P1 — we are still selling emergency flagging, and the demo audio still does the banned thing
+### DEPLOYED 2026-09-01 — the emergency-flagging claims and the demo audio are fixed and live
 2026-08-17, spotted by the owner reading the live site. **`npm run check` is
 green, and `tests/marketing-claims.test.ts` passes, while all of the below is
 live.** That test exists precisely to stop this, and it caught none of it.
